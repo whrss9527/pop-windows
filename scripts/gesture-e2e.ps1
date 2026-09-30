@@ -20,6 +20,32 @@ function Set-PopSettings([string]$Json) {
 }
 $testSettings = '{ "directKinds": ["math", "measurement", "color", "timestamp"] }'
 
+# 测试用的插件：JavaScript，把文字倒过来，结果显示在卡片里
+function Set-TestPlugin {
+    $dir = Join-Path $env:APPDATA 'Pop\Plugins'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $plugin = @'
+{
+  "action" : {
+    "script" : "function run(input) { return Array.from(input).reverse().join('') }",
+    "timeout" : 15,
+    "type" : "javascript"
+  },
+  "id" : "user-e2ereverse",
+  "match" : {
+    "kinds" : [
+      "text"
+    ]
+  },
+  "name" : "反转测试",
+  "output" : "card",
+  "summary" : "e2e",
+  "symbol" : "arrow.left.arrow.right"
+}
+'@
+    Set-Content -Path (Join-Path $dir 'e2e-reverse.json') -Value $plugin -Encoding UTF8
+}
+
 function Start-Pop([hashtable]$ExtraEnv = @{}) {
     $marker = Join-Path $env:RUNNER_TEMP "pop-gesture-$([guid]::NewGuid().ToString('N')).txt"
     $env:POP_SMOKE_MARKER = $marker
@@ -87,6 +113,7 @@ function Invoke-LongPress([int]$Dx, [int]$Dy, [string]$Shot, [switch]$BackToCent
 try {
     Set-Content -Path $notepadFile -Value $sample -NoNewline -Encoding UTF8
     Set-PopSettings $testSettings
+    Set-TestPlugin
     $pop = Start-Pop
     $notepad = Start-Process notepad.exe -ArgumentList "`"$notepadFile`"" -PassThru
     $notepad.WaitForInputIdle(10000) | Out-Null
@@ -225,6 +252,26 @@ try {
     $clip = (Get-Clipboard -Raw).Trim()
     if ($clip -ne 'aGVsbG8gcG9wIHdvcmxk') { throw "全部功能 → 编码转换复制到的是「$clip」" }
     Write-Host '✓ 全部功能列表：搜索、执行、复制结果'
+
+    # 5b2. 自定义插件：全部功能列表里搜「plugin」找到测试插件（JavaScript），回车运行，卡片上回车复制结果
+    if ((Get-PopLog) -notmatch '插件：1 个') { throw "测试插件没有载入：`n$(Get-PopLog)" }
+    Set-NotepadText 'hello pop world'
+    Invoke-LongPress (-95) (-55) 'plugin-list'
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '(?s)全部功能列表已显示.*全部功能列表已显示' 10 | Out-Null
+    Start-Sleep -Milliseconds 400
+    foreach ($vk in 0x50, 0x4C, 0x55, 0x47, 0x49, 0x4E) { Invoke-Key ([byte]$vk) }   # plugin
+    Start-Sleep -Milliseconds 400
+    Save-Screenshot (Join-Path $OutDir 'plugin-list.png')
+    Invoke-Key 0x0D
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '插件 user-e2ereverse（javascript）：Card' 15 | Out-Null
+    Start-Sleep -Milliseconds 500
+    Save-Screenshot (Join-Path $OutDir 'plugin-card.png')
+    Set-Clipboard -Value 'before'
+    Invoke-Key 0x0D
+    Start-Sleep -Milliseconds 300
+    $clip = (Get-Clipboard -Raw).Trim()
+    if ($clip -ne 'dlrow pop olleh') { throw "插件的结果复制到的是「$clip」" }
+    Write-Host '✓ 自定义插件：列表里搜到、运行 JavaScript、复制结果'
 
     # 5c. 剪贴板历史：复制三段文字，Win+Alt+V 打开历史，搜「second」回车，粘贴到记事本
     Set-NotepadText 'placeholder'

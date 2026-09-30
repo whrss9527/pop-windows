@@ -44,5 +44,8 @@ internal static class Paths
 
     public static string Settings => Path.Combine(RoamingData, "settings.json");
 
+    /// 自定义插件：%APPDATA%\Pop\Plugins，每个插件一个 JSON 文件
+    public static string Plugins => Path.Combine(RoamingData, "Plugins");
+
     public static string Executable => Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "Pop.exe");
 }

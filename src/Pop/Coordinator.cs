@@ -51,12 +51,20 @@ internal sealed class Coordinator : IDisposable
         public bool Finished { get; set; }
     }
 
-    public Coordinator(Dispatcher dispatcher, InputHook hook, Func<AppSettings> settings, ClipboardHistory history)
+    private readonly Func<PluginStore> plugins;
+    private readonly PluginRunner pluginRunner;
+
+    /// 正在运行的插件：关掉「正在运行」的卡片时取消
+    private CancellationTokenSource? pluginRun;
+
+    public Coordinator(Dispatcher dispatcher, InputHook hook, Func<AppSettings> settings, ClipboardHistory history, Func<PluginStore> plugins, PluginRunner pluginRunner)
     {
         this.dispatcher = dispatcher;
         this.hook = hook;
         this.settings = settings;
         this.history = history;
+        this.plugins = plugins;
+        this.pluginRunner = pluginRunner;
         reader = new SelectionReader(clipboard);
         reader.CopyStarting += () => history.Monitor.IgnoreChangesFor(SelectionReader.CopyIgnoreWindow);
         PinWindow.RecognizeRequested += async (png, px, py) => await RecognizeAsync(png, px, py);
@@ -80,7 +88,11 @@ internal sealed class Coordinator : IDisposable
         card.CopyRequested += text => clipboard.SetText(text, temporary: false);
         card.LinkRequested += Open;
         card.ReplaceRequested += async text => await Replace(text);
-        card.Dismissed += () => cardOpen = false;
+        card.Dismissed += () =>
+        {
+            cardOpen = false;
+            pluginRun?.Cancel();
+        };
         actionList.Chosen += async action =>
         {
             listOpen = false;
@@ -527,51 +539,95 @@ internal sealed class Coordinator : IDisposable
         }
         try
         {
-            var result = action.Run(content);
-            switch (result?.Effect)
-            {
-                case null:
-                    ShowToast(x, y, "选中的内容用不了这个功能");
-                    break;
-                case ActionEffect.Card when result.Card is { } resultCard:
-                    // 卡片没有自己的图标时用这个功能的图标
-                    ShowResult(x, y, resultCard.Icon is null && resultCard.Swatch is null ? resultCard with { Icon = action.Glyph } : resultCard);
-                    break;
-                case ActionEffect.Replace when result.Text is { } replacement:
-                    await Replace(replacement);
-                    break;
-                case ActionEffect.Copy when result.Text is { } copied:
-                    clipboard.SetText(copied, temporary: false);
-                    ShowToast(x, y, "已复制");
-                    break;
-                case ActionEffect.Translate when result.Text is { } source:
-                    await TranslateAsync(source, x, y);
-                    break;
-                case ActionEffect.Open when result.Text is { } target:
-                    Open(target);
-                    break;
-                case ActionEffect.Toast when result.Text is { } message:
-                    ShowToast(x, y, message);
-                    break;
-                case ActionEffect.ShowAll:
-                    ShowList(content, x, y);
-                    break;
-                case ActionEffect.ShowHistory:
-                    ShowHistory(x, y);
-                    break;
-                case ActionEffect.CaptureText:
-                    await CaptureTextAsync();
-                    break;
-                case ActionEffect.CapturePin:
-                    await CapturePinAsync();
-                    break;
-            }
+            await Handle(action.Run(content), action, content, x, y);
         }
         catch (Exception e)
         {
             Log.Error($"执行 {action.Id} 失败", e);
             ShowToast(x, y, "出错了，详情见日志");
         }
+    }
+
+    /// 按功能返回的结果做事：显示卡片、替换原文、复制、打开……
+    private async Task Handle(ActionResult? result, PopAction action, ClassifiedContent content, int x, int y)
+    {
+        switch (result?.Effect)
+        {
+            case null:
+                ShowToast(x, y, "选中的内容用不了这个功能");
+                break;
+            case ActionEffect.Card when result.Card is { } resultCard:
+                // 卡片没有自己的图标时用这个功能的图标
+                ShowResult(x, y, resultCard.Icon is null && resultCard.Swatch is null ? resultCard with { Icon = action.Glyph } : resultCard);
+                break;
+            case ActionEffect.Replace when result.Text is { } replacement:
+                await Replace(replacement);
+                break;
+            case ActionEffect.Copy when result.Text is { } copied:
+                clipboard.SetText(copied, temporary: false);
+                ShowToast(x, y, "已复制");
+                break;
+            case ActionEffect.Translate when result.Text is { } source:
+                await TranslateAsync(source, x, y);
+                break;
+            case ActionEffect.Open when result.Text is { } target:
+                Open(target);
+                break;
+            case ActionEffect.Toast when result.Text is { } message:
+                ShowToast(x, y, message);
+                break;
+            case ActionEffect.ShowAll:
+                ShowList(content, x, y);
+                break;
+            case ActionEffect.ShowHistory:
+                ShowHistory(x, y);
+                break;
+            case ActionEffect.CaptureText:
+                await CaptureTextAsync();
+                break;
+            case ActionEffect.CapturePin:
+                await CapturePinAsync();
+                break;
+            case ActionEffect.RunPlugin when result.PluginId is { } pluginId:
+                await RunPluginAsync(pluginId, action, content, x, y);
+                break;
+        }
+    }
+
+    /// 运行用户的插件。脚本可能要跑一会儿：300 毫秒还没结束就先显示「正在运行」，关掉卡片就停止脚本
+    private async Task RunPluginAsync(string id, PopAction action, ClassifiedContent content, int x, int y)
+    {
+        if (plugins().Find(id) is not { } manifest)
+        {
+            ShowToast(x, y, "找不到这个插件，可能已经删掉了");
+            return;
+        }
+        pluginRun?.Cancel();
+        using var run = new CancellationTokenSource();
+        pluginRun = run;
+        var watch = Stopwatch.StartNew();
+        var task = pluginRunner.RunAsync(manifest, content, run.Token);
+        if (await Task.WhenAny(task, Task.Delay(300)) != task)
+            ShowResult(x, y, new CardContent(manifest.DisplayName, [], Body: "正在运行…", Icon: action.Glyph, Loading: true));
+        ActionResult? result;
+        try
+        {
+            result = await task;
+        }
+        catch (OperationCanceledException)
+        {
+            Log.Info($"插件 {id}：取消了");
+            return;
+        }
+        finally
+        {
+            if (ReferenceEquals(pluginRun, run)) pluginRun = null;
+        }
+        Log.Info($"插件 {id}（{PluginNames.Name(manifest.Action.Type)}）：{result?.Effect.ToString() ?? "内容用不了"}，用时 {watch.ElapsedMilliseconds} ms");
+        if (run.IsCancellationRequested) return;
+        // 「正在运行」的卡片：结果不是卡片或者轻提示时先关掉它（替换原文要回到原来的 App）
+        if (cardOpen && result?.Effect is ActionEffect.Replace or ActionEffect.Open or ActionEffect.None) CloseCard();
+        await Handle(result, action, content, x, y);
     }
 
     private readonly System.Net.Http.HttpClient http = new() { Timeout = TimeSpan.FromSeconds(15) };

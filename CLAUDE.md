@@ -29,4 +29,5 @@
 - 图标用 WPF-UI 带的 Fluent System Icons（`Icons.Make`，名字是 `SymbolRegular` 的枚举名，比如 `Copy24`）；功能的图标名写在 `Pop.Core` 里。
 - 字体：`Theme.TextFont` 先用 Segoe UI Variable / Segoe UI 显示西文，中文落到随包带的 Noto Sans CJK SC（`src/Pop/Assets/Fonts`，常用字子集，Regular 和 Medium 两个字重，`scripts/make-fonts.py` 生成），子集里没有的字再用微软雅黑。强调用 `FontWeights.Medium` 或 `SemiBold`，别用 `Bold`：中文只带到 Medium，Bold 会被系统加粗得发糊。
 - 不要调用 WPF-UI 的 `ApplicationThemeManager.Apply` 而不先换掉 `Application.MainWindow`：它会改主窗口的窗口样式，而主窗口默认是第一个创建的浮窗。`App.ApplyAppearance` 里已经处理好了。
+- 自定义插件的核心在 `src/Pop.Core/Plugins`（格式、模板、匹配、运行、文件夹），文件格式要和 macOS 版逐字节一致（有测试对比）；界面在 `SettingsWindow` 的「我的插件」和 `PluginEditorWindow`。插件的 PopAction 由 `Actions.SetPlugins` 放进 `Actions.List`，判断内置功能的 ID 用 `Actions.IsBuiltIn`，不要用 `Actions.Find`（它也找得到插件）。改到 `Actions` 的全局插件列表的测试放在 `Actions registry` 这个不并行的测试集合里。
 - 长按手势测试把 `directKinds` 里的 `foreign` 去掉了（选中英文默认直接翻译，不弹圆盘），要测直接翻译得另外改设置。

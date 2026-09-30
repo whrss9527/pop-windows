@@ -14,6 +14,7 @@ Pop 的 Windows 版原型：在任意 App 里**长按鼠标右键**，Pop 读取
 | 内容识别 | 中文 / 外文、单个词、链接、邮箱、JSON、算式、带单位的数值、数字（含 0x/0b/0o）、颜色值、日期时间、Unix 时间戳、本机路径 |
 | 圆盘 | 默认 6 格：复制、搜索（选中链接、邮箱或路径时换成「打开」）、翻译、大写、字数、全部功能，可以改成 4–8 格、每格换成别的功能。划向一格松开执行，圆心松开关闭；右键按着时按数字键直选，Esc 关闭。读不到文字时需要文字的格子变灰 |
 | 翻译 | 译文显示在结果卡片里，可以复制或替换原文，不用离开当前的 App。默认用必应翻译（不用设置，走必应翻译网页用的接口；必应偶尔会限制请求次数，这时卡片上会说明原因）；也可以填自己的 Microsoft Translator Key（加密保存在本机），或者改成在浏览器里打开。默认中文译成英语、其他语言译成简体中文，也可以固定译成某种语言 |
+| 自定义插件 | 和 macOS 版通用的插件文件：网址模板、Shell 脚本（Windows PowerShell、PowerShell 7 或 cmd）、JavaScript（隔离运行，限时、限内存）。在设置的「功能」页新建（有模板）、导入、编辑、试运行、导出；插件可以放到圆盘上，也能在「全部功能」里搜到 |
 | 功能开关 | 每个功能都可以单独关掉：关掉的功能不出现在圆盘和「全部功能」列表里，圆盘上空出来的格子自动换成别的功能，也不再直接出它的结果 |
 | 全部功能 | 圆盘左上角那一格：功能列表，直接打字搜索（拼音首字母或英文），方向键选择、回车执行，也可以用鼠标点；当前内容用不了的排在后面。列表不抢焦点，按键由键盘钩子转给它，所以不能用输入法打中文搜索 |
 | 文字工具 | 大小写写法、编码转换（Base64、URL、Unicode、HTML）、JSON 格式化（保持键的顺序）、文字整理、按行处理、提取信息（链接、邮箱、电话、IP）、哈希、随机生成、数字转换、日期转换 |
@@ -64,6 +65,7 @@ Pop 的 Windows 版原型：在任意 App 里**长按鼠标右键**，Pop 读取
 | 数据 | 位置 |
 | --- | --- |
 | 设置 | `%APPDATA%\Pop\settings.json` |
+| 自定义插件 | `%APPDATA%\Pop\Plugins`，每个插件一个 JSON 文件（和 macOS 版格式一样），改了会自动重新载入 |
 | Microsoft Translator 的 Key | `%APPDATA%\Pop\secrets.json`，用 Windows 的数据保护接口（DPAPI）加密，只有当前用户能解开 |
 | 剪贴板历史 | `%LOCALAPPDATA%\Pop\Clipboard\history.sqlite`（WAL 模式），图片存成 PNG 放在旁边的 `Images` 文件夹 |
 | 日志 | `%LOCALAPPDATA%\Pop\logs\pop.log`（超过 1 MB 轮换）；选中的文字不写进日志 |
@@ -106,6 +108,31 @@ dotnet publish src/Pop -c Release -o out   # 打包成单个 Pop.exe
 
 发版：在 `CHANGELOG.md` 最上面加一节新版本，`Directory.Build.props` 里的 `Version` 跟着改，合并进 main、CI 通过后会自动打标签并发布，已安装的 Pop 会提示更新。
 
+## 插件的格式
+
+插件文件夹里的每个 `.json` 文件是一个插件，可以手写、拷给别人，macOS 版的插件拷过来就能用（快捷指令插件只能在 macOS 上运行）：
+
+```json
+{
+  "id" : "user-github",
+  "name" : "GitHub 搜索",
+  "symbol" : "chevron.left.forwardslash.chevron.right",
+  "summary" : "在 GitHub 上搜索选中的文字",
+  "match" : { "kinds" : [ "text" ] },
+  "action" : { "type" : "url", "template" : "https://github.com/search?q={text}" }
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `action.type` | `url`（`template` 里 `{text}` 换成编码后的选中文字，`{raw}` 换成原文）、`shell`（`script` 是脚本；Windows 版的 `shell` 可以是 `powershell`、`pwsh` 或 `cmd`）、`javascript`（`script` 里定义 `function run(input, files)` 或者写一个表达式） |
+| `output` | 脚本的输出怎么用：`card` 显示在卡片上、`copy` 复制、`replace` 替换选中的文字、`toast` 轻提示 |
+| `match.kinds` | 能处理的内容：`text`、`chineseText`、`foreignText`、`word`、`url`、`email`、`json`、`number`、`math`、`color`、`timestamp`、`dateTime`、`measurement`、`files`；为空表示随时可用 |
+| `match.pattern` | 可选的正则，选中的文字还要能匹配它 |
+| `glyph` | Windows 版的图标（Fluent 图标名，比如 `Search24`）；不写时按 macOS 版的 `symbol` 找一个相近的 |
+
+脚本从标准输入读选中的文字，也可以读环境变量 `POP_TEXT`、`POP_FILES`（每行一个路径）、`POP_KINDS`；标准输出就是结果，退出码不为 0 时显示错误输出。
+
 ## 第三方组件
 
 | 组件 | 用途 | 许可 |
@@ -114,3 +141,4 @@ dotnet publish src/Pop -c Release -o out   # 打包成单个 Pop.exe
 | [WPF-UI](https://github.com/lepoco/wpfui) | 设置窗口的控件和 Mica、Fluent System Icons 图标 | MIT |
 | [Microsoft.Data.Sqlite](https://github.com/dotnet/efcore) 和 [SQLitePCLRaw](https://github.com/ericsink/SQLitePCL.raw) | 剪贴板历史的数据库 | MIT；SQLitePCLRaw 是 Apache 2.0 |
 | [Interop.UIAutomationClient](https://github.com/Roemer/UIAutomation-Interop) | 原生 UI Automation 的 COM 接口 | MIT |
+| [Jint](https://github.com/sebastienros/jint) 和 [Acornima](https://github.com/adams85/acornima) | 运行 JavaScript 插件 | BSD 2-Clause、BSD 3-Clause |
