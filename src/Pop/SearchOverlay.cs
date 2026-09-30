@@ -128,7 +128,9 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
         {
             Dismiss();
             OnChosen(item);
+            return;
         }
+        Log.Info($"{Title}：回车时没有能选的项（搜索词 {SearchText.Length} 个字）");
     }
 
     /// 第 n 个可以选的（Ctrl+数字）

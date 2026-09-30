@@ -108,6 +108,40 @@ function Wait-PopWindow([string]$Title, [switch]$Visible, [int]$TimeoutSeconds =
     }
 }
 
+# pop.log 里某一行出现了几次
+function Get-LogCount([string]$Pattern) {
+    ([regex]::Matches((Get-PopLog), $Pattern)).Count
+}
+
+# 等 pop.log 里某一行出现到 Count 次
+function Wait-LogCount([string]$Pattern, [int]$Count, [int]$TimeoutSeconds = 10) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-LogCount $Pattern) -lt $Count) {
+        if ((Get-Date) -gt $deadline) { throw "等了 ${TimeoutSeconds} 秒，pop.log 里的「${Pattern}」还不到 ${Count} 次。日志：`n$(Get-PopLog)" }
+        Start-Sleep -Milliseconds 200
+    }
+}
+
+# 出错时把现场记下来：记事本里的字、Pop 的浮窗哪些开着、前台窗口、剪贴板，再截一张图
+function Write-Diagnostics {
+    try {
+        Write-Host '---- 出错时的现场 ----'
+        if ($notepad -and -not $notepad.HasExited) { Write-Host "记事本里是：$(Get-NotepadText)" }
+        foreach ($title in 'Pop 圆盘', 'Pop 结果', 'Pop 全部功能', 'Pop 剪贴板历史') {
+            $state = if (Test-PopWindowVisible $title) { '显示着' } else { '没显示' }
+            Write-Host "${title}：${state}"
+        }
+        $class = New-Object System.Text.StringBuilder 256
+        [PopCi.Native]::GetClassName([PopCi.Native]::GetForegroundWindow(), $class, 256) | Out-Null
+        Write-Host "前台窗口：$($class.ToString())"
+        Write-Host "剪贴板：$(Get-Clipboard -Raw)"
+        Save-Screenshot (Join-Path $OutDir 'failure.png')
+    }
+    catch {
+        Write-Host "记录现场失败：$_"
+    }
+}
+
 # 长按，往 (dx, dy) 方向划，截图，松开
 function Invoke-LongPress([int]$Dx, [int]$Dy, [string]$Shot, [switch]$BackToCenter, [IntPtr]$Hwnd = [IntPtr]::Zero) {
     # 上一步的圆盘收起来了再按：Pop 的界面线程还忙着的话，这次的长按和松开会排在一起处理
@@ -299,12 +333,14 @@ try {
     Write-Host '✓ 自定义插件：列表里搜到、运行 JavaScript、复制结果'
 
     # 5c. 剪贴板历史：复制三段文字，Win+Alt+V 打开历史，搜「second」回车，粘贴到记事本
+    $records = Get-LogCount '剪贴板历史：记录'
     Set-NotepadText 'placeholder'
     foreach ($item in 'first item', 'second item', 'third item') {
         Set-Clipboard -Value $item
         Start-Sleep -Milliseconds 500
     }
-    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '(?s)剪贴板历史：记录.*剪贴板历史：记录.*剪贴板历史：记录' 10 | Out-Null
+    # 这四次复制（placeholder 和三段文字）都记下来了再打开历史
+    Wait-LogCount '剪贴板历史：记录' ($records + 4) 10
     Set-Foreground $notepad.MainWindowHandle
     Invoke-Key 0x41 -Ctrl
     if ((Get-PopLog) -notmatch '快捷键 Win\+Alt\+V（剪贴板历史） 已注册') { throw "Win+Alt+V 没注册上：`n$(Get-PopLog)" }
@@ -426,6 +462,10 @@ try {
     $errors = (Get-PopLog) -split "`n" | Where-Object { $_ -match '\[ERROR\]' }
     if ($errors) { throw "Pop 的日志里有错误：`n$($errors -join "`n")" }
     Write-Host '✓ 日志里没有错误'
+}
+catch {
+    Write-Diagnostics
+    throw
 }
 finally {
     $log = Get-PopLog

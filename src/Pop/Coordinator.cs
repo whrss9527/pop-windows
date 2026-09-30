@@ -280,7 +280,12 @@ internal sealed class Coordinator : IDisposable
         static bool Down(int key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
         if (Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C))
         {
-            dispatcher.BeginInvoke(CloseList);
+            var held = HeldModifiers();
+            dispatcher.BeginInvoke(() =>
+            {
+                Log.Info($"全部功能列表：按着 {held} 按了别的键，关闭");
+                CloseList();
+            });
             return false;
         }
         var typed = TypedChar(vk);
@@ -492,7 +497,12 @@ internal sealed class Coordinator : IDisposable
         if (Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C))
         {
             if (vk is 0x11 or 0xA2 or 0xA3) return false; // 只按下了 Ctrl
-            dispatcher.BeginInvoke(CloseHistory);
+            var held = HeldModifiers();
+            dispatcher.BeginInvoke(() =>
+            {
+                Log.Info($"剪贴板历史：按着 {held} 按了别的键，关闭");
+                CloseHistory();
+            });
             return false;
         }
         switch (vk)
@@ -522,6 +532,17 @@ internal sealed class Coordinator : IDisposable
             return true;
         }
         return vk is not (0x10 or 0xA0 or 0xA1 or 0x14);
+    }
+
+    /// 现在按着的 Ctrl、Alt、Win（写日志用；在钩子线程上只取状态，日志交给界面线程写）
+    private static string HeldModifiers()
+    {
+        static bool Down(int key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
+        var names = new List<string>();
+        if (Down(0x11)) names.Add("Ctrl");
+        if (Down(0x12)) names.Add("Alt");
+        if (Down(0x5B) || Down(0x5C)) names.Add("Win");
+        return string.Join("+", names);
     }
 
     /// 搜索框能输入的字符：字母、数字、空格、减号、点

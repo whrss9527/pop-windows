@@ -13,6 +13,7 @@ internal sealed class App : Application
     private readonly StartupOptions options;
     private InputHook? hook;
     private Coordinator? coordinator;
+    private UiWatchdog? watchdog;
     private TrayIcon? tray;
     private ClipboardHistory? history;
     private HotKeys? hotKeys;
@@ -76,6 +77,7 @@ internal sealed class App : Application
         NativeAutomation.WarmUp();
         history = new ClipboardHistory(() => Settings);
         coordinator = new Coordinator(Dispatcher, hook, () => Settings, history, () => Plugins, PluginRunner);
+        watchdog = new UiWatchdog(Dispatcher);
         hotKeys = new HotKeys();
         // Win+Shift+V 被系统占用了；默认用 Win+Alt+V，也被占用时依次换下一个
         HistoryHotKey = RegisterFirst("剪贴板历史", () => coordinator.ShowHistory(), (HotKeys.MOD_WIN | HotKeys.MOD_ALT, 0x56, "Win+Alt+V"),
@@ -265,6 +267,7 @@ internal sealed class App : Application
     public void Quit()
     {
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+        watchdog?.Dispose();
         hotKeys?.Dispose();
         coordinator?.Dispose();
         Plugins?.Dispose();

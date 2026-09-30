@@ -19,7 +19,7 @@
 ## 在 Linux / macOS 上开发
 
 - `dotnet build src/Pop` 能编译（`EnableWindowsTargeting`），但要用微软官方的 .NET SDK：一些发行版自己编译的 SDK 没有 `Microsoft.NET.Sdk.WindowsDesktop`，会报找不到 WindowsDesktop.targets。
-- 运行和界面效果只能在 Windows 上看：CI 的 `launch-smoke` 会把截图（圆盘弹出、高亮、结果卡片、短按弹出的系统菜单、深色外观）和 Pop 的日志推到 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 两个分支（每次覆盖），`git fetch origin ci-screenshots/windows-2022` 就能看到。
+- 运行和界面效果只能在 Windows 上看：CI 的 `launch-smoke` 会把截图（圆盘弹出、高亮、结果卡片、短按弹出的系统菜单、深色外观）和 Pop 的日志推到 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 两个分支（每次覆盖），`git fetch origin ci-screenshots/windows-2022` 就能看到。失败的运行（PR 的也算）另外推到 `ci-screenshots/windows-2022-failed`、`ci-screenshots/windows-2025-failed`，里面有 `failure.png` 和日志；长按手势测试出错时还会打印记事本里的字、哪些浮窗开着、前台窗口和剪贴板。Pop 的日志里「界面线程超过 2 秒没有响应」说明界面线程卡住了。
 - 改了界面就看 `ui` 文件夹里的截图：CI 用演示模式（`Pop.exe --demo-shots 文件夹`）在一张示例文档前面把圆盘、各种卡片、列表、剪贴板历史、托盘面板、设置窗口每一页、贴图、框选依次显示出来，浅色、深色各拍一张（`light-*.png`、`dark-*.png`）。新加的界面要在 `Demo.cs` 里加一个场景。
 
 ## 界面
