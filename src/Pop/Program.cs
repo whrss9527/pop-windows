@@ -1,10 +1,14 @@
 namespace Pop;
 
-internal sealed record StartupOptions(bool UpdateNow, string? UpdatedFrom, bool Silent);
+internal sealed record StartupOptions(bool UpdateNow, string? UpdatedFrom, bool Silent, bool ShowSettings);
 
 internal static class Program
 {
     private const string MutexName = @"Local\io.github.whrss9527.pop";
+    public const string ShowSettingsEventName = @"Local\io.github.whrss9527.pop.show-settings";
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool AllowSetForegroundWindow(int processId);
 
     [STAThread]
     private static int Main(string[] args)
@@ -35,7 +39,14 @@ internal static class Program
         }
         if (!owned)
         {
-            Log.Info("Pop 已经在运行，退出");
+            // 已经在运行：让它打开设置窗口（允许它切到前台），自己退出
+            Log.Info("Pop 已经在运行，打开设置窗口后退出");
+            if (options.UpdatedFrom is null && !options.UpdateNow && EventWaitHandle.TryOpenExisting(ShowSettingsEventName, out var signal))
+            {
+                AllowSetForegroundWindow(-1);
+                signal.Set();
+                signal.Dispose();
+            }
             SmokeTest.Report("already-running");
             return 1;
         }
@@ -61,6 +72,7 @@ internal static class Program
     {
         var updateNow = false;
         var silent = false;
+        var settings = false;
         string? updatedFrom = null;
         for (var i = 0; i < args.Length; i++)
         {
@@ -75,8 +87,11 @@ internal static class Program
                 case "--silent":
                     silent = true;
                     break;
+                case "--settings":
+                    settings = true;
+                    break;
             }
         }
-        return new StartupOptions(updateNow, updatedFrom, silent);
+        return new StartupOptions(updateNow, updatedFrom, silent, settings);
     }
 }

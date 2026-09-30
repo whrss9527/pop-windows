@@ -29,6 +29,10 @@ internal sealed class TrayIcon : IDisposable
         {
             if (e.Button == Forms.MouseButtons.Left) ShowMenu();
         };
+        icon.MouseDoubleClick += (_, e) =>
+        {
+            if (e.Button == Forms.MouseButtons.Left) app.ShowSettings();
+        };
         BuildMenu();
         icon.Visible = true;
     }
@@ -66,6 +70,9 @@ internal sealed class TrayIcon : IDisposable
 
         menu.Items.Add(new Forms.ToolStripMenuItem($"Pop {Updater.CurrentVersion}") { Enabled = false });
         menu.Items.Add(new Forms.ToolStripSeparator());
+        var settingsItem = new Forms.ToolStripMenuItem("设置…") { Font = new Drawing.Font(menu.Font, Drawing.FontStyle.Bold) };
+        settingsItem.Click += (_, _) => app.ShowSettings();
+        menu.Items.Add(settingsItem);
 
         var enabled = new Forms.ToolStripMenuItem("长按右键唤起") { Checked = settings.Enabled };
         enabled.Click += (_, _) => app.UpdateSettings(s => s.Enabled = !s.Enabled);

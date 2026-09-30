@@ -43,7 +43,7 @@ internal sealed class Coordinator : IDisposable
         public int X { get; } = x;
         public int Y { get; } = y;
         public Task<Selection> Selection { get; } = selection;
-        public IReadOnlyList<PopAction> Items { get; set; } = RingItems.Default;
+        public IReadOnlyList<PopAction> Items { get; set; } = [];
         public bool RingShown { get; set; }
         /// 圆盘还没弹出来右键就松开了
         public bool ReleasedEarly { get; set; }
@@ -134,11 +134,13 @@ internal sealed class Coordinator : IDisposable
     }
 
     private CardContent? DirectCard(ClassifiedContent content) =>
-        settings().DirectResults ? DirectResults.For(content) : null;
+        DirectResults.For(content, settings().DirectKindFlags);
+
+    private IReadOnlyList<PopAction> Ring => RingItems.Build(settings().RingSlots);
 
     private void ShowRing(Session s, ClassifiedContent? content)
     {
-        s.Items = content is null ? RingItems.Default : RingItems.For(content);
+        s.Items = content is null ? Ring : RingItems.For(Ring, content);
         s.RingShown = true;
         ringCount = s.Items.Count;
         ringOpen = true;
@@ -148,7 +150,7 @@ internal sealed class Coordinator : IDisposable
 
     private void UpdateRing(Session s, ClassifiedContent content)
     {
-        s.Items = RingItems.For(content);
+        s.Items = RingItems.For(Ring, content);
         ringCount = s.Items.Count;
         ring.SetContent(content, s.Items);
     }

@@ -60,6 +60,7 @@ internal sealed class App : Application
             break;
         }
         tray = new TrayIcon(this);
+        ListenForSecondInstance();
         Updater.Changed += OnUpdaterChanged;
         Updater.StartSchedule();
 
@@ -69,6 +70,7 @@ internal sealed class App : Application
             tray.Notify("Pop 已在运行", "在任意 App 里选中文字，长按鼠标右键试试。Pop 的菜单在任务栏右下角的图标上。");
         if (!System.IO.File.Exists(Paths.Settings)) SaveSettings();
 
+        if (options.ShowSettings) ShowSettings();
         SmokeTest.Report($"started version={Updater.CurrentVersion} hooks={(hook.IsInstalled ? "ok" : "failed")} updated-from={options.UpdatedFrom ?? "-"}");
         if (SmokeTest.ExitAfterStart) Quit();
     }
@@ -115,6 +117,32 @@ internal sealed class App : Application
     public string? HistoryHotKey { get; private set; }
 
     public void ShowClipboardHistory() => coordinator?.ShowHistory();
+
+    public (int Count, long Bytes) ClipboardStatistics() => history?.Store.Statistics() ?? (0, 0);
+
+    private SettingsWindow? settingsWindow;
+
+    public void ShowSettings()
+    {
+        if (settingsWindow is { IsLoaded: true })
+        {
+            if (settingsWindow.WindowState == WindowState.Minimized) settingsWindow.WindowState = WindowState.Normal;
+            settingsWindow.Activate();
+            return;
+        }
+        settingsWindow = new SettingsWindow(this);
+        settingsWindow.Closed += (_, _) => settingsWindow = null;
+        settingsWindow.Show();
+        settingsWindow.Activate();
+        Log.Info("设置窗口已打开");
+    }
+
+    /// 再次运行 Pop.exe 时，正在运行的 Pop 打开设置窗口
+    private void ListenForSecondInstance()
+    {
+        var signal = new EventWaitHandle(false, EventResetMode.AutoReset, Program.ShowSettingsEventName);
+        ThreadPool.RegisterWaitForSingleObject(signal, (_, _) => Dispatcher.BeginInvoke(ShowSettings), null, Timeout.Infinite, executeOnlyOnce: false);
+    }
 
     public void ClearClipboardHistory()
     {
