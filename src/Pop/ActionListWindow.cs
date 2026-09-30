@@ -17,6 +17,8 @@ internal sealed class ActionListWindow : Window
     private ClassifiedContent content = ClassifiedContent.Empty;
     private IntPtr previousForeground;
     private bool choosing;
+    /// 列表真正拿到焦点之后才在失去焦点时关闭：显示的那一刻系统可能先激活又立刻收回
+    private bool armed;
 
     /// 选了一个功能；参数是功能和原来前台的窗口
     public event Action<PopAction, IntPtr>? Chosen;
@@ -30,6 +32,7 @@ internal sealed class ActionListWindow : Window
         ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false;
         Topmost = true;
+        ShowActivated = false;
         Width = 340;
         Height = 420;
         new WindowInteropHelper(this).EnsureHandle();
@@ -57,8 +60,9 @@ internal sealed class ActionListWindow : Window
         {
             var foreground = Native.GetForegroundWindow();
             Log.Info($"全部功能列表失去焦点，现在的前台窗口是 {Native.WindowClass(foreground)}");
-            if (!choosing) Hide();
+            if (armed && !choosing) Hide();
         };
+        Activated += (_, _) => armed = IsVisible;
     }
 
     public void ShowFor(ClassifiedContent selected, int x, int y, IntPtr foreground)
@@ -66,6 +70,7 @@ internal sealed class ActionListWindow : Window
         content = selected;
         previousForeground = foreground;
         choosing = false;
+        armed = false;
         var theme = Theme.Current();
 
         var panel = new DockPanel();
