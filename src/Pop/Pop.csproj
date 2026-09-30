@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <!-- 文字识别（Windows.Media.Ocr）要用 WinRT 接口；最低支持 Windows 10 1809 -->
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <UseWPF>true</UseWPF>
     <!-- 只用到托盘图标 -->
     <UseWindowsForms>true</UseWindowsForms>

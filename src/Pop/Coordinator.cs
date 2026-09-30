@@ -25,6 +25,7 @@ internal sealed class Coordinator : IDisposable
     private readonly ActionListWindow actionList = new();
     private readonly ClipboardHistoryWindow historyWindow = new();
     private readonly ClipboardHistory history;
+    private readonly RegionSelector selector = new();
     private readonly Func<AppSettings> settings;
     private Session? session;
 
@@ -57,7 +58,8 @@ internal sealed class Coordinator : IDisposable
         this.settings = settings;
         this.history = history;
         reader = new SelectionReader(clipboard);
-        reader.CopyStarting += () => history.Monitor.IgnoreChangesFor(TimeSpan.FromMilliseconds(1500));
+        reader.CopyStarting += () => history.Monitor.IgnoreChangesFor(SelectionReader.CopyIgnoreWindow);
+        PinWindow.RecognizeRequested += async (png, px, py) => await RecognizeAsync(png, px, py);
         historyWindow.Chosen += async item =>
         {
             historyOpen = false;
@@ -195,6 +197,12 @@ internal sealed class Coordinator : IDisposable
     /// 钩子线程上调用，只看状态、立刻返回，真正的事交给界面线程
     private bool FilterKey(int vk)
     {
+        if (selector.IsOpen)
+        {
+            if (vk != VK_ESCAPE) return false;
+            dispatcher.BeginInvoke(selector.Cancel);
+            return true;
+        }
         if (listOpen) return FilterListKey(vk);
         if (historyOpen) return FilterHistoryKey(vk);
         if (ringOpen)
@@ -307,6 +315,70 @@ internal sealed class Coordinator : IDisposable
         CloseCard();
         actionList.ShowFor(content, x, y);
         listOpen = true;
+    }
+
+    /// 框选一块屏幕区域，截下来（物理像素）；取消时返回 null
+    private async Task<(byte[] Png, System.Drawing.Rectangle Area)?> SelectRegionAsync()
+    {
+        if (selector.IsOpen) return null;
+        CloseCard();
+        CloseList();
+        CloseHistory();
+        // 等圆盘和卡片淡出，不要被截进去
+        await Task.Delay(150);
+        var selected = await selector.SelectAsync();
+        if (selected is not { } s)
+        {
+            Log.Info("框选区域：取消");
+            return null;
+        }
+        using (s.Screen)
+        {
+            var relative = new System.Drawing.Rectangle(s.Area.X - s.ScreenBounds.X, s.Area.Y - s.ScreenBounds.Y, s.Area.Width, s.Area.Height);
+            relative.Intersect(new System.Drawing.Rectangle(0, 0, s.Screen.Width, s.Screen.Height));
+            if (relative.Width < 1 || relative.Height < 1) return null;
+            using var crop = s.Screen.Clone(relative, s.Screen.PixelFormat);
+            Log.Info($"框选区域：{relative.Width}×{relative.Height}");
+            return (ScreenCapture.Png(crop), s.Area);
+        }
+    }
+
+    /// 截图识字：框选区域，识别文字，结果显示在卡片上
+    public async Task CaptureTextAsync()
+    {
+        if (await SelectRegionAsync() is not { } region) return;
+        await RecognizeAsync(region.Png, region.Area.Left + region.Area.Width / 2, region.Area.Top + region.Area.Height / 2);
+    }
+
+    private async Task RecognizeAsync(byte[] png, int x, int y)
+    {
+        try
+        {
+            var text = await TextRecognizer.RecognizeAsync(png);
+            Log.Info($"识别文字：识别出 {text.Length} 个字符{(LogSelection ? $"，内容「{Abbreviate(text)}」" : "")}");
+            ShowResult(x, y, text.Length == 0
+                ? CardContent.Text("识别文字", "没有识别出文字")
+                : new CardContent("识别文字", [], Body: text));
+        }
+        catch (TextRecognizer.UnavailableException e)
+        {
+            Log.Info($"识别文字：{e.Message}");
+            ShowResult(x, y, CardContent.Text("识别文字", e.Message));
+        }
+        catch (Exception e) when (e is System.Runtime.InteropServices.COMException or ArgumentException or InvalidOperationException)
+        {
+            Log.Error("识别文字失败", e);
+            ShowToast(x, y, "识别失败，详情见日志");
+        }
+    }
+
+    /// 截图贴图：框选区域，贴在所有窗口最前面（放在原来的位置）
+    public async Task CapturePinAsync()
+    {
+        if (await SelectRegionAsync() is not { } region) return;
+        var scale = Native.MonitorAt(region.Area.Left, region.Area.Top).Scale;
+        new PinWindow(region.Png, region.Area.Left, region.Area.Top, scale).Show();
+        Log.Info($"贴图：{region.Area.Width}×{region.Area.Height}，现在有 {PinWindow.Count} 张");
     }
 
     /// 打开剪贴板历史；不给位置时放在指针旁边
@@ -474,6 +546,12 @@ internal sealed class Coordinator : IDisposable
                     break;
                 case ActionEffect.ShowHistory:
                     ShowHistory(x, y);
+                    break;
+                case ActionEffect.CaptureText:
+                    await CaptureTextAsync();
+                    break;
+                case ActionEffect.CapturePin:
+                    await CapturePinAsync();
                     break;
             }
         }

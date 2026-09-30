@@ -19,6 +19,10 @@ public enum ActionEffect
     ShowAll,
     /// 打开剪贴板历史
     ShowHistory,
+    /// 框选屏幕区域识别文字
+    CaptureText,
+    /// 框选屏幕区域贴到最前面
+    CapturePin,
 }
 
 public sealed record ActionResult(ActionEffect Effect, string? Text = null, CardContent? Card = null)
@@ -90,6 +94,12 @@ public static partial class Actions
     public static readonly PopAction ClipboardHistory = new("clipboard", "剪贴板历史", "\uE77F", "jtb jianqieban ls lishi clipboard history paste", ContentKind.None,
         _ => new ActionResult(ActionEffect.ShowHistory));
 
+    public static readonly PopAction ScreenText = new("ocr", "截图识字", "\uE722", "jtsz jietu shizi ocr screen text sb shibie", ContentKind.None,
+        _ => new ActionResult(ActionEffect.CaptureText));
+
+    public static readonly PopAction ScreenPin = new("pin", "截图贴图", "\uE718", "jttt jietu tietu pin screenshot jt", ContentKind.None,
+        _ => new ActionResult(ActionEffect.CapturePin));
+
     public static readonly PopAction Calculate = new("calc", "计算", "", "js jisuan calc math", ContentKind.Math,
         c => CardFor(c, ContentKind.Math));
 
@@ -115,7 +125,7 @@ public static partial class Actions
 
     private static IReadOnlyList<PopAction> BuildList()
     {
-        var list = new List<PopAction> { Copy, Search, Open, Translate, ClipboardHistory, Calculate, Units, Color, Time, Number, Count, Upper, Lower };
+        var list = new List<PopAction> { Copy, Search, Open, Translate, ClipboardHistory, ScreenText, ScreenPin, Calculate, Units, Color, Time, Number, Count, Upper, Lower };
         list.AddRange(TextTools());
         return list;
     }
