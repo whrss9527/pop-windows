@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using Pop.Core;
 
 namespace Pop;
 
@@ -11,10 +12,12 @@ internal sealed class ResultCard : OverlayWindow
     private readonly Border root = new();
     private readonly ScaleTransform scale = new(1, 1);
     private readonly System.Windows.Threading.DispatcherTimer autoClose = new();
-    private string text = "";
 
-    /// 点了复制按钮
+    /// 点了「复制」按钮或者某一行
     public event Action<string>? CopyRequested;
+
+    /// 点了「替换原文」
+    public event Action<string>? ReplaceRequested;
 
     /// 卡片开始收起（按钮、Esc、点别处、轻提示到时间）
     public event Action? Dismissed;
@@ -33,20 +36,41 @@ internal sealed class ResultCard : OverlayWindow
 
     public bool IsOpen => IsVisible && root.Opacity > 0;
 
-    public void ShowCard(int x, int y, string title, string body)
+    /// 当前卡片「复制」按钮对应的文字（回车键用）
+    public string? PrimaryText { get; private set; }
+
+    public void ShowCard(int x, int y, string title, string body) => ShowResult(x, y, CardContent.Text(title, body));
+
+    public void ShowResult(int x, int y, CardContent content)
     {
-        text = body;
+        PrimaryText = content.PrimaryText;
         var theme = Theme.Current();
-        var panel = new StackPanel { MaxWidth = 380, MinWidth = 200 };
+        var panel = new StackPanel { MaxWidth = 400, MinWidth = 220 };
 
         var header = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 8) };
-        var close = SmallButton("", theme, "关闭");
+        var close = SmallButton("\uE711", theme, "关闭");
         close.Click += (_, _) => Dismiss();
         DockPanel.SetDock(close, Dock.Right);
         header.Children.Add(close);
+        if (content.Swatch is { } swatch && TryColor(swatch) is { } color)
+        {
+            var chip = new Border
+            {
+                Width = 14,
+                Height = 14,
+                CornerRadius = new CornerRadius(4),
+                Background = new SolidColorBrush(color),
+                BorderBrush = new SolidColorBrush(theme.SurfaceBorder),
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(0, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            DockPanel.SetDock(chip, Dock.Left);
+            header.Children.Add(chip);
+        }
         header.Children.Add(new TextBlock
         {
-            Text = title,
+            Text = content.Title,
             FontFamily = Theme.TextFont,
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
@@ -55,38 +79,117 @@ internal sealed class ResultCard : OverlayWindow
         });
         panel.Children.Add(header);
 
-        panel.Children.Add(new TextBlock
+        if (!string.IsNullOrEmpty(content.Body))
         {
-            Text = body,
-            FontFamily = Theme.TextFont,
-            FontSize = 14,
-            LineHeight = 22,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(theme.Text),
-        });
+            panel.Children.Add(new TextBlock
+            {
+                Text = content.Body,
+                FontFamily = Theme.TextFont,
+                FontSize = 14,
+                LineHeight = 22,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = new SolidColorBrush(theme.Text),
+            });
+        }
 
-        var copy = new Button
+        foreach (var line in content.Lines) panel.Children.Add(LineRow(line, theme));
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        if (content.Replacement is { } replacement)
         {
-            Content = "复制",
-            Padding = new Thickness(14, 4, 14, 4),
-            Margin = new Thickness(0, 12, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Focusable = false,
-            FontFamily = Theme.TextFont,
-            Background = new SolidColorBrush(theme.Accent),
-            Foreground = new SolidColorBrush(theme.AccentText),
-            BorderThickness = new Thickness(0),
-            Cursor = System.Windows.Input.Cursors.Hand,
-        };
+            var replace = ActionButton("替换原文", theme, primary: false);
+            replace.Click += (_, _) =>
+            {
+                Dismiss();
+                ReplaceRequested?.Invoke(replacement);
+            };
+            buttons.Children.Add(replace);
+        }
+        var copy = ActionButton("复制", theme, primary: true);
         copy.Click += (_, _) =>
         {
-            CopyRequested?.Invoke(text);
+            CopyRequested?.Invoke(content.PrimaryText);
             Dismiss();
         };
-        panel.Children.Add(copy);
+        buttons.Children.Add(copy);
+        panel.Children.Add(buttons);
 
         Present(x, y, panel, theme, cornerRadius: 12, padding: new Thickness(16, 12, 12, 14));
         autoClose.Stop();
+    }
+
+    /// 一行结果：左边说明，右边值；鼠标移上去变色，点一下复制这一行
+    private UIElement LineRow(ResultLine line, Theme theme)
+    {
+        var grid = new Grid { Margin = new Thickness(-6, 0, -6, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var label = new TextBlock
+        {
+            Text = line.Label,
+            FontFamily = Theme.TextFont,
+            FontSize = 12,
+            Foreground = new SolidColorBrush(theme.SecondaryText),
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        var value = new TextBlock
+        {
+            Text = line.Value,
+            FontFamily = Theme.TextFont,
+            FontSize = 14,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(theme.Text),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(value, 1);
+        grid.Children.Add(label);
+        grid.Children.Add(value);
+
+        var row = new Border
+        {
+            Child = grid,
+            Padding = new Thickness(6, 4, 6, 4),
+            CornerRadius = new CornerRadius(6),
+            Background = Brushes.Transparent,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            ToolTip = "点一下复制",
+        };
+        var hover = new SolidColorBrush(theme.Segment);
+        row.MouseEnter += (_, _) => row.Background = hover;
+        row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+        row.MouseLeftButtonUp += (_, _) =>
+        {
+            CopyRequested?.Invoke(line.Value);
+            label.Text = "已复制";
+            label.Foreground = new SolidColorBrush(theme.Accent);
+        };
+        return row;
+    }
+
+    private static Button ActionButton(string text, Theme theme, bool primary) => new()
+    {
+        Content = text,
+        Padding = new Thickness(14, 4, 14, 4),
+        Margin = new Thickness(8, 0, 0, 0),
+        Focusable = false,
+        FontFamily = Theme.TextFont,
+        Background = primary ? new SolidColorBrush(theme.Accent) : new SolidColorBrush(theme.Segment),
+        Foreground = primary ? new SolidColorBrush(theme.AccentText) : new SolidColorBrush(theme.Text),
+        BorderThickness = new Thickness(0),
+        Cursor = System.Windows.Input.Cursors.Hand,
+    };
+
+    private static Color? TryColor(string hex)
+    {
+        try
+        {
+            return (Color)ColorConverter.ConvertFromString(hex);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
     }
 
     public void ShowToast(int x, int y, string message)

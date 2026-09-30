@@ -80,6 +80,10 @@ internal sealed class TrayIcon : IDisposable
         }
         menu.Items.Add(hold);
 
+        var direct = new Forms.ToolStripMenuItem("选中算式、单位、颜色时直接出结果") { Checked = settings.DirectResults };
+        direct.Click += (_, _) => app.UpdateSettings(s => s.DirectResults = !s.DirectResults);
+        menu.Items.Add(direct);
+
         var autoStart = new Forms.ToolStripMenuItem("开机时启动") { Checked = SafeAutoStart() };
         autoStart.Click += (_, _) =>
         {

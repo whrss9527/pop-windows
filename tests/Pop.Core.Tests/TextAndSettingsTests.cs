@@ -72,16 +72,18 @@ public class AppSettingsTests
         Assert.Equal(250, s.HoldMilliseconds);
         Assert.True(s.CheckForUpdates);
         Assert.False(s.IncludePrerelease);
+        Assert.True(s.DirectResults);
     }
 
     [Fact]
     public void ReadsLenientlyAndClamps()
     {
-        var s = AppSettings.FromJson("""{"enabled":false,"holdMilliseconds":20,"checkForUpdates":"yes","IncludePrerelease":true,"unknown":1}""");
+        var s = AppSettings.FromJson("""{"enabled":false,"holdMilliseconds":20,"checkForUpdates":"yes","IncludePrerelease":true,"directResults":false,"unknown":1}""");
         Assert.False(s.Enabled);
         Assert.Equal(AppSettings.MinHold, s.HoldMilliseconds);
         Assert.True(s.CheckForUpdates);
         Assert.True(s.IncludePrerelease);
+        Assert.False(s.DirectResults);
     }
 
     [Fact]

@@ -27,6 +27,16 @@ public static class RingItems
         new("lower", "小写", "", true, ActionOutput.Replace),
     ];
 
+    /// 打开链接、邮箱或者路径，放在「搜索」那一格
+    public static readonly RingItem Open = new("open", "打开", "\uE8A7", true, ActionOutput.None);
+
+    /// 按选中的内容调整圆盘：选中链接、邮箱或路径时，「搜索」换成「打开」
+    public static IReadOnlyList<RingItem> For(ClassifiedContent content)
+    {
+        if (!content.Has(ContentKind.Url) && !content.Has(ContentKind.Email) && !content.Has(ContentKind.Files)) return Default;
+        return Default.Select(i => i.Id == "search" ? Open : i).ToList();
+    }
+
     /// 有没有选中文字时这一格能不能用
     public static bool IsAvailable(RingItem item, string? selection) =>
         !item.NeedsText || !string.IsNullOrEmpty(selection);

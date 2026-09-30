@@ -12,6 +12,9 @@ public sealed class AppSettings
     /// 按住多久算长按（毫秒）
     public int HoldMilliseconds { get; set; } = 250;
 
+    /// 选中算式、带单位的数值、颜色、时间戳时直接出结果，不弹圆盘
+    public bool DirectResults { get; set; } = true;
+
     /// 自动检查更新
     public bool CheckForUpdates { get; set; } = true;
 
@@ -62,6 +65,9 @@ public sealed class AppSettings
                         break;
                     case "holdmilliseconds" when p.Value.ValueKind == JsonValueKind.Number && p.Value.TryGetInt32(out var hold):
                         settings.HoldMilliseconds = Math.Clamp(hold, MinHold, MaxHold);
+                        break;
+                    case "directresults" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False:
+                        settings.DirectResults = p.Value.GetBoolean();
                         break;
                     case "checkforupdates" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False:
                         settings.CheckForUpdates = p.Value.GetBoolean();

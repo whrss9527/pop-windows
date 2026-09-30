@@ -42,7 +42,7 @@ internal sealed class App : Application
 
         hook = new InputHook { Enabled = Settings.Enabled, HoldMilliseconds = Settings.HoldMilliseconds };
         hook.Start();
-        coordinator = new Coordinator(Dispatcher, hook);
+        coordinator = new Coordinator(Dispatcher, hook, () => Settings);
         tray = new TrayIcon(this);
         Updater.Changed += OnUpdaterChanged;
         Updater.StartSchedule();
