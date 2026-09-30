@@ -11,7 +11,8 @@ internal sealed record Selection(string Text, string Source, string WindowClass,
 internal sealed class SelectionReader(ClipboardAccess clipboard)
 {
     private static readonly TimeSpan AutomationTimeout = TimeSpan.FromMilliseconds(600);
-    private static readonly TimeSpan CopyTimeout = TimeSpan.FromMilliseconds(500);
+    // 浏览器第一次被 UI Automation 访问时要先建立无障碍树，这期间对 Ctrl+C 的响应也会慢一些
+    private static readonly TimeSpan CopyTimeout = TimeSpan.FromMilliseconds(1000);
 
     public async Task<Selection> ReadAsync()
     {
@@ -37,20 +38,22 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         return new Selection(await ReadWithCopyAsync() ?? "", "copy", windowClass, process);
     }
 
+    /// 只查这一个进程；Process.GetProcessById 会枚举所有进程，浏览器开着很多子进程时要好几百毫秒
     private static string ProcessName(IntPtr hwnd)
     {
+        GetWindowThreadProcessId(hwnd, out var pid);
+        if (pid == 0) return "";
+        var handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (handle == IntPtr.Zero) return "";
         try
         {
-            GetWindowThreadProcessId(hwnd, out var pid);
-            return pid == 0 ? "" : Process.GetProcessById((int)pid).ProcessName;
+            var buffer = new System.Text.StringBuilder(1024);
+            var size = buffer.Capacity;
+            return QueryFullProcessImageName(handle, 0, buffer, ref size) ? Path.GetFileNameWithoutExtension(buffer.ToString()) : "";
         }
-        catch (ArgumentException)
+        finally
         {
-            return "";
-        }
-        catch (InvalidOperationException)
-        {
-            return "";
+            CloseHandle(handle);
         }
     }
 
@@ -80,7 +83,7 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         thread.Start();
         var done = await Task.WhenAny(source.Task, Task.Delay(AutomationTimeout));
         if (done == source.Task) return source.Task.Result;
-        Log.Info("UI Automation 读取超时");
+        Log.Info($"UI Automation 读取超时（{AutomationTimeout.TotalMilliseconds} ms），改用复制");
         return (false, null);
     }
 
