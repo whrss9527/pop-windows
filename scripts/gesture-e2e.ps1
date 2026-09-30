@@ -181,6 +181,34 @@ try {
     if ($clip -ne 'aGVsbG8gcG9wIHdvcmxk') { throw "全部功能 → 编码转换复制到的是「$clip」" }
     Write-Host '✓ 全部功能列表：搜索、执行、复制结果'
 
+    # 5c. 剪贴板历史：复制三段文字，Win+Alt+V 打开历史，搜「second」回车，粘贴到记事本
+    Set-NotepadText 'placeholder'
+    foreach ($item in 'first item', 'second item', 'third item') {
+        Set-Clipboard -Value $item
+        Start-Sleep -Milliseconds 500
+    }
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '(?s)剪贴板历史：记录.*剪贴板历史：记录.*剪贴板历史：记录' 10 | Out-Null
+    Set-Foreground $notepad.MainWindowHandle
+    Invoke-Key 0x41 -Ctrl
+    if ((Get-PopLog) -notmatch '快捷键 Win\+Alt\+V（剪贴板历史） 已注册') { throw "Win+Alt+V 没注册上：`n$(Get-PopLog)" }
+    [PopCi.Native]::keybd_event(0x5B, 0, 0, [UIntPtr]::Zero)   # Win
+    [PopCi.Native]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)   # Alt
+    Invoke-Key 0x56                                            # V
+    [PopCi.Native]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+    [PopCi.Native]::keybd_event(0x5B, 0, 2, [UIntPtr]::Zero)
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '剪贴板历史已显示' 10 | Out-Null
+    Start-Sleep -Milliseconds 500
+    Save-Screenshot (Join-Path $OutDir 'clipboard-history.png')
+    foreach ($vk in 0x53, 0x45, 0x43, 0x4F, 0x4E, 0x44) { Invoke-Key ([byte]$vk) }   # second
+    Start-Sleep -Milliseconds 300
+    Save-Screenshot (Join-Path $OutDir 'clipboard-history-search.png')
+    Invoke-Key 0x0D
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '剪贴板历史：粘贴' 10 | Out-Null
+    Start-Sleep -Milliseconds 800
+    $text = Get-NotepadText
+    if ($text.Trim() -ne 'second item') { throw "从剪贴板历史粘贴后记事本里是「$text」" }
+    Write-Host '✓ 剪贴板历史：记录、快捷键打开、搜索、粘贴'
+
     # 6. 浏览器：Chrome 和 Edge 里选中网页文字，长按 → 往上划「复制」
     $browsers = @(
         @{ Name = 'chrome'; Paths = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") },

@@ -73,6 +73,23 @@ public class AppSettingsTests
         Assert.True(s.CheckForUpdates);
         Assert.False(s.IncludePrerelease);
         Assert.True(s.DirectResults);
+        Assert.True(s.ClipboardHistory);
+        Assert.Equal(30, s.ClipboardRetentionDays);
+        Assert.Equal(500, s.ClipboardMaxItems);
+        Assert.Contains("KeePass", s.ClipboardExcludedApps);
+    }
+
+    [Fact]
+    public void ClipboardSettings()
+    {
+        var s = AppSettings.FromJson("""{"clipboardHistory":false,"clipboardRetentionDays":0,"clipboardMaxItems":5,"clipboardExcludedApps":["Foo"," ",3]}""");
+        Assert.False(s.ClipboardHistory);
+        Assert.Equal(1, s.ClipboardRetentionDays);
+        Assert.Equal(10, s.ClipboardMaxItems);
+        Assert.Equal(["Foo"], s.ClipboardExcludedApps);
+        var round = AppSettings.FromJson(s.ToJson());
+        Assert.Equal(["Foo"], round.ClipboardExcludedApps);
+        Assert.False(round.ClipboardHistory);
     }
 
     [Fact]

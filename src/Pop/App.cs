@@ -10,6 +10,8 @@ internal sealed class App : Application
     private InputHook? hook;
     private Coordinator? coordinator;
     private TrayIcon? tray;
+    private ClipboardHistory? history;
+    private HotKeys? hotKeys;
     private bool notifiedVersion;
 
     public App(StartupOptions options)
@@ -42,7 +44,21 @@ internal sealed class App : Application
 
         hook = new InputHook { Enabled = Settings.Enabled, HoldMilliseconds = Settings.HoldMilliseconds };
         hook.Start();
-        coordinator = new Coordinator(Dispatcher, hook, () => Settings);
+        history = new ClipboardHistory(() => Settings);
+        coordinator = new Coordinator(Dispatcher, hook, () => Settings, history);
+        hotKeys = new HotKeys();
+        // Win+Shift+V 被系统占用了；默认用 Win+Alt+V，也被占用时依次换下一个
+        foreach (var (modifiers, vk, name) in new (uint, uint, string)[]
+        {
+            (HotKeys.MOD_WIN | HotKeys.MOD_ALT, 0x56, "Win+Alt+V"),
+            (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x56, "Ctrl+Alt+Shift+V"),
+            (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x48, "Ctrl+Alt+Shift+H"),
+        })
+        {
+            if (!hotKeys.Register(modifiers, vk, $"{name}（剪贴板历史）", () => coordinator.ShowHistory())) continue;
+            HistoryHotKey = name;
+            break;
+        }
         tray = new TrayIcon(this);
         Updater.Changed += OnUpdaterChanged;
         Updater.StartSchedule();
@@ -66,6 +82,7 @@ internal sealed class App : Application
             hook.Enabled = Settings.Enabled;
             hook.HoldMilliseconds = Settings.HoldMilliseconds;
         }
+        history?.Cleanup();
     }
 
     public async Task CheckForUpdatesAsync(bool userInitiated)
@@ -94,9 +111,22 @@ internal sealed class App : Application
         }
     }
 
+    /// 剪贴板历史实际生效的快捷键；都注册不上时为 null
+    public string? HistoryHotKey { get; private set; }
+
+    public void ShowClipboardHistory() => coordinator?.ShowHistory();
+
+    public void ClearClipboardHistory()
+    {
+        history?.Store.Clear(keepPinned: true);
+        Log.Info("清空了剪贴板历史（保留固定的）");
+    }
+
     public void Quit()
     {
+        hotKeys?.Dispose();
         coordinator?.Dispose();
+        history?.Dispose();
         hook?.Dispose();
         tray?.Dispose();
         Updater.Dispose();

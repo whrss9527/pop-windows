@@ -238,6 +238,29 @@ internal static unsafe class Native
     [DllImport("kernel32.dll")]
     public static extern UIntPtr GlobalSize(IntPtr hMem);
 
+    [DllImport("user32.dll")]
+    public static extern bool GetCursorPos(out POINT point);
+
+    /// 窗口所属的程序名（不带 .exe）。只查这一个进程；Process.GetProcessById 会枚举所有进程，浏览器开着很多子进程时要好几百毫秒
+    public static string ProcessNameOf(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return "";
+        GetWindowThreadProcessId(hwnd, out var pid);
+        if (pid == 0) return "";
+        var handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (handle == IntPtr.Zero) return "";
+        try
+        {
+            var buffer = new StringBuilder(1024);
+            var size = buffer.Capacity;
+            return QueryFullProcessImageName(handle, 0, buffer, ref size) ? System.IO.Path.GetFileNameWithoutExtension(buffer.ToString()) : "";
+        }
+        finally
+        {
+            CloseHandle(handle);
+        }
+    }
+
     public static string WindowClass(IntPtr hwnd)
     {
         var sb = new StringBuilder(256);
