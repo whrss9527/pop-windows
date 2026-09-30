@@ -27,20 +27,10 @@ function Start-Pop([hashtable]$ExtraEnv = @{}) {
 }
 
 function Get-NotepadText {
-    $root = [System.Windows.Automation.AutomationElement]::FromHandle($notepad.MainWindowHandle)
-    $cond = New-Object System.Windows.Automation.OrCondition(
-        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Document)),
-        (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)))
-    $edit = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
-    if (-not $edit) { throw '找不到记事本的编辑区' }
-    $pattern = $null
-    if ($edit.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$pattern)) {
-        return $pattern.DocumentRange.GetText(-1)
-    }
-    if ($edit.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
-        return $pattern.Current.Value
-    }
-    throw '读不到记事本里的文字'
+    $notepad.Refresh()
+    $text = [PopCi.Native]::ReadEditText($notepad.MainWindowHandle)
+    if ($null -eq $text) { throw "找不到记事本的编辑区（窗口 $($notepad.MainWindowHandle)）" }
+    return $text
 }
 
 function Select-AllInNotepad {
@@ -130,7 +120,10 @@ try {
     Write-Host '✓ 深色外观截图'
 }
 finally {
-    Get-PopLog | Out-File (Join-Path $OutDir 'pop.log') -Encoding utf8
+    $log = Get-PopLog
+    $log | Out-File (Join-Path $OutDir 'pop.log') -Encoding utf8
+    Write-Host '---- pop.log ----'
+    Write-Host $log
     if ($notepad -and -not $notepad.HasExited) { $notepad.Kill() }
     if ($pop -and -not $pop.HasExited) { $pop.Kill() }
     Remove-Item Env:POP_LOG_SELECTION, Env:POP_ANIMATION_SCALE -ErrorAction SilentlyContinue

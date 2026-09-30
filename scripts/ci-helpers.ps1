@@ -24,6 +24,28 @@ namespace PopCi {
         [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
         [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
         [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr hwnd, uint msg, IntPtr wParam, StringBuilder lParam);
+        [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+        public delegate bool EnumProc(IntPtr hwnd, IntPtr lParam);
+        [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumProc proc, IntPtr lParam);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hwnd, StringBuilder name, int max);
+
+        // 记事本的编辑区：老版本是 Edit，新版本是 RichEditD2DPT
+        public static string ReadEditText(IntPtr top) {
+            IntPtr found = IntPtr.Zero;
+            EnumChildWindows(top, (h, _) => {
+                var sb = new StringBuilder(64);
+                GetClassName(h, sb, 64);
+                var cls = sb.ToString();
+                if (cls == "Edit" || cls.StartsWith("RichEdit")) { found = h; return false; }
+                return true;
+            }, IntPtr.Zero);
+            if (found == IntPtr.Zero) return null;
+            int len = (int)SendMessage(found, 0x000E, IntPtr.Zero, IntPtr.Zero);
+            var text = new StringBuilder(len + 1);
+            SendMessage(found, 0x000D, (IntPtr)(len + 1), text);
+            return text.ToString();
+        }
         [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     }
 }

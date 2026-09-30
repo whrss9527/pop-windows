@@ -65,6 +65,9 @@ jobs:
     needs: build-and-test
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    # 截图推到 ci-screenshots/<系统> 分支上
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -88,6 +91,26 @@ jobs:
           name: screenshots-${{ matrix.os }}
           path: screenshots
           if-no-files-found: ignore
+      # 每次覆盖 ci-screenshots/<系统> 分支，改了浮窗之后 git fetch 这个分支就能看到效果
+      - name: Push screenshots
+        if: always() && github.event_name == 'push'
+        run: |
+          if (-not (Test-Path screenshots)) { exit 0 }
+          $branch = "ci-screenshots/${{ matrix.os }}"
+          $dir = Join-Path $env:RUNNER_TEMP 'shots-repo'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item screenshots/* $dir
+          $readme = "${{ github.sha }} 在 ${{ matrix.os }} 上的截图（${{ github.ref_name }}）"
+          Set-Content -Path (Join-Path $dir 'README.md') -Value $readme -Encoding UTF8
+          Push-Location $dir
+          git init -q -b $branch
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -q -m "Screenshots for ${{ github.sha }}"
+          $token = '${{ github.token }}'
+          git push -f "https://x-access-token:$token@github.com/${{ github.repository }}.git" "HEAD:refs/heads/$branch"
+          Pop-Location
 
   update-e2e:
     needs: [version, build-and-test]

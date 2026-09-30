@@ -18,4 +18,4 @@
 ## 在 Linux / macOS 上开发
 
 - `dotnet build src/Pop` 能编译（`EnableWindowsTargeting`），但要用微软官方的 .NET SDK：一些发行版自己编译的 SDK 没有 `Microsoft.NET.Sdk.WindowsDesktop`，会报找不到 WindowsDesktop.targets。
-- 运行和界面效果只能在 Windows 上看：CI 的 `launch-smoke` 会上传截图（`screenshots-windows-2022` 等构建产物），圆盘弹出、高亮、结果卡片、深色外观都有。
+- 运行和界面效果只能在 Windows 上看：CI 的 `launch-smoke` 会把截图（圆盘弹出、高亮、结果卡片、短按弹出的系统菜单、深色外观）和 Pop 的日志推到 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 两个分支（每次覆盖），`git fetch origin ci-screenshots/windows-2022` 就能看到。
