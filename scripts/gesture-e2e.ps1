@@ -117,9 +117,13 @@ try {
     Invoke-RightDown
     Start-Sleep -Milliseconds 60
     Invoke-RightUp
-    Start-Sleep -Milliseconds 800
+    $menu = [IntPtr]::Zero
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Milliseconds 100
+        $menu = [PopCi.Native]::FindWindow('#32768', $null)
+        if ($menu -ne [IntPtr]::Zero -and [PopCi.Native]::IsWindowVisible($menu)) { break }
+    }
     Save-Screenshot (Join-Path $OutDir 'short-click-menu.png')
-    $menu = [PopCi.Native]::FindWindow('#32768', $null)
     if ($menu -eq [IntPtr]::Zero -or -not [PopCi.Native]::IsWindowVisible($menu)) { throw '短按右键没有弹出右键菜单' }
     Invoke-Key 0x1B
     Write-Host '✓ 短按右键弹出系统菜单'
@@ -195,10 +199,11 @@ try {
         Write-Host "✓ $name 里读取选中文字并复制"
     }
 
-    # 7. 深色外观下的圆盘截图
+    # 7. 深色外观下的圆盘截图（换回普通文字，不然会直接出结果卡片）
     Stop-Process -Id $pop.Id -Force
     Start-Sleep -Seconds 1
     $pop = Start-Pop @{ POP_APPEARANCE = 'dark' }
+    Set-NotepadText 'hello pop world'
     Select-AllInNotepad
     Invoke-LongPress 110 (-64) 'dark' -BackToCenter
     Write-Host '✓ 深色外观截图'
