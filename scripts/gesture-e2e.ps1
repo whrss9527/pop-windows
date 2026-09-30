@@ -17,6 +17,10 @@ function Start-Pop([hashtable]$ExtraEnv = @{}) {
     $env:POP_SMOKE_MARKER = $marker
     $env:POP_LOG_SELECTION = '1'
     $env:POP_ANIMATION_SCALE = '1'
+    # 不去访问 GitHub：共享 runner 的出口经常被接口限流
+    $emptyFeed = Join-Path $env:RUNNER_TEMP 'pop-empty-feed.json'
+    Set-Content -Path $emptyFeed -Value '[]'
+    $env:POP_UPDATE_FEED = $emptyFeed
     foreach ($k in $ExtraEnv.Keys) { Set-Item "Env:$k" $ExtraEnv[$k] }
     $p = Start-Process -FilePath $Exe -ArgumentList '--silent' -PassThru
     Wait-FileContains $marker 'started.*hooks=ok' 60 | Out-Null
@@ -39,15 +43,23 @@ function Select-AllInNotepad {
     Start-Sleep -Milliseconds 200
 }
 
-function Get-NotepadCenter {
+function Get-WindowCenter([IntPtr]$Hwnd) {
     $r = New-Object PopCi.Native+RECT
-    [PopCi.Native]::GetWindowRect($notepad.MainWindowHandle, [ref]$r) | Out-Null
+    [PopCi.Native]::GetWindowRect($Hwnd, [ref]$r) | Out-Null
     return @([int](($r.Left + $r.Right) / 2), [int](($r.Top + $r.Bottom) / 2))
 }
 
+function Get-NotepadCenter { Get-WindowCenter $notepad.MainWindowHandle }
+
+# Pop 不能在测试过程中退出（闪退）
+function Assert-PopAlive([string]$Step) {
+    if ($pop.HasExited) { throw "Pop 在「${Step}」时退出了，退出码 $($pop.ExitCode)" }
+}
+
 # 长按，往 (dx, dy) 方向划，截图，松开
-function Invoke-LongPress([int]$Dx, [int]$Dy, [string]$Shot, [switch]$BackToCenter) {
-    $cx, $cy = Get-NotepadCenter
+function Invoke-LongPress([int]$Dx, [int]$Dy, [string]$Shot, [switch]$BackToCenter, [IntPtr]$Hwnd = [IntPtr]::Zero) {
+    if ($Hwnd -eq [IntPtr]::Zero) { $Hwnd = $notepad.MainWindowHandle }
+    $cx, $cy = Get-WindowCenter $Hwnd
     [PopCi.Native]::SetCursorPos($cx, $cy) | Out-Null
     Start-Sleep -Milliseconds 100
     Invoke-RightDown
@@ -61,6 +73,7 @@ function Invoke-LongPress([int]$Dx, [int]$Dy, [string]$Shot, [switch]$BackToCent
     }
     Invoke-RightUp
     Start-Sleep -Milliseconds 700
+    Assert-PopAlive $Shot
 }
 
 try {
@@ -111,7 +124,45 @@ try {
     Invoke-Key 0x1B
     Write-Host '✓ 短按右键弹出系统菜单'
 
-    # 5. 深色外观下的圆盘截图
+    # 5. 浏览器：Chrome 和 Edge 里选中网页文字，长按 → 往上划「复制」
+    $browsers = @(
+        @{ Name = 'chrome'; Paths = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") },
+        @{ Name = 'msedge'; Paths = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") }
+    )
+    $browserText = 'browser text for pop'
+    $page = Join-Path $env:RUNNER_TEMP 'pop-browser.html'
+    Set-Content -Path $page -Encoding UTF8 -Value "<!doctype html><meta charset=`"utf-8`"><title>PopBrowserTest</title><body style=`"font-size:32px;margin:80px`"><p>$browserText</p></body>"
+    foreach ($browser in $browsers) {
+        $name = $browser.Name
+        $exePath = $browser.Paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if (-not $exePath) { throw "这台 runner 上没有 $name" }
+        $browserProfile = Join-Path $env:RUNNER_TEMP "pop-$name-profile"
+        Start-Process $exePath -ArgumentList '--no-first-run', '--no-default-browser-check', "--user-data-dir=`"$browserProfile`"", '--new-window', '--window-position=120,60', '--window-size=900,700', "`"$page`""
+        $browserWindow = [IntPtr]::Zero
+        for ($i = 0; $i -lt 60 -and $browserWindow -eq [IntPtr]::Zero; $i++) {
+            Start-Sleep -Milliseconds 500
+            $w = Get-Process $name -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like 'PopBrowserTest*' } | Select-Object -First 1
+            if ($w) { $browserWindow = $w.MainWindowHandle }
+        }
+        if ($browserWindow -eq [IntPtr]::Zero) {
+            Save-Screenshot (Join-Path $OutDir "$name-missing.png")
+            throw "$name 的窗口没有出现"
+        }
+        Start-Sleep -Seconds 2
+        Set-Foreground $browserWindow
+        Invoke-Key 0x41 -Ctrl   # Ctrl+A 选中整页文字
+        Set-Clipboard -Value 'before'
+        Invoke-LongPress 0 (-110) $name -Hwnd $browserWindow
+        Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') "窗口 Chrome_WidgetWin_1（$name）.*内容「$browserText」" 10 | Out-Null
+        Assert-PopAlive $name
+        $clip = (Get-Clipboard -Raw).Trim()
+        if ($clip -ne $browserText) { throw "$name 里复制到的是「$clip」" }
+        Get-Process $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+        Write-Host "✓ $name 里读取选中文字并复制"
+    }
+
+    # 6. 深色外观下的圆盘截图
     Stop-Process -Id $pop.Id -Force
     Start-Sleep -Seconds 1
     $pop = Start-Pop @{ POP_APPEARANCE = 'dark' }
@@ -131,5 +182,5 @@ finally {
     Write-Host $log
     if ($notepad -and -not $notepad.HasExited) { $notepad.Kill() }
     if ($pop -and -not $pop.HasExited) { $pop.Kill() }
-    Remove-Item Env:POP_LOG_SELECTION, Env:POP_ANIMATION_SCALE -ErrorAction SilentlyContinue
+    Remove-Item Env:POP_LOG_SELECTION, Env:POP_ANIMATION_SCALE, Env:POP_UPDATE_FEED -ErrorAction SilentlyContinue
 }

@@ -13,6 +13,7 @@
 - 项目里不要写「类似某某」「相当于某某的……」这种拿别的产品作比较的话，直接说功能本身。
 - 和系统无关的逻辑放在 `src/Pop.Core` 并写单元测试；`src/Pop` 里只放调用 Windows 接口和界面的代码。
 - 钩子回调（`InputHook`）里不能做耗时的事，也不能直接碰界面，统一 `Dispatcher.BeginInvoke` 到界面线程。
+- 读取其他 App 的界面用原生 UI Automation（`NativeAutomation.cs`，`Interop.UIAutomationClient` 包），不要用 .NET 自带的 `System.Windows.Automation`：它读 Chrome 时会在原生代码里崩溃，整个进程直接退出。
 - CI 脚本用 PowerShell 7（`shell: pwsh`），Windows PowerShell 5.1 会把不带 BOM 的中文脚本读成乱码。
 
 ## 在 Linux / macOS 上开发

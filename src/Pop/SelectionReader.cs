@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Windows.Automation;
 using Pop.Core;
 using static Pop.Native;
 
@@ -11,7 +10,7 @@ internal sealed record Selection(string Text, string Source, string WindowClass,
 /// 在界面线程上调用。
 internal sealed class SelectionReader(ClipboardAccess clipboard)
 {
-    private static readonly TimeSpan AutomationTimeout = TimeSpan.FromMilliseconds(400);
+    private static readonly TimeSpan AutomationTimeout = TimeSpan.FromMilliseconds(600);
     private static readonly TimeSpan CopyTimeout = TimeSpan.FromMilliseconds(500);
 
     public async Task<Selection> ReadAsync()
@@ -20,6 +19,8 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         var windowClass = WindowClass(foreground);
         var process = ProcessName(foreground);
 
+        // 读取前先记一笔：如果在读取过程中闪退，日志的最后一行能看出是在哪个窗口
+        Log.Info($"读取选中内容：窗口 {windowClass}（{process}）");
         var (supported, text) = await ReadWithAutomationAsync();
         if (!string.IsNullOrEmpty(text)) return new Selection(text, "uia", windowClass, process);
 
@@ -53,7 +54,9 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         }
     }
 
-    /// 在单独的线程上读，目标 App 卡住时不拖累 Pop
+    /// 在单独的线程上读，目标 App 卡住时不拖累 Pop。
+    /// 用 Windows 原生的 UI Automation（UIAutomationCore 的 COM 接口）：.NET 自带的 System.Windows.Automation
+    /// 是旧的客户端实现，读 Chrome 时会在原生代码里崩溃，整个进程直接退出，try/catch 也接不住。
     private static async Task<(bool Supported, string? Text)> ReadWithAutomationAsync()
     {
         var source = new TaskCompletionSource<(bool, string?)>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -61,15 +64,7 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         {
             try
             {
-                var element = AutomationElement.FocusedElement;
-                if (element?.TryGetCurrentPattern(TextPattern.Pattern, out var pattern) == true && pattern is TextPattern text)
-                {
-                    var ranges = text.GetSelection();
-                    var joined = string.Join("\n", ranges.Select(r => r.GetText(-1)));
-                    source.TrySetResult((true, joined));
-                    return;
-                }
-                source.TrySetResult((false, null));
+                source.TrySetResult(NativeAutomation.ReadFocusedSelection());
             }
             catch (Exception e)
             {
