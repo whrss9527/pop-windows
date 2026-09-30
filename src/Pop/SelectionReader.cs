@@ -116,17 +116,3 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         }
     }
 }
-
-/// 把结果粘贴回原来的 App（替换选中的文字），粘贴完把剪贴板恢复原样
-internal sealed class Paster(ClipboardAccess clipboard)
-{
-    public async Task PasteAsync(string text)
-    {
-        var snapshot = clipboard.Save();
-        if (!clipboard.SetText(text, temporary: true)) return;
-        InputInjector.CtrlChord(0x56); // V
-        // 目标 App 读剪贴板需要一点时间，太早恢复会粘贴出原来的内容
-        await Task.Delay(350);
-        clipboard.Restore(snapshot);
-    }
-}

@@ -186,6 +186,23 @@ internal static class Demo
                     Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var r);
                     Shot($"settings-{id}", new Drawing.Rectangle(r.Left - 16, r.Top - 16, r.Right - r.Left + 32, r.Bottom - r.Top + 32));
                 }
+                // 插件编辑器：一个脚本插件、一个网址插件，脚本插件先试运行一下
+                if (window is not null)
+                    foreach (var manifest in app.Plugins.Manifests.OrderBy(m => m.Action.Type == PluginActionType.Url ? 1 : 0).Take(2))
+                    {
+                        var editor = new PluginEditorWindow(app, manifest, isNew: false) { Owner = window };
+                        editor.Show();
+                        await Wait(700);
+                        if (manifest.Action.Type != PluginActionType.Url)
+                        {
+                            editor.RunTest();
+                            await Wait(900);
+                        }
+                        Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(editor).Handle, out var e);
+                        Shot($"plugin-editor-{PluginNames.Name(manifest.Action.Type)}", new Drawing.Rectangle(e.Left - 16, e.Top - 16, e.Right - e.Left + 32, e.Bottom - e.Top + 32));
+                        editor.Close();
+                        await Wait(250);
+                    }
                 window?.Close();
                 await Wait(250);
             });
@@ -220,6 +237,17 @@ internal static class Demo
 
         backdrop.Close();
         SmokeTest.Report("demo-done");
+    }
+
+    /// 演示用的插件：临时文件夹里放几个模板插件
+    public static string PluginFolder()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"pop-demo-plugins-{Guid.NewGuid():N}");
+        using var store = new PluginStore(folder);
+        foreach (var id in new[] { "github", "js-reverse", "shell-sort" })
+            if (PluginTemplates.All.FirstOrDefault(t => t.Id == id) is { } template)
+                store.Save(template.Manifest with { Id = PluginManifest.MakeId() });
+        return folder;
     }
 
     private static Task Wait(int milliseconds) => Task.Delay(TimeSpan.FromMilliseconds(milliseconds * Motion.Scale));

@@ -25,6 +25,8 @@ public enum ActionEffect
     CapturePin,
     /// 翻译 Text，结果显示在卡片上（要联网，由界面异步完成）
     Translate,
+    /// 在后台运行自定义插件（Text 是插件 ID）：调用 PluginRunner.RunAsync 得到真正要做的事
+    RunPlugin,
 }
 
 public sealed record ActionResult(ActionEffect Effect, string? Text = null, CardContent? Card = null)
@@ -34,6 +36,10 @@ public sealed record ActionResult(ActionEffect Effect, string? Text = null, Card
     public static ActionResult Copy(string text) => new(ActionEffect.Copy, text);
     public static ActionResult Open(string target) => new(ActionEffect.Open, target);
     public static ActionResult Toast(string message) => new(ActionEffect.Toast, message);
+    public static ActionResult RunPlugin(string pluginId) => new(ActionEffect.RunPlugin, pluginId);
+
+    /// 要在后台运行的插件 ID（只有 RunPlugin 有）
+    public string? PluginId => Effect == ActionEffect.RunPlugin ? Text : null;
 }
 
 /// 一个功能：圆盘上的一格，也是「全部功能」列表里的一项
@@ -78,9 +84,10 @@ public static partial class Actions
     public const string Convert = "转换";
     public const string Developer = "开发";
     public const string Screen = "屏幕";
+    public const string PluginCategory = "插件";
 
     /// 设置「功能」页里分组的顺序
-    public static readonly IReadOnlyList<string> Categories = [Common, TextCategory, Convert, Developer, Screen];
+    public static readonly IReadOnlyList<string> Categories = [Common, TextCategory, Convert, Developer, Screen, PluginCategory];
 
     public static readonly PopAction Copy = new("copy", "复制", "Copy24", "fz fuzhi copy", ContentKind.Text,
         c => ActionResult.Copy(c.Text), Category: Common, Summary: "复制选中的文字");
@@ -136,9 +143,23 @@ public static partial class Actions
         DirectResults.Card(content, kind) is { } card ? ActionResult.ShowCard(card) : null;
 
     private static readonly Lazy<IReadOnlyList<PopAction>> list = new(BuildList);
+    private static volatile IReadOnlyList<PopAction>? withPlugins;
 
-    /// 「全部功能」列表里的顺序。第一次用到时才构建：功能分在几个文件里，静态字段的初始化顺序不能依赖
-    public static IReadOnlyList<PopAction> List => list.Value;
+    /// 「全部功能」列表里的顺序：内置功能，后面是用户的插件。
+    /// 内置功能第一次用到时才构建：功能分在几个文件里，静态字段的初始化顺序不能依赖
+    public static IReadOnlyList<PopAction> List => withPlugins ?? list.Value;
+
+    /// 只有内置功能
+    public static IReadOnlyList<PopAction> BuiltIn => list.Value;
+
+    /// 用户的插件（插件文件夹变了时 App 调用 SetPlugins 更新）
+    public static IReadOnlyList<PopAction> Plugins => withPlugins is { } all ? all.Skip(list.Value.Count).ToList() : [];
+
+    public static void SetPlugins(IReadOnlyList<PopAction> plugins) =>
+        withPlugins = plugins.Count == 0 ? null : [.. list.Value, .. plugins];
+
+    /// 是不是内置功能的 ID（插件不能用）
+    public static bool IsBuiltIn(string id) => id == All.Id || list.Value.Any(a => a.Id == id);
 
     private static IReadOnlyList<PopAction> BuildList()
     {
@@ -147,7 +168,9 @@ public static partial class Actions
         return list;
     }
 
-    public static PopAction? Find(string id) => List.FirstOrDefault(a => a.Id == id) ?? (id == All.Id ? All : null);
+    public static PopAction? Find(string id) =>
+        List.FirstOrDefault(a => a.Id == id) ?? (id == All.Id ? All : null)
+        ?? Plugins.FirstOrDefault(a => string.Equals(a.Id, id, StringComparison.OrdinalIgnoreCase));
 
     /// 能不能停用：「全部功能」一直都在
     public static bool CanDisable(PopAction action) => action.Id != All.Id;

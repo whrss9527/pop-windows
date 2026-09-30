@@ -51,12 +51,20 @@ internal sealed class Coordinator : IDisposable
         public bool Finished { get; set; }
     }
 
-    public Coordinator(Dispatcher dispatcher, InputHook hook, Func<AppSettings> settings, ClipboardHistory history)
+    private readonly Func<PluginStore> plugins;
+    private readonly PluginRunner pluginRunner;
+
+    /// 正在运行的插件：关掉「正在运行」的卡片时取消
+    private CancellationTokenSource? pluginRun;
+
+    public Coordinator(Dispatcher dispatcher, InputHook hook, Func<AppSettings> settings, ClipboardHistory history, Func<PluginStore> plugins, PluginRunner pluginRunner)
     {
         this.dispatcher = dispatcher;
         this.hook = hook;
         this.settings = settings;
         this.history = history;
+        this.plugins = plugins;
+        this.pluginRunner = pluginRunner;
         reader = new SelectionReader(clipboard);
         reader.CopyStarting += () => history.Monitor.IgnoreChangesFor(SelectionReader.CopyIgnoreWindow);
         PinWindow.RecognizeRequested += async (png, px, py) => await RecognizeAsync(png, px, py);
@@ -65,7 +73,7 @@ internal sealed class Coordinator : IDisposable
             historyOpen = false;
             await PasteFromHistory(item);
         };
-        paster = new Paster(clipboard);
+        paster = new Paster();
 
         hook.Triggered += (x, y) => dispatcher.BeginInvoke(() => OnTriggered(x, y));
         hook.Moved += (x, y) => dispatcher.BeginInvoke(() => OnMoved(x, y));
@@ -80,7 +88,11 @@ internal sealed class Coordinator : IDisposable
         card.CopyRequested += text => clipboard.SetText(text, temporary: false);
         card.LinkRequested += Open;
         card.ReplaceRequested += async text => await Replace(text);
-        card.Dismissed += () => cardOpen = false;
+        card.Dismissed += () =>
+        {
+            cardOpen = false;
+            pluginRun?.Cancel();
+        };
         actionList.Chosen += async action =>
         {
             listOpen = false;
@@ -90,12 +102,21 @@ internal sealed class Coordinator : IDisposable
         };
     }
 
+    /// 启动后界面空闲时调用：先把第一次显示卡片要载入的东西载入好
+    public void WarmUp()
+    {
+        var watch = Stopwatch.StartNew();
+        card.WarmUp();
+        Log.Info($"卡片准备好了，用时 {watch.ElapsedMilliseconds} ms");
+    }
+
     public void Dispose()
     {
         ring.Close();
         card.Close();
         actionList.Close();
         historyWindow.Close();
+        paster.Dispose();
         clipboard.Dispose();
     }
 
@@ -111,9 +132,10 @@ internal sealed class Coordinator : IDisposable
 
         await Task.WhenAny(selection, Task.Delay(DirectWait));
         if (session != s || s.Finished) return;
+        ClassifiedContent? content = null;
         if (selection.IsCompleted)
         {
-            var content = ContentClassifier.Classify(selection.Result.Text);
+            content = ContentClassifier.Classify(selection.Result.Text);
             if (DirectResults.TranslatesDirectly(content, settings().DirectKindFlags))
             {
                 s.Finished = true;
@@ -128,17 +150,17 @@ internal sealed class Coordinator : IDisposable
                 ShowResult(x, y, direct);
                 return;
             }
-            if (s.ReleasedEarly)
-            {
-                // 还没看到圆盘就松开了，当作没按
-                s.Finished = true;
-                return;
-            }
-            ShowRing(s, content);
+        }
+        if (s.ReleasedEarly)
+        {
+            // 还没看到圆盘就松开了（Pop 忙的时候也会这样），当作没按
+            s.Finished = true;
+            Log.Info("圆盘弹出前就松开了，不执行");
             return;
         }
 
-        ShowRing(s, null);
+        ShowRing(s, content);
+        if (content is not null) return;
         var result = await selection;
         if (session == s && !s.Finished) UpdateRing(s, ContentClassifier.Classify(result.Text));
     }
@@ -150,12 +172,14 @@ internal sealed class Coordinator : IDisposable
 
     private void ShowRing(Session s, ClassifiedContent? content)
     {
+        var watch = Stopwatch.StartNew();
         s.Items = content is null ? Ring : RingItems.For(Ring, content);
         s.RingShown = true;
         ringCount = s.Items.Count;
         ringOpen = true;
         ring.ShowAt(s.X, s.Y, s.Items);
         if (content is not null) ring.SetContent(content, s.Items);
+        LogIfSlow("弹出圆盘", watch);
     }
 
     private void UpdateRing(Session s, ClassifiedContent content)
@@ -256,7 +280,12 @@ internal sealed class Coordinator : IDisposable
         static bool Down(int key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
         if (Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C))
         {
-            dispatcher.BeginInvoke(CloseList);
+            var held = HeldModifiers();
+            dispatcher.BeginInvoke(() =>
+            {
+                Log.Info($"全部功能列表：按着 {held} 按了别的键，关闭");
+                CloseList();
+            });
             return false;
         }
         var typed = TypedChar(vk);
@@ -468,7 +497,12 @@ internal sealed class Coordinator : IDisposable
         if (Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C))
         {
             if (vk is 0x11 or 0xA2 or 0xA3) return false; // 只按下了 Ctrl
-            dispatcher.BeginInvoke(CloseHistory);
+            var held = HeldModifiers();
+            dispatcher.BeginInvoke(() =>
+            {
+                Log.Info($"剪贴板历史：按着 {held} 按了别的键，关闭");
+                CloseHistory();
+            });
             return false;
         }
         switch (vk)
@@ -500,6 +534,17 @@ internal sealed class Coordinator : IDisposable
         return vk is not (0x10 or 0xA0 or 0xA1 or 0x14);
     }
 
+    /// 现在按着的 Ctrl、Alt、Win（写日志用；在钩子线程上只取状态，日志交给界面线程写）
+    private static string HeldModifiers()
+    {
+        static bool Down(int key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
+        var names = new List<string>();
+        if (Down(0x11)) names.Add("Ctrl");
+        if (Down(0x12)) names.Add("Alt");
+        if (Down(0x5B) || Down(0x5C)) names.Add("Win");
+        return string.Join("+", names);
+    }
+
     /// 搜索框能输入的字符：字母、数字、空格、减号、点
     private static char? TypedChar(int vk) => vk switch
     {
@@ -527,51 +572,95 @@ internal sealed class Coordinator : IDisposable
         }
         try
         {
-            var result = action.Run(content);
-            switch (result?.Effect)
-            {
-                case null:
-                    ShowToast(x, y, "选中的内容用不了这个功能");
-                    break;
-                case ActionEffect.Card when result.Card is { } resultCard:
-                    // 卡片没有自己的图标时用这个功能的图标
-                    ShowResult(x, y, resultCard.Icon is null && resultCard.Swatch is null ? resultCard with { Icon = action.Glyph } : resultCard);
-                    break;
-                case ActionEffect.Replace when result.Text is { } replacement:
-                    await Replace(replacement);
-                    break;
-                case ActionEffect.Copy when result.Text is { } copied:
-                    clipboard.SetText(copied, temporary: false);
-                    ShowToast(x, y, "已复制");
-                    break;
-                case ActionEffect.Translate when result.Text is { } source:
-                    await TranslateAsync(source, x, y);
-                    break;
-                case ActionEffect.Open when result.Text is { } target:
-                    Open(target);
-                    break;
-                case ActionEffect.Toast when result.Text is { } message:
-                    ShowToast(x, y, message);
-                    break;
-                case ActionEffect.ShowAll:
-                    ShowList(content, x, y);
-                    break;
-                case ActionEffect.ShowHistory:
-                    ShowHistory(x, y);
-                    break;
-                case ActionEffect.CaptureText:
-                    await CaptureTextAsync();
-                    break;
-                case ActionEffect.CapturePin:
-                    await CapturePinAsync();
-                    break;
-            }
+            await Handle(action.Run(content), action, content, x, y);
         }
         catch (Exception e)
         {
             Log.Error($"执行 {action.Id} 失败", e);
             ShowToast(x, y, "出错了，详情见日志");
         }
+    }
+
+    /// 按功能返回的结果做事：显示卡片、替换原文、复制、打开……
+    private async Task Handle(ActionResult? result, PopAction action, ClassifiedContent content, int x, int y)
+    {
+        switch (result?.Effect)
+        {
+            case null:
+                ShowToast(x, y, "选中的内容用不了这个功能");
+                break;
+            case ActionEffect.Card when result.Card is { } resultCard:
+                // 卡片没有自己的图标时用这个功能的图标
+                ShowResult(x, y, resultCard.Icon is null && resultCard.Swatch is null ? resultCard with { Icon = action.Glyph } : resultCard);
+                break;
+            case ActionEffect.Replace when result.Text is { } replacement:
+                await Replace(replacement);
+                break;
+            case ActionEffect.Copy when result.Text is { } copied:
+                clipboard.SetText(copied, temporary: false);
+                ShowToast(x, y, "已复制");
+                break;
+            case ActionEffect.Translate when result.Text is { } source:
+                await TranslateAsync(source, x, y);
+                break;
+            case ActionEffect.Open when result.Text is { } target:
+                Open(target);
+                break;
+            case ActionEffect.Toast when result.Text is { } message:
+                ShowToast(x, y, message);
+                break;
+            case ActionEffect.ShowAll:
+                ShowList(content, x, y);
+                break;
+            case ActionEffect.ShowHistory:
+                ShowHistory(x, y);
+                break;
+            case ActionEffect.CaptureText:
+                await CaptureTextAsync();
+                break;
+            case ActionEffect.CapturePin:
+                await CapturePinAsync();
+                break;
+            case ActionEffect.RunPlugin when result.PluginId is { } pluginId:
+                await RunPluginAsync(pluginId, action, content, x, y);
+                break;
+        }
+    }
+
+    /// 运行用户的插件。脚本可能要跑一会儿：300 毫秒还没结束就先显示「正在运行」，关掉卡片就停止脚本
+    private async Task RunPluginAsync(string id, PopAction action, ClassifiedContent content, int x, int y)
+    {
+        if (plugins().Find(id) is not { } manifest)
+        {
+            ShowToast(x, y, "找不到这个插件，可能已经删掉了");
+            return;
+        }
+        pluginRun?.Cancel();
+        using var run = new CancellationTokenSource();
+        pluginRun = run;
+        var watch = Stopwatch.StartNew();
+        var task = pluginRunner.RunAsync(manifest, content, run.Token);
+        if (await Task.WhenAny(task, Task.Delay(300)) != task)
+            ShowResult(x, y, new CardContent(manifest.DisplayName, [], Body: "正在运行…", Icon: action.Glyph, Loading: true));
+        ActionResult? result;
+        try
+        {
+            result = await task;
+        }
+        catch (OperationCanceledException)
+        {
+            Log.Info($"插件 {id}：取消了");
+            return;
+        }
+        finally
+        {
+            if (ReferenceEquals(pluginRun, run)) pluginRun = null;
+        }
+        Log.Info($"插件 {id}（{PluginNames.Name(manifest.Action.Type)}）：{result?.Effect.ToString() ?? "内容用不了"}，用时 {watch.ElapsedMilliseconds} ms");
+        if (run.IsCancellationRequested) return;
+        // 「正在运行」的卡片：结果不是卡片或者轻提示时先关掉它（替换原文要回到原来的 App）
+        if (cardOpen && result?.Effect is ActionEffect.Replace or ActionEffect.Open or ActionEffect.None) CloseCard();
+        await Handle(result, action, content, x, y);
     }
 
     private readonly System.Net.Http.HttpClient http = new() { Timeout = TimeSpan.FromSeconds(15) };
@@ -617,14 +706,30 @@ internal sealed class Coordinator : IDisposable
 
     private void ShowResult(int x, int y, CardContent content)
     {
+        var watch = Stopwatch.StartNew();
         card.ShowResult(x, y, content);
         cardOpen = true;
+        LogIfSlow("显示卡片", watch);
+    }
+
+    /// 界面线程被占住太久时记一笔：这期间长按、松开都在排队，圆盘和卡片也不会动
+    private static void LogIfSlow(string what, Stopwatch watch)
+    {
+        if (watch.ElapsedMilliseconds >= 200) Log.Info($"{what}用了 {watch.ElapsedMilliseconds} ms");
     }
 
     private async Task Replace(string text)
     {
         Log.Info("替换原文");
-        await paster.PasteAsync(text);
+        var result = await paster.PasteAsync(text);
+        var others = result.OtherReaders.Count > 0 ? $"（{string.Join("、", result.OtherReaders.Distinct())} 也读了剪贴板）" : "";
+        Log.Info(result.Outcome switch
+        {
+            Paster.Outcome.Pasted => $"粘贴完成：目标 App 过了 {result.Milliseconds} ms 来读，原来的剪贴板已恢复{others}",
+            Paster.Outcome.NotRead => $"目标 App {Paster.Deadline.TotalSeconds:0} 秒内没有来读剪贴板，原来的内容已恢复{others}",
+            Paster.Outcome.Replaced => "粘贴期间剪贴板里放进了别的内容，不再恢复原来的",
+            _ => "替换原文失败：打不开剪贴板",
+        });
     }
 
     private void ShowToast(int x, int y, string message)

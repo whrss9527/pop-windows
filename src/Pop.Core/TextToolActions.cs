@@ -23,7 +23,7 @@ public static partial class Actions
         _ => Lines("随机生成", RandomGenerator.Rows(), monospace: true),
         Category: Developer, Summary: "UUID、密码、随机数字");
 
-    public static readonly PopAction Extract = new("extract", "提取信息", "LinkMultiple24", "tq tiqu lj lianjie yx youxiang dh dianhua ip extract",
+    public static readonly PopAction Extract = new("extract", "提取信息", "TextBulletListSquareSearch20", "tq tiqu lj lianjie yx youxiang dh dianhua ip extract",
         ContentKind.Text,
         c => ActionResult.ShowCard(InfoExtractor.Card(InfoExtractor.Extract(c.Text))),
         c => InfoExtractor.IsWorthExtracting(c.Text),

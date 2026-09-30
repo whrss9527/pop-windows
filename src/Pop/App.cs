@@ -13,6 +13,7 @@ internal sealed class App : Application
     private readonly StartupOptions options;
     private InputHook? hook;
     private Coordinator? coordinator;
+    private UiWatchdog? watchdog;
     private TrayIcon? tray;
     private ClipboardHistory? history;
     private HotKeys? hotKeys;
@@ -30,6 +31,15 @@ internal sealed class App : Application
     public AppSettings Settings { get; private set; }
     public Updater Updater { get; }
 
+    /// 用户的插件（插件文件夹）；OnStartup 里创建
+    public PluginStore Plugins { get; private set; } = null!;
+
+    /// 运行插件：脚本的临时文件放在 %LOCALAPPDATA%\Pop\plugin-scripts
+    public PluginRunner PluginRunner { get; } = new(scriptDirectory: Path.Combine(Paths.LocalData, "plugin-scripts"));
+
+    /// 插件增加、删除或者改了（界面线程上触发）
+    public event Action? PluginsChanged;
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -41,6 +51,8 @@ internal sealed class App : Application
         SetUpAppearance();
         if (options.DemoShots is { } shots)
         {
+            // 演示用的插件放在临时文件夹里
+            SetUpPlugins(Demo.PluginFolder());
             // 演示模式不注册快捷键，界面上显示默认的那几个
             HistoryHotKey = "Win+Alt+V";
             OcrHotKey = "Win+Alt+O";
@@ -59,10 +71,13 @@ internal sealed class App : Application
             return;
         }
 
+        SetUpPlugins(Paths.Plugins);
         hook = new InputHook { Enabled = Settings.Enabled, HoldMilliseconds = Settings.HoldMilliseconds };
         hook.Start();
+        NativeAutomation.WarmUp();
         history = new ClipboardHistory(() => Settings);
-        coordinator = new Coordinator(Dispatcher, hook, () => Settings, history);
+        coordinator = new Coordinator(Dispatcher, hook, () => Settings, history, () => Plugins, PluginRunner);
+        watchdog = new UiWatchdog(Dispatcher);
         hotKeys = new HotKeys();
         // Win+Shift+V 被系统占用了；默认用 Win+Alt+V，也被占用时依次换下一个
         HistoryHotKey = RegisterFirst("剪贴板历史", () => coordinator.ShowHistory(), (HotKeys.MOD_WIN | HotKeys.MOD_ALT, 0x56, "Win+Alt+V"),
@@ -83,6 +98,7 @@ internal sealed class App : Application
         if (!System.IO.File.Exists(Paths.Settings)) SaveSettings();
 
         if (options.ShowSettings) ShowSettings();
+        if (!SmokeTest.ExitAfterStart) _ = Dispatcher.BeginInvoke(() => coordinator.WarmUp(), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         SmokeTest.Report($"started version={Updater.CurrentVersion} hooks={(hook.IsInstalled ? "ok" : "failed")} updated-from={options.UpdatedFrom ?? "-"}");
         if (SmokeTest.ExitAfterStart) Quit();
     }
@@ -104,6 +120,24 @@ internal sealed class App : Application
     }
 
     public bool IsDemo => options.DemoShots is not null;
+
+    // ── 插件 ──────────────────────────────────────────
+
+    private void SetUpPlugins(string directory)
+    {
+        Plugins = new PluginStore(directory);
+        Actions.SetPlugins(PluginRunner.ToActions(Plugins.Manifests));
+        Plugins.Changed += (_, _) => Dispatcher.BeginInvoke(OnPluginsChanged);
+        if (!IsDemo) Plugins.StartWatching();
+        Log.Info($"插件：{Plugins.Manifests.Count} 个{(Plugins.LoadErrors.Count > 0 ? $"，{Plugins.LoadErrors.Count} 个文件读不了" : "")}");
+    }
+
+    private void OnPluginsChanged()
+    {
+        Actions.SetPlugins(PluginRunner.ToActions(Plugins.Manifests));
+        Log.Info($"插件有变化：现在 {Plugins.Manifests.Count} 个{(Plugins.LoadErrors.Count > 0 ? $"，{Plugins.LoadErrors.Count} 个文件读不了" : "")}");
+        PluginsChanged?.Invoke();
+    }
 
     // ── 外观 ──────────────────────────────────────────
 
@@ -233,8 +267,10 @@ internal sealed class App : Application
     public void Quit()
     {
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+        watchdog?.Dispose();
         hotKeys?.Dispose();
         coordinator?.Dispose();
+        Plugins?.Dispose();
         history?.Dispose();
         hook?.Dispose();
         tray?.Dispose();

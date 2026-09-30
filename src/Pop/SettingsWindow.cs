@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -12,6 +13,7 @@ using Shape = System.Windows.Shapes.Shape;
 using Pop.Core;
 using WpfUi = Wpf.Ui.Controls;
 using Symbol = Wpf.Ui.Controls.SymbolRegular;
+using static Pop.SettingsUi;
 
 namespace Pop;
 
@@ -52,6 +54,7 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
         Height = 720;
         MinWidth = 720;
         MinHeight = 520;
+        FitToWorkArea(this);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ExtendsContentIntoTitleBar = true;
         WindowBackdropType = WpfUi.WindowBackdropType.Mica;
@@ -86,10 +89,12 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
         };
         app.SettingsChanged += OnSettingsChanged;
         app.Updater.Changed += OnUpdaterChanged;
+        app.PluginsChanged += OnPluginsChanged;
         Closed += (_, _) =>
         {
             app.SettingsChanged -= OnSettingsChanged;
             app.Updater.Changed -= OnUpdaterChanged;
+            app.PluginsChanged -= OnPluginsChanged;
             http?.Dispose();
         };
         Navigate(page ?? "general");
@@ -114,6 +119,12 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
     private void OnSettingsChanged()
     {
         if (!updating) Dispatcher.BeginInvoke(() => ShowPage(animate: false));
+    }
+
+    /// 插件增加、删除或者改了：功能页和圆盘页要重画
+    private void OnPluginsChanged()
+    {
+        if (current is "actions" or "ring") Dispatcher.BeginInvoke(() => ShowPage(animate: false));
     }
 
     private void OnUpdaterChanged()
@@ -527,38 +538,231 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
     private void ActionsPage(StackPanel page)
     {
         var s = Settings;
-        var all = Actions.List.Append(Actions.All).ToList();
-        var on = all.Count(a => s.IsEnabled(a.Id));
         page.Children.Add(Note("用不上的功能可以关掉：关掉的功能不出现在圆盘和「全部功能」列表里，圆盘上空出来的格子自动换成别的功能，选中内容时也不再直接出它的结果。"));
+        PluginsSection(page);
 
+        var builtIn = Actions.BuiltIn.Append(Actions.All).ToList();
+        var on = builtIn.Count(a => s.IsEnabled(a.Id));
+        page.Children.Add(Section("内置功能"));
         var enableAll = ActionButton("全部打开", Symbol.CheckmarkCircle24, () =>
         {
-            Update(x => x.DisabledActions.Clear());
+            Update(x => x.DisabledActions.RemoveAll(id => Actions.IsBuiltIn(id)));
             ShowPage(animate: false);
         });
-        enableAll.IsEnabled = on < all.Count;
-        page.Children.Add(Card(Symbol.Apps24, $"已打开 {on} 个功能，共 {all.Count} 个", null, enableAll));
+        enableAll.IsEnabled = on < builtIn.Count;
+        page.Children.Add(Card(Symbol.Apps24, $"已打开 {on} 个内置功能，共 {builtIn.Count} 个", null, enableAll));
 
-        foreach (var category in Actions.Categories)
+        foreach (var category in Actions.Categories.Where(c => c != Actions.PluginCategory))
         {
-            var actions = all.Where(a => a.Category == category).ToList();
+            var actions = builtIn.Where(a => a.Category == category).ToList();
             if (actions.Count == 0) continue;
             page.Children.Add(Section(category));
             var rows = new List<UIElement>();
             foreach (var action in actions)
             {
                 var canDisable = Actions.CanDisable(action);
-                var toggle = Toggle(s.IsEnabled(action.Id), v => Update(x =>
-                {
-                    x.DisabledActions.RemoveAll(id => string.Equals(id, action.Id, StringComparison.OrdinalIgnoreCase));
-                    if (!v) x.DisabledActions.Add(action.Id);
-                }));
+                var toggle = EnableToggle(action.Id);
                 toggle.IsEnabled = canDisable;
                 var summary = canDisable ? action.Summary : $"{action.Summary}。一直打开，其他功能都能从这里找到";
                 rows.Add(Row(Icons.Parse(action.Glyph), action.Title, summary, toggle));
             }
             page.Children.Add(Group(null, rows));
         }
+    }
+
+    private WpfUi.ToggleSwitch EnableToggle(string id) => Toggle(Settings.IsEnabled(id), v => Update(x =>
+    {
+        x.DisabledActions.RemoveAll(d => string.Equals(d, id, StringComparison.OrdinalIgnoreCase));
+        if (!v) x.DisabledActions.Add(id);
+    }));
+
+    // ── 插件 ────────────────────────────────────────────
+
+    /// 「我的插件」：每个插件一行（开关、编辑、更多），下面是新建、导入、打开插件文件夹
+    private void PluginsSection(StackPanel page)
+    {
+        var store = app.Plugins;
+        page.Children.Add(Section("我的插件"));
+        var rows = new List<UIElement>();
+        foreach (var manifest in store.Manifests)
+        {
+            var edit = ActionButton("编辑", null, () => EditPlugin(manifest, isNew: false));
+            var more = new WpfUi.Button
+            {
+                Icon = new WpfUi.SymbolIcon { Symbol = Symbol.MoreHorizontal24, FontSize = 16 },
+                Width = 34,
+                Height = 32,
+                Padding = new Thickness(0),
+                Margin = new Thickness(8, 0, 0, 0),
+                ToolTip = "更多",
+            };
+            System.Windows.Automation.AutomationProperties.SetName(more, $"{manifest.DisplayName}：更多");
+            more.Click += (_, _) => PluginMenu(manifest, more);
+            var toggle = EnableToggle(manifest.Id);
+            toggle.Margin = new Thickness(0, 0, 16, 0);
+            var detail = manifest.Summary.Length > 0 ? manifest.Summary : string.Join("、", manifest.Match.Kinds.Select(PluginKinds.Title));
+            var subtitle = detail.Length == 0 ? PluginNames.Title(manifest.Action.Type) : $"{PluginNames.Title(manifest.Action.Type)} · {detail}";
+            rows.Add(Row(Icons.Parse(PluginGlyphs.Resolve(manifest), Symbol.PuzzlePiece24), manifest.DisplayName, subtitle, Horizontal(toggle, edit, more)));
+        }
+        foreach (var (file, problem) in store.LoadErrors.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var warning = Row(Symbol.Warning24, file, problem, null);
+            ((FrameworkElement)warning.Children[0]).SetResourceReference(ForegroundProperty, "SystemFillColorCautionBrush");
+            rows.Add(warning);
+        }
+        if (rows.Count == 0)
+            rows.Add(Row(Symbol.PuzzlePiece24, "还没有自己的插件", "可以从模板新建：用网址模板接入任何网站的搜索，用 PowerShell 或 JavaScript 脚本处理选中的文字", null));
+
+        var create = ActionButton("新建插件", Symbol.Add24, () => { }, WpfUi.ControlAppearance.Primary);
+        create.Click += (_, _) => TemplateMenu(create);
+        var import = ActionButton("导入…", Symbol.ArrowImport24, ImportPlugins);
+        import.Margin = new Thickness(8, 0, 0, 0);
+        var folder = ActionButton("打开插件文件夹", Symbol.FolderOpen24, () => OpenFolder(store.Directory));
+        var bar = new DockPanel { Margin = new Thickness(16, 12, 16, 12), LastChildFill = false };
+        var left = Horizontal(create, import);
+        DockPanel.SetDock(left, Dock.Left);
+        DockPanel.SetDock(folder, Dock.Right);
+        bar.Children.Add(left);
+        bar.Children.Add(folder);
+        rows.Add(bar);
+        page.Children.Add(Group(null, rows));
+        var note = Note("每个插件是插件文件夹里的一个 JSON 文件，可以直接编辑、拷给别人，和 macOS 版的 Pop 通用。插件和内置功能一样，可以放到圆盘上，也可以在「全部功能」里搜到。");
+        note.Margin = new Thickness(2, 8, 0, 0);
+        page.Children.Add(note);
+    }
+
+    /// 「新建插件」的模板菜单
+    private void TemplateMenu(FrameworkElement anchor)
+    {
+        var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.Bottom };
+        foreach (var template in PluginTemplates.All)
+        {
+            var item = new MenuItem
+            {
+                Header = template.Title,
+                Icon = new WpfUi.SymbolIcon { Symbol = Icons.Parse(PluginGlyphs.Resolve(template.Manifest), Symbol.PuzzlePiece24), FontSize = 16 },
+            };
+            item.Click += (_, _) => EditPlugin(template.Manifest with { Id = PluginManifest.MakeId() }, isNew: true);
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+
+    /// 插件那一行的「更多」菜单：导出、在文件夹中显示、删除
+    private void PluginMenu(PluginManifest manifest, FrameworkElement anchor)
+    {
+        var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.Bottom };
+        void Add(string title, Symbol icon, Action action)
+        {
+            var item = new MenuItem { Header = title, Icon = new WpfUi.SymbolIcon { Symbol = icon, FontSize = 16 } };
+            item.Click += (_, _) => action();
+            menu.Items.Add(item);
+        }
+        Add("导出…", Symbol.ArrowExport24, () => ExportPlugin(manifest));
+        Add("在文件夹中显示", Symbol.FolderOpen24, () => RevealPlugin(manifest));
+        menu.Items.Add(new Separator());
+        Add("删除", Symbol.Delete24, async () => await DeletePlugin(manifest));
+        menu.IsOpen = true;
+    }
+
+    private void EditPlugin(PluginManifest manifest, bool isNew)
+    {
+        if (PluginEditorWindow.Edit(this, app, manifest, isNew) is { } saved && isNew)
+        {
+            // 新建的插件默认打开；圆盘上有空的格子就放上去
+            Update(x => x.DisabledActions.RemoveAll(d => string.Equals(d, saved.Id, StringComparison.OrdinalIgnoreCase)));
+        }
+    }
+
+    private void ImportPlugins()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "Pop 插件 (*.json)|*.json", Multiselect = true, Title = "导入插件" };
+        if (dialog.ShowDialog(this) != true) return;
+        var problems = new List<string>();
+        foreach (var path in dialog.FileNames)
+        {
+            try
+            {
+                var imported = app.Plugins.ImportFile(path);
+                Log.Info($"插件：导入了 {imported.Id}");
+            }
+            catch (PluginStoreException e)
+            {
+                problems.Add($"{Path.GetFileName(path)}：{e.Message}");
+            }
+        }
+        if (problems.Count > 0) _ = ShowMessage("有的插件没有导入", string.Join("\n", problems));
+    }
+
+    private void ExportPlugin(PluginManifest manifest)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Filter = "Pop 插件 (*.json)|*.json",
+            FileName = $"{string.Concat(manifest.DisplayName.Split(Path.GetInvalidFileNameChars()))}.json",
+            Title = "导出插件",
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            PluginStore.Export(manifest, dialog.FileName);
+        }
+        catch (PluginStoreException e)
+        {
+            _ = ShowMessage("没有导出", e.Message);
+        }
+    }
+
+    private void RevealPlugin(PluginManifest manifest)
+    {
+        if (app.Plugins.FilePath(manifest.Id) is not { } path) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+        }
+        catch (System.ComponentModel.Win32Exception e)
+        {
+            Log.Error("打开插件文件夹失败", e);
+        }
+    }
+
+    private async Task DeletePlugin(PluginManifest manifest)
+    {
+        var confirm = new WpfUi.MessageBox
+        {
+            Title = $"删除「{manifest.DisplayName}」？",
+            Content = "插件文件会被删除，不能恢复。想留着的话可以先导出。",
+            PrimaryButtonText = "删除",
+            CloseButtonText = "取消",
+            Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            FontFamily = Theme.TextFont,
+        };
+        if (await confirm.ShowDialogAsync() != WpfUi.MessageBoxResult.Primary) return;
+        try
+        {
+            app.Plugins.Delete(manifest.Id);
+            Update(x => x.DisabledActions.RemoveAll(d => string.Equals(d, manifest.Id, StringComparison.OrdinalIgnoreCase)));
+            Log.Info($"插件：删除了 {manifest.Id}");
+        }
+        catch (PluginStoreException e)
+        {
+            await ShowMessage("没有删除", e.Message);
+        }
+    }
+
+    private async Task ShowMessage(string title, string text)
+    {
+        var box = new WpfUi.MessageBox
+        {
+            Title = title,
+            Content = text,
+            CloseButtonText = "好",
+            Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            FontFamily = Theme.TextFont,
+        };
+        await box.ShowDialogAsync();
     }
 
     // ── 翻译 ────────────────────────────────────────────
@@ -870,6 +1074,7 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
             Row(null, "WPF-UI 和 Fluent System Icons", "界面控件和图标，MIT 许可", null, indent: 2),
             Row(null, "Microsoft.Data.Sqlite 和 SQLitePCLRaw", "剪贴板历史的数据库，MIT 和 Apache 2.0 许可", null, indent: 2),
             Row(null, "Interop.UIAutomationClient", "读取其他 App 里选中的文字，MIT 许可", null, indent: 2),
+            Row(null, "Jint 和 Acornima", "运行 JavaScript 插件，BSD 许可", null, indent: 2),
         ]));
     }
 
@@ -915,172 +1120,5 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
         {
             Log.Error("打开字体许可失败", e);
         }
-    }
-
-    // ── 卡片和控件 ──────────────────────────────────────
-
-    private static TextBlock Label(string text, double size, string brush, FontWeight? weight = null, FontFamily? font = null)
-    {
-        var label = new TextBlock { Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap };
-        if (weight is { } w) label.FontWeight = w;
-        if (font is not null) label.FontFamily = font;
-        label.SetResourceReference(TextBlock.ForegroundProperty, brush);
-        return label;
-    }
-
-    private static TextBlock Section(string text, bool first = false)
-    {
-        var label = Label(text, Theme.Body, "TextFillColorPrimaryBrush", FontWeights.SemiBold);
-        label.Margin = new Thickness(2, first ? 0 : 28, 0, 8);
-        return label;
-    }
-
-    private static TextBlock Note(string text)
-    {
-        var label = Label(text, Theme.Body, "TextFillColorSecondaryBrush");
-        label.Margin = new Thickness(2, 0, 0, 16);
-        label.LineHeight = 22;
-        return label;
-    }
-
-    private static StackPanel Horizontal(params UIElement[] children)
-    {
-        var panel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        foreach (var child in children) panel.Children.Add(child);
-        return panel;
-    }
-
-    /// 卡片底：圆角、浅浅的描边，颜色跟着深浅色走
-    private static Border CardBorder(UIElement child)
-    {
-        var card = new Border
-        {
-            Child = child,
-            CornerRadius = new CornerRadius(Theme.ControlRadius + 2),
-            BorderThickness = new Thickness(1),
-            Margin = new Thickness(0, 0, 0, 4),
-        };
-        card.SetResourceReference(Border.BackgroundProperty, "CardBackgroundFillColorDefaultBrush");
-        card.SetResourceReference(Border.BorderBrushProperty, "CardStrokeColorDefaultBrush");
-        return card;
-    }
-
-    /// 一张设置卡片：图标、标题和说明在左边，控件在右边
-    private static Border Card(Symbol? icon, string title, string? description, UIElement? control) =>
-        CardBorder(Row(icon, title, description, control));
-
-    /// 一组设置：上面是一行总开关（可以没有），下面几行用细线隔开
-    private static Border Group(UIElement? header, IReadOnlyList<UIElement> rows)
-    {
-        var stack = new StackPanel();
-        if (header is not null) stack.Children.Add(header);
-        var items = new StackPanel();
-        for (var i = 0; i < rows.Count; i++)
-        {
-            if (i > 0 || header is not null) items.Children.Add(Divider());
-            items.Children.Add(rows[i]);
-        }
-        if (header is not null)
-        {
-            var nested = new Border { Child = items, CornerRadius = new CornerRadius(0, 0, Theme.ControlRadius + 1, Theme.ControlRadius + 1) };
-            nested.SetResourceReference(Border.BackgroundProperty, "CardBackgroundFillColorSecondaryBrush");
-            stack.Children.Add(nested);
-        }
-        else
-        {
-            stack.Children.Add(items);
-        }
-        return CardBorder(stack);
-    }
-
-    private static Border Divider()
-    {
-        var line = new Border { Height = 1 };
-        line.SetResourceReference(Border.BackgroundProperty, "DividerStrokeColorDefaultBrush");
-        return line;
-    }
-
-    private static Grid Row(Symbol? icon, string title, string? description, UIElement? control, double indent = 0)
-    {
-        var grid = new Grid { MinHeight = description is null ? 56 : 68, Margin = new Thickness(18 + indent, 0, 16, 0) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition());
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        if (icon is { } symbol)
-        {
-            var glyph = new WpfUi.SymbolIcon { Symbol = symbol, FontSize = 20, Margin = new Thickness(0, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center };
-            glyph.SetResourceReference(ForegroundProperty, "TextFillColorPrimaryBrush");
-            grid.Children.Add(glyph);
-        }
-        var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 12, 0, 12) };
-        texts.Children.Add(Label(title, Theme.Body, "TextFillColorPrimaryBrush"));
-        if (description is not null)
-        {
-            var note = Label(description, Theme.Caption, "TextFillColorSecondaryBrush");
-            note.Margin = new Thickness(0, 2, 0, 0);
-            texts.Children.Add(note);
-        }
-        Grid.SetColumn(texts, 1);
-        grid.Children.Add(texts);
-        if (control is FrameworkElement element)
-        {
-            element.VerticalAlignment = VerticalAlignment.Center;
-            element.Margin = new Thickness(24, element.Margin.Top, 0, element.Margin.Bottom);
-            Grid.SetColumn(element, 2);
-            grid.Children.Add(element);
-        }
-        return grid;
-    }
-
-    private static WpfUi.ToggleSwitch Toggle(bool value, Action<bool> set)
-    {
-        var toggle = new WpfUi.ToggleSwitch
-        {
-            IsChecked = value,
-            OnContent = "开",
-            OffContent = "关",
-            LabelPosition = WpfUi.ElementPlacement.Left,
-        };
-        toggle.Click += (_, _) => set(toggle.IsChecked == true);
-        return toggle;
-    }
-
-    private static WpfUi.Button ActionButton(string text, Symbol? icon, Action click, WpfUi.ControlAppearance appearance = WpfUi.ControlAppearance.Secondary)
-    {
-        var button = new WpfUi.Button
-        {
-            Content = text,
-            Appearance = appearance,
-            Padding = new Thickness(14, 6, 14, 7),
-            MinWidth = 88,
-        };
-        if (icon is { } symbol) button.Icon = new WpfUi.SymbolIcon { Symbol = symbol, FontSize = 16 };
-        button.Click += (_, _) => click();
-        return button;
-    }
-
-    /// 快捷键的键帽
-    private static UIElement Keys(string? combination)
-    {
-        if (combination is null) return Label("未注册", Theme.Body, "TextFillColorTertiaryBrush");
-        var panel = new StackPanel { Orientation = Orientation.Horizontal };
-        foreach (var key in combination.Split('+'))
-        {
-            var text = new TextBlock { Text = key, FontSize = Theme.Caption, HorizontalAlignment = HorizontalAlignment.Center };
-            text.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorPrimaryBrush");
-            var cap = new Border
-            {
-                MinWidth = 30,
-                Padding = new Thickness(9, 3, 9, 4),
-                Margin = new Thickness(4, 0, 0, 0),
-                CornerRadius = new CornerRadius(5),
-                BorderThickness = new Thickness(1, 1, 1, 2),
-                Child = text,
-            };
-            cap.SetResourceReference(Border.BackgroundProperty, "ControlFillColorDefaultBrush");
-            cap.SetResourceReference(Border.BorderBrushProperty, "ControlStrokeColorDefaultBrush");
-            panel.Children.Add(cap);
-        }
-        return panel;
     }
 }

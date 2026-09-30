@@ -33,6 +33,7 @@ internal static unsafe class Native
     public static readonly IntPtr HWND_TOPMOST = new(-1);
     public const uint SWP_NOSIZE = 0x0001;
     public const uint SWP_NOMOVE = 0x0002;
+    public const uint SWP_NOZORDER = 0x0004;
     public const uint SWP_NOACTIVATE = 0x0010;
 
     public const uint MONITOR_DEFAULTTONEAREST = 2;
@@ -219,6 +220,10 @@ internal static unsafe class Native
 
     [DllImport("user32.dll")]
     public static extern uint GetClipboardSequenceNumber();
+
+    /// 现在开着剪贴板的窗口（延迟提供的内容被读取时，就是来读的那个程序）
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetOpenClipboardWindow();
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern uint RegisterClipboardFormat(string lpszFormat);

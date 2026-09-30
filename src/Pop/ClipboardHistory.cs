@@ -20,7 +20,9 @@ internal sealed class ClipboardHistory : IDisposable
         this.settings = settings;
         Store = new ClipboardStore(ClipboardStore.DefaultDirectory);
         if (Store.OpenError is { } error) Log.Error($"打不开剪贴板历史数据库：{error}");
-        Monitor.Captured += OnCaptured;
+        // 监听线程读到内容就交过来，存储和设置都在界面线程上
+        var ui = Dispatcher.CurrentDispatcher;
+        Monitor.Captured += capture => ui.BeginInvoke(() => OnCaptured(capture));
         cleanupTimer.Tick += (_, _) => Cleanup();
         cleanupTimer.Start();
         Cleanup();

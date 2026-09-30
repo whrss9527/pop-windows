@@ -83,7 +83,7 @@ jobs:
             '2. 放到一个自己的文件夹里，例如 `%LOCALAPPDATA%\Programs\Pop`（一键更新需要能写入这个文件夹，不要放在 Program Files 里）；',
             '3. 双击运行。安装包还没有代码签名，第一次运行时 Windows 可能提示「已保护你的电脑」，点「更多信息」→「仍要运行」。',
             '',
-            '已经装了旧版本的话，点任务栏右下角的 Pop 图标，选「更新到 ${{ steps.v.outputs.version }}」即可。'
+            '已经装了旧版本的话，点任务栏右下角的 Pop 图标，在弹出的面板上点「更新」即可（0.6.0 及更早的版本是在菜单里选「更新到 ${{ steps.v.outputs.version }}」）。'
           )
           $notes -join "`n" | Set-Content dist/notes.md -Encoding UTF8
           Get-Content dist/notes.md

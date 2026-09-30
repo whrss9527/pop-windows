@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <!-- 发版时和 CHANGELOG.md 最上面的版本一起改 -->
-    <Version>0.7.0</Version>
+    <Version>0.8.0</Version>
     <Product>Pop</Product>
     <Company>whrss9527</Company>
     <Copyright>© whrss9527</Copyright>

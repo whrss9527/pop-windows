@@ -19,14 +19,18 @@
 ## 在 Linux / macOS 上开发
 
 - `dotnet build src/Pop` 能编译（`EnableWindowsTargeting`），但要用微软官方的 .NET SDK：一些发行版自己编译的 SDK 没有 `Microsoft.NET.Sdk.WindowsDesktop`，会报找不到 WindowsDesktop.targets。
-- 运行和界面效果只能在 Windows 上看：CI 的 `launch-smoke` 会把截图（圆盘弹出、高亮、结果卡片、短按弹出的系统菜单、深色外观）和 Pop 的日志推到 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 两个分支（每次覆盖），`git fetch origin ci-screenshots/windows-2022` 就能看到。
+- 运行和界面效果只能在 Windows 上看：CI 的 `launch-smoke` 会把截图（圆盘弹出、高亮、结果卡片、短按弹出的系统菜单、深色外观）和 Pop 的日志推到 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 两个分支（每次覆盖），`git fetch origin ci-screenshots/windows-2022` 就能看到。失败的运行（PR 的也算）另外推到 `ci-screenshots/windows-2022-failed`、`ci-screenshots/windows-2025-failed`，里面有 `failure.png` 和日志；长按手势测试出错时还会打印记事本里的字、哪些浮窗开着、前台窗口和剪贴板。Pop 的日志里「界面线程超过 1 秒没有响应」说明界面线程卡住了。
 - 改了界面就看 `ui` 文件夹里的截图：CI 用演示模式（`Pop.exe --demo-shots 文件夹`）在一张示例文档前面把圆盘、各种卡片、列表、剪贴板历史、托盘面板、设置窗口每一页、贴图、框选依次显示出来，浅色、深色各拍一张（`light-*.png`、`dark-*.png`）。新加的界面要在 `Demo.cs` 里加一个场景。
 
 ## 界面
 
 - 配色、字号、圆角都在 `Theme.cs`，浮窗（圆盘、卡片、列表、托盘面板）用它；设置窗口用 WPF-UI 的主题资源（`SetResourceReference` 引用 `TextFillColorPrimaryBrush`、`CardBackgroundFillColorDefaultBrush` 这些键），跟着深浅色自动变。
 - 毛玻璃在 `Frost.cs`：浮窗是透明的分层窗口，用不了系统的亚克力，弹出前截下后面那块屏幕模糊当底。
-- 图标用 WPF-UI 带的 Fluent System Icons（`Icons.Make`，名字是 `SymbolRegular` 的枚举名，比如 `Copy24`）；功能的图标名写在 `Pop.Core` 里。
+- 图标用 WPF-UI 带的 Fluent System Icons（`Icons.Make`，名字是 `SymbolRegular` 的枚举名，比如 `Copy24`）；功能的图标名写在 `Pop.Core` 里。`SymbolIcon` 只显示得了 0xFFFF 以内的码位，枚举里有两千多个比这大（比如 `Calendar24`、`LinkMultiple24`），会显示成别的字；`Icons.Parse` 把它们当作找不到，选图标时先看枚举值。
 - 字体：`Theme.TextFont` 先用 Segoe UI Variable / Segoe UI 显示西文，中文落到随包带的 Noto Sans CJK SC（`src/Pop/Assets/Fonts`，常用字子集，Regular 和 Medium 两个字重，`scripts/make-fonts.py` 生成），子集里没有的字再用微软雅黑。强调用 `FontWeights.Medium` 或 `SemiBold`，别用 `Bold`：中文只带到 Medium，Bold 会被系统加粗得发糊。
 - 不要调用 WPF-UI 的 `ApplicationThemeManager.Apply` 而不先换掉 `Application.MainWindow`：它会改主窗口的窗口样式，而主窗口默认是第一个创建的浮窗。`App.ApplyAppearance` 里已经处理好了。
+- 自定义插件的核心在 `src/Pop.Core/Plugins`（格式、模板、匹配、运行、文件夹），文件格式要和 macOS 版逐字节一致（有测试对比）；界面在 `SettingsWindow` 的「我的插件」和 `PluginEditorWindow`。插件的 PopAction 由 `Actions.SetPlugins` 放进 `Actions.List`，判断内置功能的 ID 用 `Actions.IsBuiltIn`，不要用 `Actions.Find`（它也找得到插件）。改到 `Actions` 的全局插件列表的测试放在 `Actions registry` 这个不并行的测试集合里。
 - 长按手势测试把 `directKinds` 里的 `foreign` 去掉了（选中英文默认直接翻译，不弹圆盘），要测直接翻译得另外改设置。
+- 剪贴板监听（`ClipboardMonitor`）在自己的 STA 线程上收通知、读内容，读到的再交给界面线程存。别挪回界面线程：界面线程忙的时候，接连复制的几段只读得到最后一段，WPF 的 `Clipboard` 在剪贴板被占用时每次调用还会重试将近一秒。
+- 替换原文（`Paster`）用「延迟提供」把文字放进剪贴板，剪贴板的主人是单独线程上的窗口：目标 App 来读时才给文字，读走以后再恢复原来的剪贴板，日志里记「粘贴完成：目标 App 过了 … ms 来读」。别改回固定等一段时间再恢复，反应慢的 App 会贴成原来的内容。
+- 界面线程被占住时，长按和松开会排队到一起处理，松开先到就当作没按（日志「圆盘弹出前就松开了」）；弹出圆盘、显示卡片超过 200 ms 会记日志；卡片第一次显示要载入 WPF-UI 的按钮模板（半秒左右），启动后界面空闲时 `ResultCard.WarmUp` 先载入好。发布时 `Pop`、`Pop.Core`、WPF-UI 预先编译（ReadyToRun，不用 composite，否则整个运行时一起重编大 20 MB）。

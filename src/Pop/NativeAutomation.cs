@@ -48,6 +48,40 @@ internal static class NativeAutomation
         }
     }
 
+    /// 第一次用 UI Automation 要加载组件、建立连接，慢的机器上要好几百毫秒，超过读取的时限就只能改用复制。
+    /// 启动后先在后台用一次（只取元素，不读内容）
+    public static void WarmUp()
+    {
+        var thread = new Thread(() =>
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                var automation = Create();
+                try
+                {
+                    Release(automation.GetRootElement());
+                    Release(automation.GetFocusedElement());
+                }
+                finally
+                {
+                    Release(automation);
+                }
+                Log.Info($"UI Automation 准备好了，用时 {watch.ElapsedMilliseconds} ms");
+            }
+            catch (Exception e)
+            {
+                Log.Info($"UI Automation 预热失败：{e.GetType().Name} {e.Message}");
+            }
+        })
+        {
+            IsBackground = true,
+            Name = "Pop 预热 UI Automation",
+        };
+        thread.SetApartmentState(ApartmentState.MTA);
+        thread.Start();
+    }
+
     private static IUIAutomation Create()
     {
         IUIAutomation automation;

@@ -20,6 +20,32 @@ function Set-PopSettings([string]$Json) {
 }
 $testSettings = '{ "directKinds": ["math", "measurement", "color", "timestamp"] }'
 
+# 测试用的插件：JavaScript，把文字倒过来，结果显示在卡片里
+function Set-TestPlugin {
+    $dir = Join-Path $env:APPDATA 'Pop\Plugins'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $plugin = @'
+{
+  "action" : {
+    "script" : "function run(input) { return Array.from(input).reverse().join('') }",
+    "timeout" : 15,
+    "type" : "javascript"
+  },
+  "id" : "user-e2ereverse",
+  "match" : {
+    "kinds" : [
+      "text"
+    ]
+  },
+  "name" : "反转测试",
+  "output" : "card",
+  "summary" : "e2e",
+  "symbol" : "arrow.left.arrow.right"
+}
+'@
+    Set-Content -Path (Join-Path $dir 'e2e-reverse.json') -Value $plugin -Encoding UTF8
+}
+
 function Start-Pop([hashtable]$ExtraEnv = @{}) {
     $marker = Join-Path $env:RUNNER_TEMP "pop-gesture-$([guid]::NewGuid().ToString('N')).txt"
     $env:POP_SMOKE_MARKER = $marker
@@ -64,8 +90,62 @@ function Assert-PopAlive([string]$Step) {
     if ($pop.HasExited) { throw "Pop 在「${Step}」时退出了，退出码 $($pop.ExitCode)" }
 }
 
+# Pop 的某个浮窗（按标题找）现在是不是显示着
+function Test-PopWindowVisible([string]$Title) {
+    $hwnd = [PopCi.Native]::FindWindow([NullString]::Value, $Title)
+    return $hwnd -ne [IntPtr]::Zero -and [PopCi.Native]::IsWindowVisible($hwnd)
+}
+
+# 等 Pop 的浮窗出现（-Visible）或者收起
+function Wait-PopWindow([string]$Title, [switch]$Visible, [int]$TimeoutSeconds = 10) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Test-PopWindowVisible $Title) -ne $Visible.IsPresent) {
+        if ((Get-Date) -gt $deadline) {
+            $state = if ($Visible) { '没有出现' } else { '没有收起' }
+            throw "等了 ${TimeoutSeconds} 秒，「${Title}」${state}。日志：`n$(Get-PopLog)"
+        }
+        Start-Sleep -Milliseconds 100
+    }
+}
+
+# pop.log 里某一行出现了几次
+function Get-LogCount([string]$Pattern) {
+    ([regex]::Matches((Get-PopLog), $Pattern)).Count
+}
+
+# 等 pop.log 里某一行出现到 Count 次
+function Wait-LogCount([string]$Pattern, [int]$Count, [int]$TimeoutSeconds = 10) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-LogCount $Pattern) -lt $Count) {
+        if ((Get-Date) -gt $deadline) { throw "等了 ${TimeoutSeconds} 秒，pop.log 里的「${Pattern}」还不到 ${Count} 次。日志：`n$(Get-PopLog)" }
+        Start-Sleep -Milliseconds 200
+    }
+}
+
+# 出错时把现场记下来：记事本里的字、Pop 的浮窗哪些开着、前台窗口、剪贴板，再截一张图
+function Write-Diagnostics {
+    try {
+        Write-Host '---- 出错时的现场 ----'
+        if ($notepad -and -not $notepad.HasExited) { Write-Host "记事本里是：$(Get-NotepadText)" }
+        foreach ($title in 'Pop 圆盘', 'Pop 结果', 'Pop 全部功能', 'Pop 剪贴板历史') {
+            $state = if (Test-PopWindowVisible $title) { '显示着' } else { '没显示' }
+            Write-Host "${title}：${state}"
+        }
+        $class = New-Object System.Text.StringBuilder 256
+        [PopCi.Native]::GetClassName([PopCi.Native]::GetForegroundWindow(), $class, 256) | Out-Null
+        Write-Host "前台窗口：$($class.ToString())"
+        Write-Host "剪贴板：$(Get-Clipboard -Raw)"
+        Save-Screenshot (Join-Path $OutDir 'failure.png')
+    }
+    catch {
+        Write-Host "记录现场失败：$_"
+    }
+}
+
 # 长按，往 (dx, dy) 方向划，截图，松开
 function Invoke-LongPress([int]$Dx, [int]$Dy, [string]$Shot, [switch]$BackToCenter, [IntPtr]$Hwnd = [IntPtr]::Zero) {
+    # 上一步的圆盘收起来了再按：Pop 的界面线程还忙着的话，这次的长按和松开会排在一起处理
+    Wait-PopWindow 'Pop 圆盘'
     if ($Hwnd -eq [IntPtr]::Zero) { $Hwnd = $notepad.MainWindowHandle }
     $cx, $cy = Get-WindowCenter $Hwnd
     [PopCi.Native]::SetCursorPos($cx, $cy) | Out-Null
@@ -87,6 +167,7 @@ function Invoke-LongPress([int]$Dx, [int]$Dy, [string]$Shot, [switch]$BackToCent
 try {
     Set-Content -Path $notepadFile -Value $sample -NoNewline -Encoding UTF8
     Set-PopSettings $testSettings
+    Set-TestPlugin
     $pop = Start-Pop
     $notepad = Start-Process notepad.exe -ArgumentList "`"$notepadFile`"" -PassThru
     $notepad.WaitForInputIdle(10000) | Out-Null
@@ -97,10 +178,12 @@ try {
     Select-AllInNotepad
     Invoke-LongPress 0 110 'upper'
     Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '执行 upper' 10 | Out-Null
-    Start-Sleep -Milliseconds 500
+    # 记事本读走剪贴板以后 Pop 才把原来的内容放回去，并记一笔
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '粘贴完成' 10 | Out-Null
     $text = Get-NotepadText
     Write-Host "记事本里现在是：$text"
-    if ($text.Trim() -ne $sample.ToUpperInvariant()) { throw "替换原文失败，记事本里是「$text」" }
+    # -cne：区分大小写
+    if ($text.Trim() -cne $sample.ToUpperInvariant()) { throw "替换原文失败，记事本里是「$text」。日志：`n$(Get-PopLog)" }
     $log = Get-PopLog
     if ($log -notmatch '选中内容：来源 (uia|copy).*内容「hello pop world」') { throw "没读到选中的文字。日志：`n$log" }
     Write-Host '✓ 长按 → 划向「大写」→ 替换原文'
@@ -108,9 +191,12 @@ try {
     # 2. 往左下方划（第 4 格「字数」），弹出结果卡片；Esc 关掉
     Select-AllInNotepad
     Invoke-LongPress (-95) 55 'count'
-    Save-Screenshot (Join-Path $OutDir 'count-card.png')
     Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '执行 count' 10 | Out-Null
+    Wait-PopWindow 'Pop 结果' -Visible
+    Start-Sleep -Milliseconds 300   # 弹出动画
+    Save-Screenshot (Join-Path $OutDir 'count-card.png')
     Invoke-Key 0x1B
+    Wait-PopWindow 'Pop 结果'
     Write-Host '✓ 字数统计卡片'
 
     # 3. 在圆心松开：关闭圆盘，什么都不执行
@@ -226,13 +312,35 @@ try {
     if ($clip -ne 'aGVsbG8gcG9wIHdvcmxk') { throw "全部功能 → 编码转换复制到的是「$clip」" }
     Write-Host '✓ 全部功能列表：搜索、执行、复制结果'
 
+    # 5b2. 自定义插件：全部功能列表里搜「plugin」找到测试插件（JavaScript），回车运行，卡片上回车复制结果
+    if ((Get-PopLog) -notmatch '插件：1 个') { throw "测试插件没有载入：`n$(Get-PopLog)" }
+    Set-NotepadText 'hello pop world'
+    Invoke-LongPress (-95) (-55) 'plugin-list'
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '(?s)全部功能列表已显示.*全部功能列表已显示' 10 | Out-Null
+    Start-Sleep -Milliseconds 400
+    foreach ($vk in 0x50, 0x4C, 0x55, 0x47, 0x49, 0x4E) { Invoke-Key ([byte]$vk) }   # plugin
+    Start-Sleep -Milliseconds 400
+    Save-Screenshot (Join-Path $OutDir 'plugin-list.png')
+    Invoke-Key 0x0D
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '插件 user-e2ereverse（javascript）：Card' 15 | Out-Null
+    Start-Sleep -Milliseconds 500
+    Save-Screenshot (Join-Path $OutDir 'plugin-card.png')
+    Set-Clipboard -Value 'before'
+    Invoke-Key 0x0D
+    Start-Sleep -Milliseconds 300
+    $clip = (Get-Clipboard -Raw).Trim()
+    if ($clip -ne 'dlrow pop olleh') { throw "插件的结果复制到的是「$clip」" }
+    Write-Host '✓ 自定义插件：列表里搜到、运行 JavaScript、复制结果'
+
     # 5c. 剪贴板历史：复制三段文字，Win+Alt+V 打开历史，搜「second」回车，粘贴到记事本
+    $records = Get-LogCount '剪贴板历史：记录'
     Set-NotepadText 'placeholder'
     foreach ($item in 'first item', 'second item', 'third item') {
         Set-Clipboard -Value $item
         Start-Sleep -Milliseconds 500
     }
-    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '(?s)剪贴板历史：记录.*剪贴板历史：记录.*剪贴板历史：记录' 10 | Out-Null
+    # 这四次复制（placeholder 和三段文字）都记下来了再打开历史
+    Wait-LogCount '剪贴板历史：记录' ($records + 4) 10
     Set-Foreground $notepad.MainWindowHandle
     Invoke-Key 0x41 -Ctrl
     if ((Get-PopLog) -notmatch '快捷键 Win\+Alt\+V（剪贴板历史） 已注册') { throw "Win+Alt+V 没注册上：`n$(Get-PopLog)" }
@@ -354,6 +462,10 @@ try {
     $errors = (Get-PopLog) -split "`n" | Where-Object { $_ -match '\[ERROR\]' }
     if ($errors) { throw "Pop 的日志里有错误：`n$($errors -join "`n")" }
     Write-Host '✓ 日志里没有错误'
+}
+catch {
+    Write-Diagnostics
+    throw
 }
 finally {
     $log = Get-PopLog

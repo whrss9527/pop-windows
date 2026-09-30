@@ -17,14 +17,23 @@ internal sealed class ClipboardAccess : IDisposable
     private static readonly HashSet<uint> Unsupported = [2 /* CF_BITMAP */, 3 /* CF_METAFILEPICT */, 9 /* CF_PALETTE */, 14 /* CF_ENHMETAFILE */, 0x0082 /* CF_DSPBITMAP */, 0x008E /* CF_DSPENHMETAFILE */];
 
     private readonly HwndSource window;
+    private readonly int openAttempts;
 
-    public ClipboardAccess()
+    /// 在哪个线程上创建，就在哪个线程上用。openAttempts：剪贴板被别的程序占着时试几次（每次隔 15 毫秒）
+    public ClipboardAccess(string name = "Pop 剪贴板", int openAttempts = 10)
     {
         // 只收消息的隐藏窗口：清空剪贴板后写入需要一个所有者窗口
-        window = new HwndSource(0, 0, 0, 0, 0, "Pop 剪贴板", new IntPtr(-3));
+        window = new HwndSource(0, 0, 0, 0, 0, name, new IntPtr(-3));
+        this.openAttempts = openAttempts;
     }
 
     public void Dispose() => window.Dispose();
+
+    /// 剪贴板的主人窗口会收到 WM_RENDERFORMAT、WM_DESTROYCLIPBOARD 这些消息
+    public void AddHook(HwndSourceHook hook) => window.AddHook(hook);
+
+    /// 正在清空剪贴板：原来的主人（可能就是自己）这时收到的 WM_DESTROYCLIPBOARD 不是别人复制了东西
+    public bool Emptying { get; private set; }
 
     public static uint SequenceNumber => GetClipboardSequenceNumber();
 
@@ -70,7 +79,7 @@ internal sealed class ClipboardAccess : IDisposable
         if (snapshot is null || !Open()) return;
         try
         {
-            EmptyClipboard();
+            Empty();
             foreach (var (format, data) in snapshot.Items) Put(format, data);
             MarkPrivate();
         }
@@ -110,16 +119,55 @@ internal sealed class ClipboardAccess : IDisposable
         if (!Open()) return false;
         try
         {
-            EmptyClipboard();
-            var bytes = new byte[(text.Length + 1) * 2];
-            System.Text.Encoding.Unicode.GetBytes(text, 0, text.Length, bytes, 0);
-            var ok = Put(CF_UNICODETEXT, bytes);
+            Empty();
+            var ok = Put(CF_UNICODETEXT, TextBytes(text));
             if (temporary) MarkPrivate();
             return ok;
         }
         finally
         {
             CloseClipboard();
+        }
+    }
+
+    /// 先说剪贴板里有文字，等有程序来读的时候再给（延迟提供）：来读时主人窗口收到 WM_RENDERFORMAT，这时调用 RenderText。
+    /// 不进剪贴板历史
+    public bool PromiseText()
+    {
+        if (!Open()) return false;
+        try
+        {
+            Empty();
+            SetClipboardData(CF_UNICODETEXT, IntPtr.Zero);
+            MarkPrivate();
+            return true;
+        }
+        finally
+        {
+            CloseClipboard();
+        }
+    }
+
+    /// 回应 WM_RENDERFORMAT：来读的程序已经打开了剪贴板，直接放进去
+    public static bool RenderText(string text) => Put(CF_UNICODETEXT, TextBytes(text));
+
+    private static byte[] TextBytes(string text)
+    {
+        var bytes = new byte[(text.Length + 1) * 2];
+        System.Text.Encoding.Unicode.GetBytes(text, 0, text.Length, bytes, 0);
+        return bytes;
+    }
+
+    private void Empty()
+    {
+        Emptying = true;
+        try
+        {
+            EmptyClipboard();
+        }
+        finally
+        {
+            Emptying = false;
         }
     }
 
@@ -150,7 +198,7 @@ internal sealed class ClipboardAccess : IDisposable
     /// 别的程序可能正占着剪贴板，重试几次
     private bool Open()
     {
-        for (var i = 0; i < 10; i++)
+        for (var i = 0; i < openAttempts; i++)
         {
             if (OpenClipboard(window.Handle)) return true;
             Thread.Sleep(15);
