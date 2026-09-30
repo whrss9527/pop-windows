@@ -20,7 +20,7 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
     [
         "PuzzlePiece24", "Globe24", "Search24", "Book24", "Library24", "Translate24", "Code24", "Braces24",
         "WindowConsole20", "ArrowSort24", "ArrowSwap24", "TextBulletListLtr24", "TextQuote24", "TextT24", "Edit24", "Link24",
-        "Mail24", "Copy24", "Clipboard24", "Document24", "Note24", "Folder24", "Calendar24", "Clock24",
+        "Mail24", "Copy24", "Clipboard24", "Document24", "Note24", "Folder24", "CalendarLtr24", "Clock24",
         "Color24", "Image24", "QrCode24", "Calculator24", "NumberSymbol24", "Map24", "Location24", "Cart24",
         "Chat24", "ArrowReply24", "Send24", "Share24", "Sparkle24", "Wand24", "Lightbulb24", "Star24",
         "Heart24", "Tag24", "Bookmark24", "Key24", "LockClosed24", "Wrench24", "Settings24", "Rocket24",
@@ -95,6 +95,7 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         Height = 780;
         MinWidth = 600;
         MinHeight = 520;
+        FitToWorkArea(this);
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ExtendsContentIntoTitleBar = true;
         WindowBackdropType = WpfUi.WindowBackdropType.Mica;

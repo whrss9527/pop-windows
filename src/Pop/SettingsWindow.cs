@@ -54,6 +54,7 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
         Height = 720;
         MinWidth = 720;
         MinHeight = 520;
+        FitToWorkArea(this);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ExtendsContentIntoTitleBar = true;
         WindowBackdropType = WpfUi.WindowBackdropType.Mica;

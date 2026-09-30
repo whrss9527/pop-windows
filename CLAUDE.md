@@ -26,8 +26,10 @@
 
 - 配色、字号、圆角都在 `Theme.cs`，浮窗（圆盘、卡片、列表、托盘面板）用它；设置窗口用 WPF-UI 的主题资源（`SetResourceReference` 引用 `TextFillColorPrimaryBrush`、`CardBackgroundFillColorDefaultBrush` 这些键），跟着深浅色自动变。
 - 毛玻璃在 `Frost.cs`：浮窗是透明的分层窗口，用不了系统的亚克力，弹出前截下后面那块屏幕模糊当底。
-- 图标用 WPF-UI 带的 Fluent System Icons（`Icons.Make`，名字是 `SymbolRegular` 的枚举名，比如 `Copy24`）；功能的图标名写在 `Pop.Core` 里。
+- 图标用 WPF-UI 带的 Fluent System Icons（`Icons.Make`，名字是 `SymbolRegular` 的枚举名，比如 `Copy24`）；功能的图标名写在 `Pop.Core` 里。`SymbolIcon` 只显示得了 0xFFFF 以内的码位，枚举里有两千多个比这大（比如 `Calendar24`、`LinkMultiple24`），会显示成别的字；`Icons.Parse` 把它们当作找不到，选图标时先看枚举值。
 - 字体：`Theme.TextFont` 先用 Segoe UI Variable / Segoe UI 显示西文，中文落到随包带的 Noto Sans CJK SC（`src/Pop/Assets/Fonts`，常用字子集，Regular 和 Medium 两个字重，`scripts/make-fonts.py` 生成），子集里没有的字再用微软雅黑。强调用 `FontWeights.Medium` 或 `SemiBold`，别用 `Bold`：中文只带到 Medium，Bold 会被系统加粗得发糊。
 - 不要调用 WPF-UI 的 `ApplicationThemeManager.Apply` 而不先换掉 `Application.MainWindow`：它会改主窗口的窗口样式，而主窗口默认是第一个创建的浮窗。`App.ApplyAppearance` 里已经处理好了。
 - 自定义插件的核心在 `src/Pop.Core/Plugins`（格式、模板、匹配、运行、文件夹），文件格式要和 macOS 版逐字节一致（有测试对比）；界面在 `SettingsWindow` 的「我的插件」和 `PluginEditorWindow`。插件的 PopAction 由 `Actions.SetPlugins` 放进 `Actions.List`，判断内置功能的 ID 用 `Actions.IsBuiltIn`，不要用 `Actions.Find`（它也找得到插件）。改到 `Actions` 的全局插件列表的测试放在 `Actions registry` 这个不并行的测试集合里。
 - 长按手势测试把 `directKinds` 里的 `foreign` 去掉了（选中英文默认直接翻译，不弹圆盘），要测直接翻译得另外改设置。
+- 替换原文（`Paster`）用「延迟提供」把文字放进剪贴板，剪贴板的主人是单独线程上的窗口：目标 App 来读时才给文字，读走以后再恢复原来的剪贴板，日志里记「粘贴完成：目标 App 过了 … ms 来读」。别改回固定等一段时间再恢复，反应慢的 App 会贴成原来的内容。
+- 界面线程被占住时，长按和松开会排队到一起处理，松开先到就当作没按（日志「圆盘弹出前就松开了」）；弹出圆盘、显示卡片超过 200 ms 会记日志。发布时 `Pop`、`Pop.Core`、WPF-UI 预先编译（ReadyToRun，不用 composite，否则整个运行时一起重编大 20 MB）。

@@ -9,6 +9,22 @@ namespace Pop;
 /// 设置窗口和插件编辑器共用的卡片和控件：颜色都引用 WPF-UI 的主题资源，跟着深浅色变
 internal static class SettingsUi
 {
+    /// 屏幕矮（比如 1366×768 再放大 125%）的时候窗口不超出工作区，内容在窗口里滚动；打开后整个窗口都在工作区里
+    public static void FitToWorkArea(Window window)
+    {
+        const double margin = 12;
+        var work = SystemParameters.WorkArea;
+        window.Width = Math.Min(window.Width, work.Width - 2 * margin);
+        window.Height = Math.Min(window.Height, work.Height - 2 * margin);
+        window.MinWidth = Math.Min(window.MinWidth, window.Width);
+        window.MinHeight = Math.Min(window.MinHeight, window.Height);
+        window.Loaded += (_, _) =>
+        {
+            window.Left = Math.Clamp(window.Left, work.Left, Math.Max(work.Left, work.Right - window.ActualWidth));
+            window.Top = Math.Clamp(window.Top, work.Top, Math.Max(work.Top, work.Bottom - window.ActualHeight));
+        };
+    }
+
     public static TextBlock Label(string text, double size, string brush, FontWeight? weight = null, FontFamily? font = null)
     {
         var label = new TextBlock { Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap };

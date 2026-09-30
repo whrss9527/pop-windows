@@ -23,7 +23,7 @@ public static partial class PluginGlyphs
         ["chevron.left.forwardslash.chevron.right"] = "Code24", ["curlybraces"] = "Braces24", ["link"] = "Link24",
         ["envelope"] = "Mail24", ["doc.on.doc"] = "Copy24", ["doc.on.clipboard"] = "ClipboardPaste24", ["clipboard"] = "Clipboard24",
         ["doc"] = "Document24", ["doc.text"] = "DocumentText24", ["note.text"] = "Note24", ["folder"] = "Folder24",
-        ["calendar"] = "Calendar24", ["calendar.badge.clock"] = "CalendarClock24", ["clock"] = "Clock24", ["timer"] = "Timer24",
+        ["calendar"] = "CalendarLtr24", ["calendar.badge.clock"] = "CalendarClock24", ["clock"] = "Clock24", ["timer"] = "Timer24",
         ["paintpalette"] = "Color24", ["eyedropper"] = "Eyedropper24", ["photo"] = "Image24", ["photo.on.rectangle"] = "ImageMultiple24",
         ["camera"] = "Camera24", ["qrcode"] = "QrCode24", ["star"] = "Star24", ["heart"] = "Heart24", ["tag"] = "Tag24",
         ["flag"] = "Flag24", ["bookmark"] = "Bookmark24", ["gear"] = "Settings24", ["gearshape"] = "Settings24",
