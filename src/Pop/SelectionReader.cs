@@ -20,6 +20,8 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         var windowClass = WindowClass(foreground);
         var process = ProcessName(foreground);
 
+        // 读取前先记一笔：如果在读取过程中闪退，日志的最后一行能看出是在哪个窗口
+        Log.Info($"读取选中内容：窗口 {windowClass}（{process}）");
         var (supported, text) = await ReadWithAutomationAsync();
         if (!string.IsNullOrEmpty(text)) return new Selection(text, "uia", windowClass, process);
 

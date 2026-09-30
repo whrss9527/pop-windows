@@ -10,6 +10,17 @@ internal static class Program
     private static int Main(string[] args)
     {
         var options = Parse(args);
+        // 任何线程上没接住的异常都记下来再退出，闪退时能从日志里看到原因
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            Log.Error($"未处理的异常，Pop 将退出（线程 {Environment.CurrentManagedThreadId}）", e.ExceptionObject as Exception);
+            SmokeTest.Report($"crash={(e.ExceptionObject as Exception)?.GetType().Name}");
+        };
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Log.Error("后台任务里没人处理的异常", e.Exception);
+            e.SetObserved();
+        };
         using var mutex = new Mutex(false, MutexName);
         // 更新后启动的新版本要等旧进程退出
         var wait = options.UpdatedFrom is not null ? TimeSpan.FromSeconds(20) : TimeSpan.Zero;
