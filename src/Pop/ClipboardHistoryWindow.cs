@@ -192,15 +192,18 @@ internal sealed class ClipboardHistoryWindow : OverlayWindow
             var secondary = new SolidColorBrush(isSelected ? theme.AccentText : theme.SecondaryText);
 
             var line = new DockPanel { LastChildFill = true };
-            var right = new TextBlock
+            // 右边：固定标记（图标字体）+ 时间和 Ctrl+数字 序号（文字字体）
+            var right = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            if (item.Pinned)
+                right.Children.Add(new TextBlock { Text = "\uE718", FontFamily = Theme.IconFont, FontSize = 11, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = secondary });
+            right.Children.Add(new TextBlock
             {
-                Text = (item.Pinned ? " " : "") + (i < 9 ? $"{Ago(item.UsedAt, now)}  ^{i + 1}" : Ago(item.UsedAt, now)),
-                FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets, Microsoft YaHei UI"),
+                Text = i < 9 ? $"{Ago(item.UsedAt, now)}　Ctrl+{i + 1}" : Ago(item.UsedAt, now),
+                FontFamily = Theme.TextFont,
                 FontSize = 11,
-                Margin = new Thickness(8, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = secondary,
-            };
+            });
             DockPanel.SetDock(right, Dock.Right);
             line.Children.Add(right);
 
