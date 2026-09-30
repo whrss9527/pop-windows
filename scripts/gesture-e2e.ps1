@@ -172,12 +172,6 @@ try {
 
     # 5a. 翻译：往右下方划（第 2 格「翻译」），卡片里先显示「正在翻译」，译文回来后原地换掉。
     # 翻译服务在外网上，偶尔连不上时只提示，不算失败
-    # 翻译失败时看这里：必应翻译的两个接口在 runner 上能不能连上，带不带浏览器标识有没有区别
-    foreach ($url in 'https://edge.microsoft.com/translate/auth', 'https://www.bing.com/translator') {
-        $plain = & curl.exe -s -o NUL -m 15 -w '%{http_code}' -H 'User-Agent:' $url
-        $browser = & curl.exe -s -o NUL -m 15 -w '%{http_code}' -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0' $url
-        Write-Host "${url}：不带浏览器标识 ${plain}，带浏览器标识 ${browser}"
-    }
     Set-NotepadText 'Good morning, how are you today?'
     Invoke-LongPress 95 55 'translate'
     Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '执行 translate' 10 | Out-Null
@@ -189,6 +183,24 @@ try {
     } else {
         $line = ($log -split "`n" | Select-String '翻译失败' | Select-Object -Last 1)
         Write-Host "::warning::翻译服务没有返回译文：$line"
+        # 看看必应翻译两条路在这台 runner 上的情况（Edge 的令牌接口、必应翻译网页的接口）
+        $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0'
+        $edgeStatus = & curl.exe -s -o NUL -m 15 -w '%{http_code}' -A $ua 'https://edge.microsoft.com/translate/auth'
+        Write-Host "Edge 翻译令牌接口：${edgeStatus}"
+        try {
+            $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            $page = Invoke-WebRequest -Uri 'https://www.bing.com/translator' -UserAgent $ua -WebSession $session -TimeoutSec 15
+            $ig = [regex]::Match($page.Content, 'IG:"([0-9A-Za-z]+)"').Groups[1].Value
+            $iid = [regex]::Match($page.Content, 'data-iid="([^"]+)"').Groups[1].Value
+            $abuse = [regex]::Match($page.Content, 'params_AbusePreventionHelper\s*=\s*\[\s*(\d+)\s*,\s*"([^"]+)"')
+            $bingHost = $page.BaseResponse.RequestMessage.RequestUri.Host
+            $form = @{ fromLang = 'auto-detect'; to = 'zh-Hans'; text = 'Good morning'; token = $abuse.Groups[2].Value; key = $abuse.Groups[1].Value }
+            $reply = Invoke-WebRequest -Uri "https://${bingHost}/ttranslatev3?isVertical=1&IG=${ig}&IID=${iid}.1" -Method Post -Body $form -UserAgent $ua -WebSession $session -Headers @{ Referer = "https://${bingHost}/translator" } -SkipHttpErrorCheck -TimeoutSec 15
+            $content = [string]$reply.Content
+            Write-Host "必应翻译网页接口（${bingHost}，IG=${ig}，IID=${iid}）：$($reply.StatusCode) $($content.Substring(0, [Math]::Min(200, $content.Length)))"
+        } catch {
+            Write-Host "必应翻译网页接口：$_"
+        }
     }
     Invoke-Key 0x1B
 

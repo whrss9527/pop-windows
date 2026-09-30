@@ -52,7 +52,7 @@ public class TranslationTests
         Assert.Equal(HttpMethod.Post, post.Method);
         Assert.Equal("https://www.bing.com/ttranslatev3?isVertical=1&IG=A1B2C3D4E5&IID=translator.5028.1", post.RequestUri!.AbsoluteUri);
         Assert.Equal("https://www.bing.com/translator", post.Headers.Referrer?.AbsoluteUri);
-        Assert.Equal("fromLang=auto-detect&to=zh-Hans&text=Hello%2C+world&token=tok-EN_123&key=1759226400000", body);
+        Assert.Equal("fromLang=auto-detect&to=zh-Hans&text=Hello%2C+world&token=tok-EN_123&key=1759226400000&tryFetchingGenderDebiasedTranslations=true", body);
         // 都带浏览器标识；网页接口能用时不去碰 Edge 的接口
         Assert.All(handler.Requests, r => Assert.Contains("Edg/", r.Request.Headers.UserAgent.ToString()));
         Assert.DoesNotContain(handler.Requests, r => Is(r.Request, Translator.BingAuthUrl));
@@ -75,6 +75,23 @@ public class TranslationTests
             Assert.Equal("你好，世界", result.Text);
             Assert.Equal(2, handler.Requests.Count(r => Is(r.Request, Translator.BingWebUrl)));
         }
+    }
+
+    [Fact]
+    public async Task BingWebLimitsAndCaptchasAreExplained()
+    {
+        foreach (var (reply, expected) in new[] { ("""{"statusCode":401,"errorMessage":""}""", "免费次数"), ("""{"ShowCaptcha":true}""", "人工验证") })
+        {
+            var handler = new FakeHandler((request, _) =>
+                Is(request, Translator.BingWebUrl) ? Page(WebPage) : Is(request, Translator.BingAuthUrl) ? new HttpResponseMessage(HttpStatusCode.NotFound) : Json(reply));
+            var e = await Assert.ThrowsAsync<TranslationException>(() => new Translator(new HttpClient(handler)).TranslateAsync("Hello", "zh-Hans", TranslationEngine.Bing));
+            Assert.Contains(expected, e.Message);
+            Assert.Contains(reply, e.InnerException?.Message);
+            // 次数用完、要验证时换会话也没用，不再重试
+            Assert.Single(handler.Requests, r => Is(r.Request, Translator.BingWebUrl));
+        }
+        Assert.Null(Translator.WebRejection("""[{"translations":[]}]"""));
+        Assert.Null(Translator.WebRejection("<html>"));
     }
 
     [Fact]

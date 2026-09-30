@@ -301,6 +301,7 @@ public sealed partial class Translator(HttpClient http, Func<DateTimeOffset>? cl
     private async Task<TranslationResult> WebAsync(string text, string to, CancellationToken ct)
     {
         var provider = ProviderName(TranslationEngine.Bing);
+        Exception? last = null;
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var session = await WebSessionAsync(forceRefresh: attempt > 0, ct);
@@ -315,6 +316,7 @@ public sealed partial class Translator(HttpClient http, Func<DateTimeOffset>? cl
                 ["text"] = text,
                 ["token"] = session.Token,
                 ["key"] = session.Key,
+                ["tryFetchingGenderDebiasedTranslations"] = "true",
             });
             string json;
             HttpStatusCode status;
@@ -328,13 +330,44 @@ public sealed partial class Translator(HttpClient http, Func<DateTimeOffset>? cl
             {
                 throw new TranslationException("连不上必应翻译，请检查网络", e);
             }
-            if (status == HttpStatusCode.TooManyRequests) throw new TranslationException("必应翻译的请求太频繁了，请稍后再试");
-            // 会话过期或者被拒绝时返回的是一个带 statusCode 的对象或者 401：换个会话再试一次
             if ((int)status < 300 && json.TrimStart().StartsWith('[')) return Parse(json, to, provider) with { Via = "web" };
-            if ((int)status >= 500) throw new TranslationException($"必应翻译出错了（{(int)status}），请稍后再试");
+            var reply = new InvalidOperationException($"必应翻译网页接口返回 {(int)status}：{Snippet(json)}");
+            if (status == HttpStatusCode.TooManyRequests || WebRejection(json) == "limit")
+                throw new TranslationException("必应翻译的免费次数暂时用完了，请过一会儿再试；也可以在设置里填自己的 Microsoft Translator Key", reply);
+            if (WebRejection(json) == "captcha")
+                throw new TranslationException("必应翻译要求人工验证，请过一会儿再试，或者在浏览器里打开", reply);
+            if ((int)status >= 500) throw new TranslationException($"必应翻译出错了（{(int)status}），请稍后再试", reply);
+            // 会话过期时返回的是一个带 statusCode 的对象，或者 401：换个会话再试一次
             web = null;
+            last = reply;
         }
-        throw new TranslationException("必应翻译拒绝了请求，请稍后再试");
+        throw new TranslationException("必应翻译拒绝了请求，请稍后再试", last);
+    }
+
+    /// 网页接口拒绝时返回的 JSON 对象：{"ShowCaptcha":true} 是要人工验证，{"statusCode":401} 是免费次数用完了
+    public static string? WebRejection(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+            if (root.TryGetProperty("ShowCaptcha", out var captcha) && captcha.ValueKind == JsonValueKind.True) return "captcha";
+            foreach (var name in new[] { "statusCode", "StatusCode" })
+                if (root.TryGetProperty(name, out var code) && code.TryGetInt32(out var value) && value is 401 or 429) return "limit";
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// 日志里记一小段返回的内容
+    private static string Snippet(string text)
+    {
+        var flat = string.Join(" ", text.Split((char[])['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+        return flat.Length > 160 ? flat[..160] + "…" : flat;
     }
 
     /// JWT 第二段里的 exp（Unix 秒）
