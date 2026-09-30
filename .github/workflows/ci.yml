@@ -1,0 +1,115 @@
+name: CI
+
+# 推送代码和合并请求时：单元测试、编译 Release 版、启动测试、真实的长按右键手势测试（带截图）、一键更新的端到端测试。
+# 推到 main 并且都通过后，CHANGELOG.md 最上面的版本还没有标签的话，
+# 就自动打标签、打包并发布正式版（调用 release.yml），已安装的 Pop 会提示更新。
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # main 上的运行可能正在发布新版本，不能被下一次推送取消
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: version-check
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tagged: ${{ steps.v.outputs.tagged }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: CHANGELOG 和 Directory.Build.props 的版本要一致
+        id: v
+        run: |
+          changelog=$(grep -m1 -oP '^## \K[0-9]+\.[0-9]+\.[0-9]+(?=（[0-9]{4}-[0-9]{2}-[0-9]{2}）)' CHANGELOG.md || true)
+          props=$(grep -oP '<Version>\K[^<]+' Directory.Build.props)
+          echo "CHANGELOG: ${changelog}  Directory.Build.props: ${props}"
+          if [ -z "$changelog" ]; then echo "::error::CHANGELOG.md 最上面没有「## x.y.z（yyyy-mm-dd）」格式的版本"; exit 1; fi
+          if [ "$changelog" != "$props" ]; then echo "::error::CHANGELOG.md（${changelog}）和 Directory.Build.props（${props}）的版本不一致"; exit 1; fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v${props}" >/dev/null; then tagged=true; else tagged=false; fi
+          echo "version=${props}" >> "$GITHUB_OUTPUT"
+          echo "tagged=${tagged}" >> "$GITHUB_OUTPUT"
+
+  build-and-test:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Unit tests
+        run: dotnet test tests/Pop.Core.Tests -c Release --logger "console;verbosity=normal"
+      - name: Publish Pop.exe
+        run: dotnet publish src/Pop -c Release -o out/new
+      - name: Publish an old version for the update test
+        run: dotnet publish src/Pop -c Release -p:Version=0.0.1 -o out/old
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pop-exe
+          path: |
+            out/new/Pop.exe
+            out/old/Pop.exe
+          if-no-files-found: error
+
+  launch-smoke:
+    name: launch-smoke (${{ matrix.os }})
+    needs: build-and-test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: pop-exe
+          path: out
+      - name: Launch smoke test
+        run: ./scripts/smoke.ps1 -Exe out/new/Pop.exe
+      - name: Long-press gesture test
+        run: ./scripts/gesture-e2e.ps1 -Exe (Resolve-Path out/new/Pop.exe) -OutDir screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-${{ matrix.os }}
+          path: screenshots
+          if-no-files-found: ignore
+
+  update-e2e:
+    needs: [version, build-and-test]
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: pop-exe
+          path: out
+      - name: Update end-to-end test
+        run: ./scripts/update-e2e.ps1 -OldExe (Resolve-Path out/old/Pop.exe) -NewExe (Resolve-Path out/new/Pop.exe) -Version ${{ needs.version.outputs.version }}
+
+  release:
+    needs: [version, build-and-test, launch-smoke, update-e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.outputs.tagged == 'false'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      beta: false

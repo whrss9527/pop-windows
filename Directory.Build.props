@@ -1,0 +1,17 @@
+<Project>
+  <PropertyGroup>
+    <!-- 发版时和 CHANGELOG.md 最上面的版本一起改 -->
+    <Version>0.1.0</Version>
+    <Product>Pop</Product>
+    <Company>whrss9527</Company>
+    <Copyright>© whrss9527</Copyright>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- 在 Linux / macOS 上也能编译 Windows 桌面项目 -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- 调试信息打进 dll / exe 里，发布目录只有一个 Pop.exe -->
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+</Project>

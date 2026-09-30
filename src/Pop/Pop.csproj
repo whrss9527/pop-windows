@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- 只用到托盘图标 -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>Pop</RootNamespace>
+    <AssemblyName>Pop</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Pop.ico</ApplicationIcon>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- 发布成一个自带运行时的 Pop.exe，用户不用另装 .NET；一键更新也只替换这一个文件 -->
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+    <!-- 高 DPI 设置写在 app.manifest 里（WPF 靠它按显示器缩放），WinForms 的检查会误报 -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- WPF 和 WinForms 有很多同名类型，不用全局引入 WinForms -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+    <Using Include="System.IO" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\Pop.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Pop.Core\Pop.Core.csproj" />
+  </ItemGroup>
+</Project>
