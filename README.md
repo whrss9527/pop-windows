@@ -9,7 +9,7 @@ Pop 的 Windows 版原型：在任意 App 里**长按鼠标右键**，Pop 读取
 | 模块 | 说明 |
 | --- | --- |
 | 唤起 | 长按右键（默认 250 毫秒，可在菜单里调整）；短按仍是系统右键菜单，按住拖动超过 6 像素也照常交给 App |
-| 读取选中内容 | 先用 UI Automation 读；读不到再模拟 Ctrl+C，读完把剪贴板原样放回去，临时内容不进 Windows 的剪贴板历史；终端窗口里不模拟 Ctrl+C（那会结束正在运行的程序） |
+| 读取选中内容 | 先用 Windows 原生的 UI Automation 读（带超时）；读不到再模拟 Ctrl+C，读完把剪贴板原样放回去，临时内容不进 Windows 的剪贴板历史；终端窗口里不模拟 Ctrl+C（那会结束正在运行的程序） |
 | 圆盘 | 6 格：复制、搜索、翻译（打开必应翻译）、大写、字数、小写。划向一格松开执行，圆心松开关闭；右键按着时按数字键 1–6 直选，Esc 关闭。读不到文字时需要文字的格子变灰 |
 | 结果 | 大写、小写直接替换原文（粘贴回原来的 App，粘贴完剪贴板恢复原样）；字数统计显示在卡片上，可以复制，Esc 或点别处关闭 |
 | 界面 | 圆盘从指针处弹开，高亮沿着圆环滑到指针所指的那一格；卡片从指针所在的角长出来；不抢焦点，靠近屏幕边缘自动内移；跟随系统的深浅色和主题色；多显示器、不同缩放比例下位置准确 |
@@ -86,6 +86,6 @@ dotnet publish src/Pop -c Release -o out   # 打包成单个 Pop.exe
 
 ## CI 和发版
 
-每次推送，GitHub Actions 会在 Windows 上：跑单元测试、编译 Release 版 Pop.exe；在 Windows Server 2022 和 2025 上真正启动一次，再用模拟的鼠标在记事本里走一遍长按右键（替换原文、结果卡片、圆心关闭、短按弹出系统右键菜单），截图和 Pop 的日志推到 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 两个分支（每次覆盖，`git fetch origin ci-screenshots/windows-2022` 就能看到）；最后用本机的假发布把一键更新完整走一遍（校验和不对要拒绝、正常版本要替换并重新启动、已是最新时不更新）。
+每次推送，GitHub Actions 会在 Windows 上：跑单元测试、编译 Release 版 Pop.exe；在 Windows Server 2022 和 2025 上真正启动一次，再用模拟的鼠标在记事本、Chrome 和 Edge 里走一遍长按右键（替换原文、结果卡片、圆心关闭、短按弹出系统右键菜单、浏览器里读取选中文字），截图和 Pop 的日志推到 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 两个分支（每次覆盖，`git fetch origin ci-screenshots/windows-2022` 就能看到）；最后用本机的假发布把一键更新完整走一遍（校验和不对要拒绝、正常版本要替换并重新启动、已是最新时不更新）。
 
 发版：在 `CHANGELOG.md` 最上面加一节新版本，`Directory.Build.props` 里的 `Version` 跟着改，合并进 main、CI 通过后会自动打标签并发布，已安装的 Pop 会提示更新。

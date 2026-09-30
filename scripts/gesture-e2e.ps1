@@ -120,33 +120,43 @@ try {
     Invoke-Key 0x1B
     Write-Host '✓ 短按右键弹出系统菜单'
 
-    # 5. 浏览器：Chrome 里选中网页文字，长按 → 往上划「复制」
-    $chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") |
-        Where-Object { Test-Path $_ } | Select-Object -First 1
-    if (-not $chrome) { throw '这台 runner 上没有 Chrome' }
+    # 5. 浏览器：Chrome 和 Edge 里选中网页文字，长按 → 往上划「复制」
+    $browsers = @(
+        @{ Name = 'chrome'; Paths = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") },
+        @{ Name = 'msedge'; Paths = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") }
+    )
     $browserText = 'browser text for pop'
     $page = Join-Path $env:RUNNER_TEMP 'pop-browser.html'
     Set-Content -Path $page -Encoding UTF8 -Value "<!doctype html><meta charset=`"utf-8`"><title>PopBrowserTest</title><body style=`"font-size:32px;margin:80px`"><p>$browserText</p></body>"
-    $chromeProfile = Join-Path $env:RUNNER_TEMP 'pop-chrome-profile'
-    Start-Process $chrome -ArgumentList '--no-first-run', '--no-default-browser-check', "--user-data-dir=`"$chromeProfile`"", '--new-window', '--window-position=120,60', '--window-size=900,700', "`"$page`""
-    $browserWindow = [IntPtr]::Zero
-    for ($i = 0; $i -lt 60 -and $browserWindow -eq [IntPtr]::Zero; $i++) {
-        Start-Sleep -Milliseconds 500
-        $w = Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like 'PopBrowserTest*' } | Select-Object -First 1
-        if ($w) { $browserWindow = $w.MainWindowHandle }
+    foreach ($browser in $browsers) {
+        $name = $browser.Name
+        $exePath = $browser.Paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if (-not $exePath) { throw "这台 runner 上没有 $name" }
+        $browserProfile = Join-Path $env:RUNNER_TEMP "pop-$name-profile"
+        Start-Process $exePath -ArgumentList '--no-first-run', '--no-default-browser-check', "--user-data-dir=`"$browserProfile`"", '--new-window', '--window-position=120,60', '--window-size=900,700', "`"$page`""
+        $browserWindow = [IntPtr]::Zero
+        for ($i = 0; $i -lt 60 -and $browserWindow -eq [IntPtr]::Zero; $i++) {
+            Start-Sleep -Milliseconds 500
+            $w = Get-Process $name -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like 'PopBrowserTest*' } | Select-Object -First 1
+            if ($w) { $browserWindow = $w.MainWindowHandle }
+        }
+        if ($browserWindow -eq [IntPtr]::Zero) {
+            Save-Screenshot (Join-Path $OutDir "$name-missing.png")
+            throw "$name 的窗口没有出现"
+        }
+        Start-Sleep -Seconds 2
+        Set-Foreground $browserWindow
+        Invoke-Key 0x41 -Ctrl   # Ctrl+A 选中整页文字
+        Set-Clipboard -Value 'before'
+        Invoke-LongPress 0 (-110) $name -Hwnd $browserWindow
+        Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') "窗口 Chrome_WidgetWin_1（$name）.*内容「$browserText」" 10 | Out-Null
+        Assert-PopAlive $name
+        $clip = (Get-Clipboard -Raw).Trim()
+        if ($clip -ne $browserText) { throw "$name 里复制到的是「$clip」" }
+        Get-Process $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+        Write-Host "✓ $name 里读取选中文字并复制"
     }
-    if ($browserWindow -eq [IntPtr]::Zero) { throw 'Chrome 窗口没有出现' }
-    Start-Sleep -Seconds 2
-    Set-Foreground $browserWindow
-    Invoke-Key 0x41 -Ctrl   # Ctrl+A 选中整页文字
-    Set-Clipboard -Value 'before'
-    Invoke-LongPress 0 (-110) 'chrome' -Hwnd $browserWindow
-    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '执行 copy' 10 | Out-Null
-    Assert-PopAlive 'chrome'
-    $clip = (Get-Clipboard -Raw).Trim()
-    if ($clip -ne $browserText) { throw "Chrome 里复制到的是「$clip」" }
-    Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Write-Host '✓ Chrome 里读取选中文字并复制'
 
     # 6. 深色外观下的圆盘截图
     Stop-Process -Id $pop.Id -Force
