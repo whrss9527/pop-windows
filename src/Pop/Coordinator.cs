@@ -58,7 +58,7 @@ internal sealed class Coordinator : IDisposable
         this.settings = settings;
         this.history = history;
         reader = new SelectionReader(clipboard);
-        reader.CopyStarting += () => history.Monitor.IgnoreChangesFor(TimeSpan.FromMilliseconds(1500));
+        reader.CopyStarting += () => history.Monitor.IgnoreChangesFor(SelectionReader.CopyIgnoreWindow);
         PinWindow.RecognizeRequested += async (png, px, py) => await RecognizeAsync(png, px, py);
         historyWindow.Chosen += async item =>
         {

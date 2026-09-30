@@ -14,8 +14,15 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
     public event Action? CopyStarting;
 
     private static readonly TimeSpan AutomationTimeout = TimeSpan.FromMilliseconds(600);
-    // 浏览器第一次被 UI Automation 访问时要先建立无障碍树，这期间对 Ctrl+C 的响应也会慢一些
     private static readonly TimeSpan CopyTimeout = TimeSpan.FromMilliseconds(1000);
+    // Chromium 内核的窗口（Chrome、Edge、Electron）第一次被 UI Automation 访问时要先建立无障碍树，
+    // 这期间对 Ctrl+C 的响应能慢到两秒多
+    private static readonly TimeSpan ChromiumCopyTimeout = TimeSpan.FromMilliseconds(2500);
+    // 放弃等待之后再守这么久：App 晚一步写进剪贴板的内容要清掉，把原来的恢复回去
+    private static readonly TimeSpan LateCopyGuard = TimeSpan.FromSeconds(3);
+
+    /// 读取期间剪贴板的变化都不是用户复制的，剪贴板历史要跳过这么久
+    public static readonly TimeSpan CopyIgnoreWindow = ChromiumCopyTimeout + LateCopyGuard + TimeSpan.FromMilliseconds(500);
 
     public async Task<Selection> ReadAsync()
     {
@@ -38,7 +45,8 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
             return new Selection("", "terminal", windowClass, process);
         }
 
-        return new Selection(await ReadWithCopyAsync() ?? "", "copy", windowClass, process);
+        var timeout = windowClass.StartsWith("Chrome_WidgetWin", StringComparison.Ordinal) ? ChromiumCopyTimeout : CopyTimeout;
+        return new Selection(await ReadWithCopyAsync(timeout) ?? "", "copy", windowClass, process);
     }
 
     /// 在单独的线程上读，目标 App 卡住时不拖累 Pop。
@@ -71,22 +79,41 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         return (false, null);
     }
 
-    private async Task<string?> ReadWithCopyAsync()
+    private async Task<string?> ReadWithCopyAsync(TimeSpan timeout)
     {
         var snapshot = clipboard.Save();
         var before = ClipboardAccess.SequenceNumber;
         CopyStarting?.Invoke();
         InputInjector.CtrlChord(0x43); // C
         var watch = Stopwatch.StartNew();
-        while (ClipboardAccess.SequenceNumber == before && watch.Elapsed < CopyTimeout)
+        while (ClipboardAccess.SequenceNumber == before && watch.Elapsed < timeout)
             await Task.Delay(15);
-        if (ClipboardAccess.SequenceNumber == before) return null; // 没有选中内容，App 没往剪贴板里写东西
+        if (ClipboardAccess.SequenceNumber == before)
+        {
+            // 没有选中内容，或者 App 还没来得及响应；它晚一步写进来的话要恢复原来的剪贴板
+            _ = GuardLateCopyAsync(before, snapshot);
+            return null;
+        }
 
         // App 可能分几次写入不同格式
         await Task.Delay(40);
         var text = clipboard.GetText();
         clipboard.Restore(snapshot);
         return text;
+    }
+
+    private async Task GuardLateCopyAsync(uint before, ClipboardAccess.Snapshot? snapshot)
+    {
+        var watch = Stopwatch.StartNew();
+        while (watch.Elapsed < LateCopyGuard)
+        {
+            await Task.Delay(50);
+            if (ClipboardAccess.SequenceNumber == before) continue;
+            await Task.Delay(40);
+            clipboard.Restore(snapshot);
+            Log.Info($"模拟复制晚到了 {watch.ElapsedMilliseconds} ms，已恢复原来的剪贴板");
+            return;
+        }
     }
 }
 
