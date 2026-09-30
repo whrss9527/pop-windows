@@ -2,30 +2,34 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using Pop.Core;
 using Path = System.Windows.Shapes.Path;
 
 namespace Pop;
 
-/// 圆形功能菜单：从指针处弹开，高亮沿着圆环滑到指针所指的那一格
+/// 圆形功能菜单：毛玻璃圆盘从指针处弹开，主题色的高亮沿着圆环滑到指针所指的那一格
 internal sealed class RingWindow : OverlayWindow
 {
-    public const double Size = 300;
+    /// 圆盘直径（DIP）
+    public const double Diameter = 300;
+    private const double Pad = Theme.ShadowPad;
+    private const double Size = Diameter + 2 * Pad;
     private const double Center = Size / 2;
-    private const double OuterRadius = 138;
-    private const double InnerRadius = 56;
-    private const double GapDegrees = 1.2;
+    private const double OuterRadius = Diameter / 2;
+    private const double InnerRadius = 54;
+    private const double LabelRadius = 99;
     /// 圆心这一圈里松开就是关闭（DIP）
     public const double DeadRadius = 34;
 
     private readonly Grid root = new() { Width = Size, Height = Size };
     private readonly Canvas canvas = new() { Width = Size, Height = Size };
     private readonly ScaleTransform scale = new(1, 1, Center, Center);
-    private readonly Path highlight = new();
+    private readonly Path highlight = new() { StrokeLineJoin = PenLineJoin.Round, StrokeThickness = 10 };
     private readonly RotateTransform highlightRotation = new(0, Center, Center);
     private readonly TextBlock status = new();
-    private readonly List<(TextBlock Glyph, TextBlock Title)> labels = [];
+    private readonly List<(FrameworkElement Box, Wpf.Ui.Controls.SymbolIcon Icon, TextBlock Title)> labels = [];
     private IReadOnlyList<PopAction> items = [];
     private ClassifiedContent? content;
     private int? highlighted;
@@ -53,38 +57,44 @@ internal sealed class RingWindow : OverlayWindow
         content = null;
         highlighted = null;
         theme = Theme.Current();
-        Build();
 
         var (work, monitorScale) = Native.MonitorAt(x, y);
         Scale = monitorScale;
-        var radius = Size / 2 * Scale;
-        var (cx, cy) = RingGeometry.ClampCenter(work, x, y, radius);
+        var (cx, cy) = RingGeometry.ClampCenter(work, x, y, OuterRadius * Scale);
         var side = (int)Math.Round(Size * Scale);
         var left = (int)Math.Round(cx - side / 2.0);
         var top = (int)Math.Round(cy - side / 2.0);
+        // 圆盘后面那块屏幕，给毛玻璃用
+        var diameter = (int)Math.Round(Diameter * Scale);
+        var discLeft = (int)Math.Round(cx - diameter / 2.0);
+        var discTop = (int)Math.Round(cy - diameter / 2.0);
+        var shot = Frost.Capture(discLeft, discTop, diameter, diameter, Scale);
+        Build(shot, discLeft, discTop);
         PlacePhysical(left, top, side, side);
 
         MarkShowing();
         root.BeginAnimation(OpacityProperty, null);
         root.Opacity = 0;
-        scale.ScaleX = scale.ScaleY = 0.6;
+        scale.ScaleX = scale.ScaleY = 0.82;
         Show();
         // 移到另一个缩放比例的显示器时 WPF 会按系统建议的位置重新摆一次，这里再放回来
         Dispatcher.BeginInvoke(() => PlacePhysical(left, top, side, side), System.Windows.Threading.DispatcherPriority.Loaded);
 
-        var spring = new BackEase { Amplitude = 0.32, EasingMode = EasingMode.EaseOut };
-        scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.6, 1, Ms(240)) { EasingFunction = spring });
-        scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.6, 1, Ms(240)) { EasingFunction = spring });
-        root.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, Ms(140)));
+        var spring = new BackEase { Amplitude = 0.28, EasingMode = EasingMode.EaseOut };
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.82, 1, Ms(260)) { EasingFunction = spring });
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.82, 1, Ms(260)) { EasingFunction = spring });
+        root.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, Ms(150)));
     }
 
     public void Dismiss()
     {
         if (!IsVisible) return;
-        FadeOutAndHide(root, 110);
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.94, Ms(120)) { EasingFunction = new QuadraticEase() });
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.94, Ms(120)) { EasingFunction = new QuadraticEase() });
+        FadeOutAndHide(root, 120);
     }
 
-    /// 选中的内容读到了：更新中间的预览，读不到文字的格子变灰；链接之类的内容会换掉某些格子
+    /// 选中的内容读到了：更新中间的预览，用不了的格子变淡；链接之类的内容会换掉某些格子
     public void SetContent(ClassifiedContent selected, IReadOnlyList<PopAction> ringItems)
     {
         content = selected;
@@ -93,11 +103,11 @@ internal sealed class RingWindow : OverlayWindow
             items = ringItems;
             var keep = highlighted;
             highlighted = null;
-            Build();
+            RebuildLabels();
             Highlight(keep);
         }
         status.Text = selected.IsEmpty ? "没有选中文字" : CenterText(selected);
-        status.Foreground = new SolidColorBrush(selected.IsEmpty ? theme.SecondaryText : theme.Text);
+        status.Foreground = theme.Brush(selected.IsEmpty ? theme.TertiaryText : theme.SecondaryText);
         RefreshLabels();
     }
 
@@ -111,10 +121,12 @@ internal sealed class RingWindow : OverlayWindow
     {
         if (index == highlighted) return;
         highlighted = index;
-        if (index is { } i)
+        if (index is { } i && i < items.Count)
         {
             var available = content is null || items[i].IsAvailable(content);
-            highlight.Fill = new SolidColorBrush(available ? theme.Accent : theme.SecondaryText);
+            var fill = theme.Brush(available ? theme.Accent : theme.DisabledText);
+            highlight.Fill = fill;
+            highlight.Stroke = fill;
             var target = RingGeometry.NextHighlightAngle(highlightAngle, i, items.Count);
             if (highlight.Opacity < 0.01)
             {
@@ -125,14 +137,14 @@ internal sealed class RingWindow : OverlayWindow
             else
             {
                 highlightRotation.BeginAnimation(RotateTransform.AngleProperty,
-                    new DoubleAnimation(target, Ms(150)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+                    new DoubleAnimation(target, Ms(170)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
             }
             highlightAngle = target;
-            highlight.BeginAnimation(OpacityProperty, new DoubleAnimation(1, Ms(90)));
+            highlight.BeginAnimation(OpacityProperty, new DoubleAnimation(1, Ms(100)));
         }
         else
         {
-            highlight.BeginAnimation(OpacityProperty, new DoubleAnimation(0, Ms(90)));
+            highlight.BeginAnimation(OpacityProperty, new DoubleAnimation(0, Ms(100)));
         }
         RefreshLabels();
     }
@@ -140,120 +152,158 @@ internal sealed class RingWindow : OverlayWindow
     private static string Preview(string text)
     {
         var oneLine = string.Join(" ", text.Split((char[])['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)).Trim();
-        return oneLine.Length > 40 ? oneLine[..40] + "…" : oneLine;
+        return oneLine.Length > 36 ? oneLine[..36] + "…" : oneLine;
     }
 
-    private void Build()
+    private void Build(Frost.Shot? shot, int discLeft, int discTop)
     {
         canvas.Children.Clear();
-        labels.Clear();
 
-        var surface = new Ellipse
+        // 阴影：画在一个不透明的圆上
+        var shadow = new Ellipse
         {
-            Width = OuterRadius * 2 + 8,
-            Height = OuterRadius * 2 + 8,
-            Fill = new SolidColorBrush(theme.Surface),
-            Stroke = new SolidColorBrush(theme.SurfaceBorder),
-            StrokeThickness = 1,
-            Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 4, Opacity = theme.Dark ? 0.5 : 0.22, Direction = 270 },
+            Width = Diameter,
+            Height = Diameter,
+            Fill = theme.Brush(theme.Tint),
+            Effect = new DropShadowEffect { BlurRadius = 30, ShadowDepth = 8, Direction = 270, Opacity = theme.ShadowOpacity, RenderingBias = RenderingBias.Quality },
         };
-        Canvas.SetLeft(surface, Center - OuterRadius - 4);
-        Canvas.SetTop(surface, Center - OuterRadius - 4);
-        canvas.Children.Add(surface);
+        Place(shadow, Pad, Pad);
 
-        var count = items.Count;
-        var step = 360.0 / Math.Max(count, 1);
+        // 毛玻璃底
+        var disc = new EllipseGeometry(new Point(OuterRadius, OuterRadius), OuterRadius, OuterRadius);
+        disc.Freeze();
+        Place(Frost.Layer(shot, discLeft, discTop, Diameter, Diameter, disc, theme), Pad, Pad);
+
+        // 外描边和内侧高光
+        Place(new Ellipse { Width = Diameter, Height = Diameter, Stroke = theme.Brush(theme.Stroke), StrokeThickness = 1 }, Pad, Pad);
+        Place(new Ellipse
+        {
+            Width = Diameter - 2,
+            Height = Diameter - 2,
+            Stroke = new LinearGradientBrush(theme.InnerStroke, Colors.Transparent, 90),
+            StrokeThickness = 1,
+        }, Pad + 1, Pad + 1);
+
+        // 格子之间的分隔线
+        var count = Math.Max(items.Count, 1);
+        var step = 360.0 / count;
         for (var i = 0; i < count; i++)
         {
-            var angle = RingGeometry.SectorAngle(i, count);
-            canvas.Children.Add(new Path
-            {
-                Data = Wedge(angle - step / 2 + GapDegrees, angle + step / 2 - GapDegrees, OuterRadius - 4, InnerRadius + 4),
-                Fill = new SolidColorBrush(theme.Segment),
-            });
+            var angle = (i + 0.5) * step;
+            var (x1, y1) = At(angle, InnerRadius + 10);
+            var (x2, y2) = At(angle, OuterRadius - 16);
+            canvas.Children.Add(new Line { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, Stroke = theme.Brush(theme.Divider), StrokeThickness = 1 });
         }
 
-        highlight.Data = Wedge(-step / 2 + GapDegrees, step / 2 - GapDegrees, OuterRadius - 4, InnerRadius + 4);
+        // 高亮：主题色的一段圆环，描边加粗让四个角变圆
+        highlight.Data = Wedge(-step / 2 + 3.2, step / 2 - 3.2, OuterRadius - 10, InnerRadius + 9);
         highlight.RenderTransform = highlightRotation;
         highlight.BeginAnimation(OpacityProperty, null);
         highlight.Opacity = 0;
         canvas.Children.Add(highlight);
 
-        var labelRadius = (OuterRadius + InnerRadius) / 2;
+        // 中间的圆：显示选中内容的预览
+        var centerDisc = new Ellipse
+        {
+            Width = InnerRadius * 2,
+            Height = InnerRadius * 2,
+            Fill = theme.Brush(theme.CenterFill),
+            Stroke = theme.Brush(theme.Divider),
+            StrokeThickness = 1,
+        };
+        Place(centerDisc, Center - InnerRadius, Center - InnerRadius);
+
+        status.Text = "读取中…";
+        status.FontFamily = Theme.TextFont;
+        status.FontSize = Theme.Caption;
+        status.LineHeight = 17;
+        status.TextAlignment = TextAlignment.Center;
+        status.TextWrapping = TextWrapping.Wrap;
+        status.TextTrimming = TextTrimming.CharacterEllipsis;
+        status.Width = InnerRadius * 2 - 24;
+        status.MaxHeight = 52;
+        status.Foreground = theme.Brush(theme.TertiaryText);
+        status.HorizontalAlignment = HorizontalAlignment.Center;
+        status.VerticalAlignment = VerticalAlignment.Center;
+        if (status.Parent is Panel old) old.Children.Remove(status);
+        var statusBox = new Grid { Width = InnerRadius * 2, Height = InnerRadius * 2 };
+        statusBox.Children.Add(status);
+        Place(statusBox, Center - InnerRadius, Center - InnerRadius);
+
+        RebuildLabels();
+    }
+
+    private void RebuildLabels()
+    {
+        foreach (var (box, _, _) in labels) canvas.Children.Remove(box);
+        labels.Clear();
+        var count = items.Count;
         for (var i = 0; i < count; i++)
         {
-            var rad = RingGeometry.SectorAngle(i, count) * Math.PI / 180;
-            var glyph = new TextBlock
-            {
-                Text = items[i].Glyph,
-                FontFamily = Theme.IconFont,
-                FontSize = 20,
-                HorizontalAlignment = HorizontalAlignment.Center,
-            };
+            var icon = Icons.Make(items[i].Glyph, 22, theme.Brush(theme.Text));
+            icon.HorizontalAlignment = HorizontalAlignment.Center;
             var title = new TextBlock
             {
                 Text = items[i].Title,
                 FontFamily = Theme.TextFont,
-                FontSize = 12,
-                Margin = new Thickness(0, 4, 0, 0),
+                FontSize = Theme.Caption,
+                FontWeight = FontWeights.Medium,
+                Margin = new Thickness(0, 5, 0, 0),
                 HorizontalAlignment = HorizontalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 76,
             };
-            var panel = new StackPanel { Width = 64, Height = 48, VerticalAlignment = VerticalAlignment.Center };
-            panel.Children.Add(glyph);
+            var panel = new StackPanel { Width = 80, VerticalAlignment = VerticalAlignment.Center };
+            panel.Children.Add(icon);
             panel.Children.Add(title);
-            Canvas.SetLeft(panel, Center + labelRadius * Math.Sin(rad) - 32);
-            Canvas.SetTop(panel, Center - labelRadius * Math.Cos(rad) - 24);
-            canvas.Children.Add(panel);
-            labels.Add((glyph, title));
+            var box = new Grid { Width = 80, Height = 56 };
+            box.Children.Add(panel);
+            var (x, y) = At(RingGeometry.SectorAngle(i, count), LabelRadius);
+            Place(box, x - 40, y - 28);
+            labels.Add((box, icon, title));
         }
-
-        // 上一次显示时 status 放在旧的容器里，要先拿出来才能放进新的
-        if (status.Parent is Panel oldParent) oldParent.Children.Remove(status);
-        status.Text = "读取中…";
-        status.FontFamily = Theme.TextFont;
-        status.FontSize = 11;
-        status.TextAlignment = TextAlignment.Center;
-        status.TextWrapping = TextWrapping.Wrap;
-        status.TextTrimming = TextTrimming.CharacterEllipsis;
-        status.Width = InnerRadius * 2 - 22;
-        status.MaxHeight = 46;
-        status.Foreground = new SolidColorBrush(theme.SecondaryText);
-        var statusBox = new Grid { Width = InnerRadius * 2, Height = InnerRadius * 2 };
-        status.HorizontalAlignment = HorizontalAlignment.Center;
-        status.VerticalAlignment = VerticalAlignment.Center;
-        statusBox.Children.Add(status);
-        Canvas.SetLeft(statusBox, Center - InnerRadius);
-        Canvas.SetTop(statusBox, Center - InnerRadius);
-        canvas.Children.Add(statusBox);
-
         RefreshLabels();
     }
 
     private void RefreshLabels()
     {
-        for (var i = 0; i < labels.Count; i++)
+        for (var i = 0; i < labels.Count && i < items.Count; i++)
         {
             var available = content is null || items[i].IsAvailable(content);
-            var color = i == highlighted ? theme.AccentText : available ? theme.Text : theme.DisabledText;
-            var brush = new SolidColorBrush(color);
-            labels[i].Glyph.Foreground = brush;
+            var active = i == highlighted;
+            var brush = theme.Brush(active ? theme.AccentText : theme.Text);
+            labels[i].Icon.Foreground = brush;
             labels[i].Title.Foreground = brush;
+            labels[i].Box.Opacity = active || available ? 1 : 0.38;
         }
+    }
+
+    private void Place(UIElement element, double left, double top)
+    {
+        Canvas.SetLeft(element, left);
+        Canvas.SetTop(element, top);
+        canvas.Children.Add(element);
+    }
+
+    private static (double X, double Y) At(double degrees, double radius)
+    {
+        var rad = degrees * Math.PI / 180;
+        return (Center + radius * Math.Sin(rad), Center - radius * Math.Cos(rad));
     }
 
     /// 圆环上的一段，角度 0 朝上、顺时针
     private static Geometry Wedge(double fromDegrees, double toDegrees, double outer, double inner)
     {
-        Point At(double degrees, double r)
+        Point P(double degrees, double r)
         {
-            var rad = degrees * Math.PI / 180;
-            return new Point(Center + r * Math.Sin(rad), Center - r * Math.Cos(rad));
+            var (x, y) = At(degrees, r);
+            return new Point(x, y);
         }
         var large = toDegrees - fromDegrees > 180;
-        var figure = new PathFigure { StartPoint = At(fromDegrees, outer), IsClosed = true, IsFilled = true };
-        figure.Segments.Add(new ArcSegment(At(toDegrees, outer), new Size(outer, outer), 0, large, SweepDirection.Clockwise, true));
-        figure.Segments.Add(new LineSegment(At(toDegrees, inner), true));
-        figure.Segments.Add(new ArcSegment(At(fromDegrees, inner), new Size(inner, inner), 0, large, SweepDirection.Counterclockwise, true));
+        var figure = new PathFigure { StartPoint = P(fromDegrees, outer), IsClosed = true, IsFilled = true };
+        figure.Segments.Add(new ArcSegment(P(toDegrees, outer), new Size(outer, outer), 0, large, SweepDirection.Clockwise, true));
+        figure.Segments.Add(new LineSegment(P(toDegrees, inner), true));
+        figure.Segments.Add(new ArcSegment(P(fromDegrees, inner), new Size(inner, inner), 0, large, SweepDirection.Counterclockwise, true));
         var geometry = new PathGeometry([figure]);
         geometry.Freeze();
         return geometry;

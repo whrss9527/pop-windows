@@ -1,6 +1,7 @@
 namespace Pop;
 
-internal sealed record StartupOptions(bool UpdateNow, string? UpdatedFrom, bool Silent, bool ShowSettings);
+/// DemoShots：演示模式，把各个界面依次显示出来截图存到这个文件夹（CI 用），DemoScenes 只拍其中几个
+internal sealed record StartupOptions(bool UpdateNow, string? UpdatedFrom, bool Silent, bool ShowSettings, string? DemoShots = null, string? DemoScenes = null);
 
 internal static class Program
 {
@@ -25,6 +26,9 @@ internal static class Program
             Log.Error("后台任务里没人处理的异常", e.Exception);
             e.SetObserved();
         };
+        // 演示模式不装钩子、不改设置，可以和正在运行的 Pop 同时运行
+        if (options.DemoShots is not null) return RunApp(options);
+
         using var mutex = new Mutex(false, MutexName);
         // 更新后启动的新版本要等旧进程退出
         var wait = options.UpdatedFrom is not null ? TimeSpan.FromSeconds(20) : TimeSpan.Zero;
@@ -53,6 +57,18 @@ internal static class Program
 
         try
         {
+            return RunApp(options);
+        }
+        finally
+        {
+            mutex.ReleaseMutex();
+        }
+    }
+
+    private static int RunApp(StartupOptions options)
+    {
+        try
+        {
             var app = new App(options);
             return app.Run();
         }
@@ -62,10 +78,6 @@ internal static class Program
             SmokeTest.Report($"crash={e.GetType().Name}: {e.Message}");
             return 2;
         }
-        finally
-        {
-            mutex.ReleaseMutex();
-        }
     }
 
     private static StartupOptions Parse(string[] args)
@@ -74,6 +86,8 @@ internal static class Program
         var silent = false;
         var settings = false;
         string? updatedFrom = null;
+        string? demoShots = null;
+        string? demoScenes = null;
         for (var i = 0; i < args.Length; i++)
         {
             switch (args[i])
@@ -90,8 +104,14 @@ internal static class Program
                 case "--settings":
                     settings = true;
                     break;
+                case "--demo-shots" when i + 1 < args.Length:
+                    demoShots = args[++i];
+                    break;
+                case "--demo-scenes" when i + 1 < args.Length:
+                    demoScenes = args[++i];
+                    break;
             }
         }
-        return new StartupOptions(updateNow, updatedFrom, silent, settings);
+        return new StartupOptions(updateNow, updatedFrom, silent, settings, demoShots, demoScenes);
     }
 }

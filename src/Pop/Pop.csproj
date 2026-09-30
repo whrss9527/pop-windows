@@ -30,10 +30,17 @@
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\Pop.ico" />
+    <!-- 中文字体：Noto Sans CJK SC 的常用字子集（SIL Open Font License） -->
+    <Resource Include="Assets\Fonts\*.otf" />
+    <Resource Include="Assets\Fonts\LICENSE-OFL.txt" />
   </ItemGroup>
   <ItemGroup>
     <!-- Windows 原生 UI Automation（UIAutomationCore）的 COM 接口 -->
     <PackageReference Include="Interop.UIAutomationClient" Version="10.19041.0" />
+    <!-- Fluent 风格的控件、Mica 窗口和图标（MIT） -->
+    <PackageReference Include="WPF-UI" Version="4.3.0" />
+    <!-- 用 Windows 的数据保护接口加密保存 Key -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Pop.Core\Pop.Core.csproj" />

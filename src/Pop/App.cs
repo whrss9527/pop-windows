@@ -1,6 +1,10 @@
 using System.Windows;
+using System.Windows.Controls;
+using Microsoft.Win32;
 using Pop.Core;
+using Wpf.Ui.Appearance;
 using Forms = System.Windows.Forms;
+using WindowBackdropType = Wpf.Ui.Controls.WindowBackdropType;
 
 namespace Pop;
 
@@ -18,7 +22,8 @@ internal sealed class App : Application
     {
         this.options = options;
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        Settings = AppSettings.Load(Paths.Settings);
+        // 演示模式用默认设置，也不保存，不影响真正的设置
+        Settings = options.DemoShots is null ? AppSettings.Load(Paths.Settings) : new AppSettings();
         Updater = new Updater(() => Settings);
     }
 
@@ -33,6 +38,18 @@ internal sealed class App : Application
             Log.Error("界面线程未处理的异常", args.Exception);
             args.Handled = true;
         };
+        SetUpAppearance();
+        if (options.DemoShots is { } shots)
+        {
+            // 演示模式不注册快捷键，界面上显示默认的那几个
+            HistoryHotKey = "Win+Alt+V";
+            OcrHotKey = "Win+Alt+O";
+            PinHotKey = "Win+Alt+P";
+            await Demo.RunAsync(this, shots, options.DemoScenes);
+            Shutdown();
+            return;
+        }
+
         Log.Info($"Pop {Updater.CurrentVersion} 启动，{Paths.Executable}{(options.UpdatedFrom is { } from ? $"（从 {from} 更新而来）" : "")}");
         CleanUpOldExecutable();
 
@@ -62,13 +79,16 @@ internal sealed class App : Application
         if (options.UpdatedFrom is not null)
             tray.Notify("Pop 已更新", $"现在是 {Updater.CurrentVersion}");
         else if (!options.Silent && !System.IO.File.Exists(Paths.Settings))
-            tray.Notify("Pop 已在运行", "在任意 App 里选中文字，长按鼠标右键试试。Pop 的菜单在任务栏右下角的图标上。");
+            tray.Notify("Pop 已在运行", "在任意 App 里选中文字，长按鼠标右键试试。点任务栏右下角的 Pop 图标可以打开面板和设置。");
         if (!System.IO.File.Exists(Paths.Settings)) SaveSettings();
 
         if (options.ShowSettings) ShowSettings();
         SmokeTest.Report($"started version={Updater.CurrentVersion} hooks={(hook.IsInstalled ? "ok" : "failed")} updated-from={options.UpdatedFrom ?? "-"}");
         if (SmokeTest.ExitAfterStart) Quit();
     }
+
+    /// 设置改了（设置窗口和托盘面板都会改，互相刷新）
+    public event Action? SettingsChanged;
 
     public void UpdateSettings(Action<AppSettings> change)
     {
@@ -80,6 +100,52 @@ internal sealed class App : Application
             hook.HoldMilliseconds = Settings.HoldMilliseconds;
         }
         history?.Cleanup();
+        SettingsChanged?.Invoke();
+    }
+
+    public bool IsDemo => options.DemoShots is not null;
+
+    // ── 外观 ──────────────────────────────────────────
+
+    /// WPF-UI 的控件样式和配色，跟随系统的深浅色和主题色
+    private void SetUpAppearance()
+    {
+        var dark = Theme.SystemIsDark();
+        Resources.MergedDictionaries.Add(new Wpf.Ui.Markup.ThemesDictionary { Theme = dark ? ApplicationTheme.Dark : ApplicationTheme.Light });
+        Resources.MergedDictionaries.Add(new Wpf.Ui.Markup.ControlsDictionary());
+        // 右键菜单和提示框不在窗口里面，字体要单独指定
+        foreach (var type in new[] { typeof(ContextMenu), typeof(ToolTip) })
+        {
+            var style = new Style(type, TryFindResource(type) as Style);
+            style.Setters.Add(new Setter(Control.FontFamilyProperty, Theme.TextFont));
+            Resources[type] = style;
+        }
+        ApplyAppearance();
+        SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+    }
+
+    private void ApplyAppearance()
+    {
+        var theme = Theme.SystemIsDark() ? ApplicationTheme.Dark : ApplicationTheme.Light;
+        // WPF-UI 换配色时会顺带改「主窗口」的窗口样式；主窗口默认是第一个创建的浮窗，这里临时换成设置窗口
+        var main = MainWindow;
+        MainWindow = settingsWindow;
+        try
+        {
+            ApplicationThemeManager.Apply(theme, WindowBackdropType.Mica, updateAccent: false);
+        }
+        finally
+        {
+            MainWindow = main;
+        }
+        // 用系统调色板里的主题色（和系统控件一样），不是按亮度推算的
+        ApplicationAccentColorManager.Apply(ApplicationAccentColorManager.GetColorizationColor(), theme, systemGlassColor: false, systemAccentColor: true);
+    }
+
+    private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category is UserPreferenceCategory.General or UserPreferenceCategory.Color or UserPreferenceCategory.VisualStyle)
+            Dispatcher.BeginInvoke(ApplyAppearance);
     }
 
     public async Task CheckForUpdatesAsync(bool userInitiated)
@@ -131,26 +197,31 @@ internal sealed class App : Application
 
     private SettingsWindow? settingsWindow;
 
-    public void ShowSettings()
+    public void ShowSettings() => ShowSettings(null);
+
+    /// 打开设置窗口，page 是要显示的那一页（SettingsWindow.Pages 里的 ID）
+    public SettingsWindow ShowSettings(string? page)
     {
         if (settingsWindow is { IsLoaded: true })
         {
             if (settingsWindow.WindowState == WindowState.Minimized) settingsWindow.WindowState = WindowState.Normal;
+            if (page is not null) settingsWindow.Navigate(page);
             settingsWindow.Activate();
-            return;
+            return settingsWindow;
         }
-        settingsWindow = new SettingsWindow(this);
+        settingsWindow = new SettingsWindow(this, page);
         settingsWindow.Closed += (_, _) => settingsWindow = null;
         settingsWindow.Show();
         settingsWindow.Activate();
         Log.Info("设置窗口已打开");
+        return settingsWindow;
     }
 
     /// 再次运行 Pop.exe 时，正在运行的 Pop 打开设置窗口
     private void ListenForSecondInstance()
     {
         var signal = new EventWaitHandle(false, EventResetMode.AutoReset, Program.ShowSettingsEventName);
-        ThreadPool.RegisterWaitForSingleObject(signal, (_, _) => Dispatcher.BeginInvoke(ShowSettings), null, Timeout.Infinite, executeOnlyOnce: false);
+        ThreadPool.RegisterWaitForSingleObject(signal, (_, _) => Dispatcher.BeginInvoke(() => ShowSettings()), null, Timeout.Infinite, executeOnlyOnce: false);
     }
 
     public void ClearClipboardHistory()
@@ -161,6 +232,7 @@ internal sealed class App : Application
 
     public void Quit()
     {
+        SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         hotKeys?.Dispose();
         coordinator?.Dispose();
         history?.Dispose();
@@ -177,12 +249,13 @@ internal sealed class App : Application
         if (Updater.Available is { } release && !notifiedVersion)
         {
             notifiedVersion = true;
-            tray?.Notify($"Pop {release.Version} 可以更新了", "点任务栏右下角的 Pop 图标，选「更新到 " + release.Version + "」");
+            tray?.Notify($"Pop {release.Version} 可以更新了", "点任务栏右下角的 Pop 图标，在面板上点「更新」");
         }
     }
 
     private void SaveSettings()
     {
+        if (IsDemo) return;
         try
         {
             Settings.Save(Paths.Settings);

@@ -1,6 +1,7 @@
 name: CI
 
-# 推送代码和合并请求时：单元测试、编译 Release 版、启动测试、真实的长按右键手势测试（带截图）、一键更新的端到端测试。
+# 推送代码和合并请求时：单元测试、编译 Release 版、启动测试、真实的长按右键手势测试（带截图）、
+# 演示模式下每个界面的截图、一键更新的端到端测试。
 # 推到 main 并且都通过后，CHANGELOG.md 最上面的版本还没有标签的话，
 # 就自动打标签、打包并发布正式版（调用 release.yml），已安装的 Pop 会提示更新。
 on:
@@ -85,6 +86,10 @@ jobs:
         run: ./scripts/smoke.ps1 -Exe out/new/Pop.exe
       - name: Long-press gesture test
         run: ./scripts/gesture-e2e.ps1 -Exe (Resolve-Path out/new/Pop.exe) -OutDir screenshots
+      # 演示模式：每个界面浅色、深色各截一张，放在 ui 文件夹里
+      - name: UI screenshots
+        if: success() || failure()
+        run: ./scripts/ui-screenshots.ps1 -Exe (Resolve-Path out/new/Pop.exe) -OutDir screenshots/ui
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -99,7 +104,7 @@ jobs:
           $branch = "ci-screenshots/${{ matrix.os }}"
           $dir = Join-Path $env:RUNNER_TEMP 'shots-repo'
           New-Item -ItemType Directory -Force $dir | Out-Null
-          Copy-Item screenshots/* $dir
+          Copy-Item screenshots/* $dir -Recurse
           $readme = "${{ github.sha }} 在 ${{ matrix.os }} 上的截图（${{ github.ref_name }}）"
           Set-Content -Path (Join-Path $dir 'README.md') -Value $readme -Encoding UTF8
           Push-Location $dir

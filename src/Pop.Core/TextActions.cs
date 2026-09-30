@@ -58,6 +58,16 @@ public static class TextActions
         return new TextStats(characters, noSpaces, chinese, words, lines);
     }
 
+    /// 字数统计卡片上的几行
+    public static IReadOnlyList<ResultLine> Lines(TextStats s) =>
+    [
+        new("字符", s.Characters.ToString("N0", CultureInfo.InvariantCulture)),
+        new("不含空格", s.CharactersNoSpaces.ToString("N0", CultureInfo.InvariantCulture)),
+        new("汉字", s.Chinese.ToString("N0", CultureInfo.InvariantCulture)),
+        new("单词", s.Words.ToString("N0", CultureInfo.InvariantCulture)),
+        new("行数", s.Lines.ToString("N0", CultureInfo.InvariantCulture)),
+    ];
+
     public static string Describe(TextStats s) =>
         $"字符 {s.Characters}（不含空格 {s.CharactersNoSpaces}）\n汉字 {s.Chinese}\n单词 {s.Words}\n行数 {s.Lines}";
 }

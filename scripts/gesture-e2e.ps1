@@ -12,6 +12,14 @@ $notepadFile = Join-Path $env:RUNNER_TEMP 'pop-gesture.txt'
 $pop = $null
 $notepad = $null
 
+# 选中外文默认直接翻译，不弹圆盘；这里的步骤大多要对英文用圆盘，所以测试时关掉外文直接翻译
+function Set-PopSettings([string]$Json) {
+    $dir = Join-Path $env:APPDATA 'Pop'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    Set-Content -Path (Join-Path $dir 'settings.json') -Value $Json -Encoding UTF8
+}
+$testSettings = '{ "directKinds": ["math", "measurement", "color", "timestamp"] }'
+
 function Start-Pop([hashtable]$ExtraEnv = @{}) {
     $marker = Join-Path $env:RUNNER_TEMP "pop-gesture-$([guid]::NewGuid().ToString('N')).txt"
     $env:POP_SMOKE_MARKER = $marker
@@ -78,6 +86,7 @@ function Invoke-LongPress([int]$Dx, [int]$Dy, [string]$Shot, [switch]$BackToCent
 
 try {
     Set-Content -Path $notepadFile -Value $sample -NoNewline -Encoding UTF8
+    Set-PopSettings $testSettings
     $pop = Start-Pop
     $notepad = Start-Process notepad.exe -ArgumentList "`"$notepadFile`"" -PassThru
     $notepad.WaitForInputIdle(10000) | Out-Null
@@ -160,6 +169,22 @@ try {
     Save-Screenshot (Join-Path $OutDir 'direct-color-card.png')
     Invoke-Key 0x1B
     Write-Host '✓ 带单位的数值、颜色直接出结果'
+
+    # 5a. 翻译：往右下方划（第 2 格「翻译」），卡片里先显示「正在翻译」，译文回来后原地换掉。
+    # 翻译服务在外网上，偶尔连不上时只提示，不算失败
+    Set-NotepadText 'Good morning, how are you today?'
+    Invoke-LongPress 95 55 'translate'
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '执行 translate' 10 | Out-Null
+    $log = Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '翻译(完成|失败)' 20
+    Start-Sleep -Milliseconds 400
+    Save-Screenshot (Join-Path $OutDir 'translate-card.png')
+    if ($log -match '翻译完成：[^，]+，en → zh-Hans') {
+        Write-Host '✓ 翻译：译文显示在卡片里'
+    } else {
+        $line = ($log -split "`n" | Select-String '翻译失败' | Select-Object -Last 1)
+        Write-Host "::warning::翻译服务没有返回译文：$line"
+    }
+    Invoke-Key 0x1B
 
     # 5b. 全部功能：往左上方划（第 5 格），列表里搜「base64」，回车执行；卡片上回车复制编码结果
     Set-NotepadText 'hello pop world'
