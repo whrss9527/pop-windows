@@ -17,6 +17,10 @@ function Start-Pop([hashtable]$ExtraEnv = @{}) {
     $env:POP_SMOKE_MARKER = $marker
     $env:POP_LOG_SELECTION = '1'
     $env:POP_ANIMATION_SCALE = '1'
+    # 不去访问 GitHub：共享 runner 的出口经常被接口限流
+    $emptyFeed = Join-Path $env:RUNNER_TEMP 'pop-empty-feed.json'
+    Set-Content -Path $emptyFeed -Value '[]'
+    $env:POP_UPDATE_FEED = $emptyFeed
     foreach ($k in $ExtraEnv.Keys) { Set-Item "Env:$k" $ExtraEnv[$k] }
     $p = Start-Process -FilePath $Exe -ArgumentList '--silent' -PassThru
     Wait-FileContains $marker 'started.*hooks=ok' 60 | Out-Null
@@ -178,5 +182,5 @@ finally {
     Write-Host $log
     if ($notepad -and -not $notepad.HasExited) { $notepad.Kill() }
     if ($pop -and -not $pop.HasExited) { $pop.Kill() }
-    Remove-Item Env:POP_LOG_SELECTION, Env:POP_ANIMATION_SCALE -ErrorAction SilentlyContinue
+    Remove-Item Env:POP_LOG_SELECTION, Env:POP_ANIMATION_SCALE, Env:POP_UPDATE_FEED -ErrorAction SilentlyContinue
 }

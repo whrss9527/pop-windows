@@ -65,9 +65,14 @@ internal sealed class Updater : IDisposable
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException or InvalidOperationException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
+            // 断网、GitHub 限流都很常见，后台检查失败下次再试，不算错误
+            if (!userInitiated)
+            {
+                Log.Info($"检查更新失败，稍后再试：{e.GetType().Name} {e.Message}");
+                return null;
+            }
             Log.Error("检查更新失败", e);
-            if (userInitiated) throw new UpdateException($"检查更新失败：{e.Message}", e);
-            return null;
+            throw new UpdateException($"检查更新失败：{e.Message}", e);
         }
         finally
         {
