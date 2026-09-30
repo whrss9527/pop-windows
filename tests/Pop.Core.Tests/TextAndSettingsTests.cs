@@ -41,8 +41,8 @@ public class TextActionsTests
     public void RingItemsNeedText()
     {
         var copy = RingItems.Default.First(i => i.Id == "copy");
-        Assert.False(RingItems.IsAvailable(copy, ""));
-        Assert.True(RingItems.IsAvailable(copy, "x"));
+        Assert.False(copy.IsAvailable(ContentClassifier.Classify("")));
+        Assert.True(copy.IsAvailable(ContentClassifier.Classify("x")));
         Assert.Equal(RingItems.Default.Count, RingItems.Default.Select(i => i.Id).Distinct().Count());
     }
 }

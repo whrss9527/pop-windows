@@ -22,12 +22,14 @@ internal sealed class Coordinator : IDisposable
     private readonly Paster paster;
     private readonly RingWindow ring = new();
     private readonly ResultCard card = new();
+    private readonly ActionListWindow actionList = new();
     private readonly Func<AppSettings> settings;
     private Session? session;
 
     // 钩子线程读这几个值决定要不要扣下按键
     private volatile bool ringOpen;
     private volatile bool cardOpen;
+    private volatile bool listOpen;
     private volatile int ringCount;
 
     /// 长按成立后最多等这么久读取选中内容：选中的是算式、单位、颜色这些时直接出结果，不用先弹圆盘再换成卡片
@@ -38,7 +40,7 @@ internal sealed class Coordinator : IDisposable
         public int X { get; } = x;
         public int Y { get; } = y;
         public Task<Selection> Selection { get; } = selection;
-        public IReadOnlyList<RingItem> Items { get; set; } = RingItems.Default;
+        public IReadOnlyList<PopAction> Items { get; set; } = RingItems.Default;
         public bool RingShown { get; set; }
         /// 圆盘还没弹出来右键就松开了
         public bool ReleasedEarly { get; set; }
@@ -59,23 +61,33 @@ internal sealed class Coordinator : IDisposable
         hook.OtherButtonDown += (x, y) =>
         {
             if (cardOpen) dispatcher.BeginInvoke(() => { if (!card.ContainsPhysical(x, y)) CloseCard(); });
+            if (listOpen) dispatcher.BeginInvoke(() => { if (!actionList.ContainsPhysical(x, y)) CloseList(); });
         };
         hook.KeyFilter = FilterKey;
         card.CopyRequested += text => clipboard.SetText(text, temporary: false);
         card.ReplaceRequested += async text => await Replace(text);
         card.Dismissed += () => cardOpen = false;
+        actionList.Chosen += async action =>
+        {
+            listOpen = false;
+            if (lastList is not { } last) return;
+            Log.Info($"执行 {action.Id}（全部功能）");
+            await Run(action, last.Content, last.X, last.Y);
+        };
     }
 
     public void Dispose()
     {
         ring.Close();
         card.Close();
+        actionList.Close();
         clipboard.Dispose();
     }
 
     private async void OnTriggered(int x, int y)
     {
         CloseCard();
+        CloseList();
         Log.Info($"长按 ({x}, {y})");
         var selection = ReadSelectionAsync();
         var s = new Session(x, y, selection);
@@ -168,6 +180,7 @@ internal sealed class Coordinator : IDisposable
     /// 钩子线程上调用，只看状态、立刻返回，真正的事交给界面线程
     private bool FilterKey(int vk)
     {
+        if (listOpen) return FilterListKey(vk);
         if (ringOpen)
         {
             if (vk == VK_ESCAPE)
@@ -204,6 +217,53 @@ internal sealed class Coordinator : IDisposable
         return false;
     }
 
+    /// 「全部功能」列表打开时，按键都交给列表；按着 Ctrl、Alt、Win 的组合键照常交给系统，同时关掉列表
+    private bool FilterListKey(int vk)
+    {
+        const int VK_BACK = 0x08, VK_SPACE = 0x20, VK_UP = 0x26, VK_DOWN = 0x28, VK_OEM_MINUS = 0xBD, VK_OEM_PERIOD = 0xBE;
+        static bool Down(int key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
+        if (Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C))
+        {
+            dispatcher.BeginInvoke(CloseList);
+            return false;
+        }
+        char? typed = vk switch
+        {
+            >= 0x41 and <= 0x5A => (char)('a' + vk - 0x41),
+            >= 0x30 and <= 0x39 => (char)('0' + vk - 0x30),
+            >= 0x60 and <= 0x69 => (char)('0' + vk - 0x60),
+            VK_SPACE => ' ',
+            VK_OEM_MINUS => '-',
+            VK_OEM_PERIOD => '.',
+            _ => null,
+        };
+        switch (vk)
+        {
+            case VK_ESCAPE:
+                dispatcher.BeginInvoke(CloseList);
+                return true;
+            case VK_RETURN:
+                dispatcher.BeginInvoke(actionList.Choose);
+                return true;
+            case VK_UP:
+                dispatcher.BeginInvoke(() => actionList.Move(-1));
+                return true;
+            case VK_DOWN:
+                dispatcher.BeginInvoke(() => actionList.Move(1));
+                return true;
+            case VK_BACK:
+                dispatcher.BeginInvoke(actionList.Backspace);
+                return true;
+        }
+        if (typed is { } c)
+        {
+            dispatcher.BeginInvoke(() => actionList.Type(c));
+            return true;
+        }
+        // Shift、Tab 之类的键不处理，也不交给原来的 App
+        return vk is not (0x10 or 0xA0 or 0xA1 or 0x14);
+    }
+
     private async Task Finish(Session s, int? index)
     {
         s.Finished = true;
@@ -221,45 +281,72 @@ internal sealed class Coordinator : IDisposable
         await Execute(item, ContentClassifier.Classify(selection.Text), s.X, s.Y);
     }
 
-    private async Task Execute(RingItem item, ClassifiedContent content, int x, int y)
+    private (ClassifiedContent Content, int X, int Y)? lastList;
+
+    private async Task Execute(PopAction action, ClassifiedContent content, int x, int y)
     {
-        var text = content.Text;
-        if (!RingItems.IsAvailable(item, text))
+        if (action.Id == Actions.All.Id)
         {
-            ShowToast(x, y, "没有读到选中的文字");
+            Log.Info("打开全部功能");
+            ShowList(content, x, y);
+            return;
+        }
+        await Run(action, content, x, y);
+    }
+
+    private void ShowList(ClassifiedContent content, int x, int y)
+    {
+        lastList = (content, x, y);
+        CloseCard();
+        actionList.ShowFor(content, x, y);
+        listOpen = true;
+    }
+
+    private void CloseList()
+    {
+        listOpen = false;
+        actionList.Dismiss();
+    }
+
+    private async Task Run(PopAction action, ClassifiedContent content, int x, int y)
+    {
+        if (!action.IsAvailable(content))
+        {
+            ShowToast(x, y, content.IsEmpty ? "没有读到选中的文字" : "选中的内容用不了这个功能");
             return;
         }
         try
         {
-            switch (item.Id)
+            var result = action.Run(content);
+            switch (result?.Effect)
             {
-                case "copy":
-                    clipboard.SetText(text, temporary: false);
+                case null:
+                    ShowToast(x, y, "选中的内容用不了这个功能");
+                    break;
+                case ActionEffect.Card when result.Card is { } resultCard:
+                    ShowResult(x, y, resultCard);
+                    break;
+                case ActionEffect.Replace when result.Text is { } replacement:
+                    await Replace(replacement);
+                    break;
+                case ActionEffect.Copy when result.Text is { } copied:
+                    clipboard.SetText(copied, temporary: false);
                     ShowToast(x, y, "已复制");
                     break;
-                case "search":
-                    Open(TextActions.SearchUrl(text));
+                case ActionEffect.Open when result.Text is { } target:
+                    Open(target);
                     break;
-                case "open":
-                    Open(content.Url ?? content.Path ?? text);
+                case ActionEffect.Toast when result.Text is { } message:
+                    ShowToast(x, y, message);
                     break;
-                case "translate":
-                    Open(TextActions.TranslateUrl(text));
-                    break;
-                case "upper":
-                    await Replace(TextActions.ToUpper(text));
-                    break;
-                case "lower":
-                    await Replace(TextActions.ToLower(text));
-                    break;
-                case "count":
-                    ShowResult(x, y, CardContent.Text("字数统计", TextActions.Describe(TextActions.Count(text))));
+                case ActionEffect.ShowAll:
+                    ShowList(content, x, y);
                     break;
             }
         }
         catch (Exception e)
         {
-            Log.Error($"执行 {item.Id} 失败", e);
+            Log.Error($"执行 {action.Id} 失败", e);
             ShowToast(x, y, "出错了，详情见日志");
         }
     }

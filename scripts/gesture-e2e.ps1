@@ -161,6 +161,26 @@ try {
     Invoke-Key 0x1B
     Write-Host '✓ 带单位的数值、颜色直接出结果'
 
+    # 5b. 全部功能：往左上方划（第 5 格），列表里搜「base64」，回车执行；卡片上回车复制编码结果
+    Set-NotepadText 'hello pop world'
+    Invoke-LongPress (-95) (-55) 'all-actions'
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '全部功能列表已显示' 10 | Out-Null
+    Start-Sleep -Milliseconds 500
+    Save-Screenshot (Join-Path $OutDir 'all-actions-shown.png')
+    foreach ($vk in 0x42, 0x41, 0x53, 0x45, 0x36, 0x34) { Invoke-Key ([byte]$vk) }   # base64
+    Start-Sleep -Milliseconds 400
+    Save-Screenshot (Join-Path $OutDir 'all-actions-list.png')
+    Invoke-Key 0x0D
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '执行 codec（全部功能）' 10 | Out-Null
+    Start-Sleep -Milliseconds 500
+    Save-Screenshot (Join-Path $OutDir 'all-actions-card.png')
+    Set-Clipboard -Value 'before'
+    Invoke-Key 0x0D
+    Start-Sleep -Milliseconds 300
+    $clip = (Get-Clipboard -Raw).Trim()
+    if ($clip -ne 'aGVsbG8gcG9wIHdvcmxk') { throw "全部功能 → 编码转换复制到的是「$clip」" }
+    Write-Host '✓ 全部功能列表：搜索、执行、复制结果'
+
     # 6. 浏览器：Chrome 和 Edge 里选中网页文字，长按 → 往上划「复制」
     $browsers = @(
         @{ Name = 'chrome'; Paths = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") },
