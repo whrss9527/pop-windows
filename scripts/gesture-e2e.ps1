@@ -164,8 +164,9 @@ try {
     # 5b. 全部功能：往左上方划（第 5 格），列表里搜「base64」，回车执行；卡片上回车复制编码结果
     Set-NotepadText 'hello pop world'
     Invoke-LongPress (-95) (-55) 'all-actions'
-    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '打开全部功能' 10 | Out-Null
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '全部功能列表已显示' 10 | Out-Null
     Start-Sleep -Milliseconds 500
+    Save-Screenshot (Join-Path $OutDir 'all-actions-shown.png')
     foreach ($vk in 0x42, 0x41, 0x53, 0x45, 0x36, 0x34) { Invoke-Key ([byte]$vk) }   # base64
     Start-Sleep -Milliseconds 400
     Save-Screenshot (Join-Path $OutDir 'all-actions-list.png')

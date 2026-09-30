@@ -55,6 +55,8 @@ internal sealed class ActionListWindow : Window
 
         Deactivated += (_, _) =>
         {
+            var foreground = Native.GetForegroundWindow();
+            Log.Info($"全部功能列表失去焦点，现在的前台窗口是 {Native.WindowClass(foreground)}");
             if (!choosing) Hide();
         };
     }
@@ -115,6 +117,8 @@ internal sealed class ActionListWindow : Window
         Activate();
         search.Focus();
         Keyboard.Focus(search);
+        var active = Native.GetForegroundWindow() == new WindowInteropHelper(this).Handle;
+        Log.Info($"全部功能列表已显示，{(active ? "拿到了焦点" : $"没拿到焦点（前台是 {Native.WindowClass(Native.GetForegroundWindow())}）")}，{list.Items.Count} 项");
     }
 
     private void Refresh()
@@ -150,6 +154,7 @@ internal sealed class ActionListWindow : Window
 
     private void OnKey(object sender, KeyEventArgs e)
     {
+        if (e.Key is Key.Enter or Key.Escape) Log.Info($"全部功能列表：{e.Key}，搜索「{search.Text}」");
         switch (e.Key)
         {
             case Key.Escape:
