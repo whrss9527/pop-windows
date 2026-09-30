@@ -9,7 +9,8 @@ using Pop.Core;
 namespace Pop;
 
 /// 监听剪贴板变化，读出文字、图片或文件，交给剪贴板历史。
-/// 标了「不要记录」的内容（密码管理器、Pop 自己的临时内容）和排除的 App 都跳过
+/// 标了「不要记录」的内容（密码管理器、Pop 自己的临时内容）和排除的 App 都跳过。
+/// 在单独的线程上监听和读取：界面线程忙的时候，接连复制的几段也不会只剩最后一段
 internal sealed class ClipboardMonitor : IDisposable
 {
     private const int WM_CLIPBOARDUPDATE = 0x031D;
@@ -34,44 +35,72 @@ internal sealed class ClipboardMonitor : IDisposable
     private static readonly uint ViewerIgnore = Native.RegisterClipboardFormat("Clipboard Viewer Ignore");
     private static readonly uint CanIncludeInHistory = Native.RegisterClipboardFormat("CanIncludeInClipboardHistory");
 
-    private readonly HwndSource window;
-    private readonly DispatcherTimer debounce;
+    private readonly Dispatcher dispatcher;
+    private HwndSource window = null!;
+    private DispatcherTimer debounce = null!;
 
-    /// 读到一条新内容
+    /// 读到一条新内容。在监听线程上调用
     public event Action<ClipboardCapture>? Captured;
 
-    public bool Enabled { get; set; } = true;
+    private volatile bool enabled = true;
 
-    private DateTime ignoreUntil;
+    public bool Enabled
+    {
+        get => enabled;
+        set => enabled = value;
+    }
+
+    private long ignoreUntil;
 
     /// 接下来一小段时间的变化不记：Pop 读取选中内容时模拟 Ctrl+C，目标 App 写进剪贴板的那一次不是用户复制的
-    public void IgnoreChangesFor(TimeSpan duration) => ignoreUntil = DateTime.UtcNow + duration;
+    public void IgnoreChangesFor(TimeSpan duration) => Interlocked.Exchange(ref ignoreUntil, (DateTime.UtcNow + duration).Ticks);
 
     public ClipboardMonitor()
     {
-        window = new HwndSource(0, 0, 0, 0, 0, "Pop 剪贴板监听", new IntPtr(-3));
-        window.AddHook(WndProc);
-        // 有的 App 分几次写入不同格式，等一下再读
-        debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
-        debounce.Tick += (_, _) =>
+        Dispatcher? created = null;
+        using var ready = new ManualResetEventSlim();
+        var thread = new Thread(() =>
         {
-            debounce.Stop();
-            Capture();
+            created = Dispatcher.CurrentDispatcher;
+            window = new HwndSource(0, 0, 0, 0, 0, "Pop 剪贴板监听", new IntPtr(-3));
+            window.AddHook(WndProc);
+            // 有的 App 分几次写入不同格式，等一下再读
+            debounce = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(150) };
+            debounce.Tick += (_, _) =>
+            {
+                debounce.Stop();
+                Capture();
+            };
+            if (!AddClipboardFormatListener(window.Handle))
+                Log.Error($"监听剪贴板失败，错误码 {Marshal.GetLastWin32Error()}");
+            ready.Set();
+            Dispatcher.Run();
+        })
+        {
+            IsBackground = true,
+            Name = "Pop 剪贴板监听",
         };
-        if (!AddClipboardFormatListener(window.Handle))
-            Log.Error($"监听剪贴板失败，错误码 {Marshal.GetLastWin32Error()}");
+        // 读剪贴板（WPF 的 Clipboard 走 OLE）要在 STA 线程上
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        ready.Wait();
+        dispatcher = created!;
     }
 
     public void Dispose()
     {
-        debounce.Stop();
-        RemoveClipboardFormatListener(window.Handle);
-        window.Dispose();
+        dispatcher.Invoke(() =>
+        {
+            debounce.Stop();
+            RemoveClipboardFormatListener(window.Handle);
+            window.Dispose();
+        });
+        dispatcher.InvokeShutdown();
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (msg == WM_CLIPBOARDUPDATE && Enabled && DateTime.UtcNow >= ignoreUntil)
+        if (msg == WM_CLIPBOARDUPDATE && enabled && DateTime.UtcNow.Ticks >= Interlocked.Read(ref ignoreUntil))
         {
             debounce.Stop();
             debounce.Start();
