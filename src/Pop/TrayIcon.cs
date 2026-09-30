@@ -80,7 +80,7 @@ internal sealed class TrayIcon : IDisposable
         }
         menu.Items.Add(hold);
 
-        var historyItem = new Forms.ToolStripMenuItem("剪贴板历史") { ShortcutKeyDisplayString = app.HistoryHotKeyRegistered ? "Win+Shift+V" : null };
+        var historyItem = new Forms.ToolStripMenuItem("剪贴板历史") { ShortcutKeyDisplayString = app.HistoryHotKey };
         historyItem.Click += (_, _) => app.ShowClipboardHistory();
         menu.Items.Add(historyItem);
         var historyMenu = new Forms.ToolStripMenuItem("剪贴板历史设置");

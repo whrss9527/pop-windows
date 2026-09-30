@@ -47,7 +47,18 @@ internal sealed class App : Application
         history = new ClipboardHistory(() => Settings);
         coordinator = new Coordinator(Dispatcher, hook, () => Settings, history);
         hotKeys = new HotKeys();
-        HistoryHotKeyRegistered = hotKeys.Register(HotKeys.MOD_WIN | HotKeys.MOD_SHIFT, 0x56, "Win+Shift+V（剪贴板历史）", () => coordinator.ShowHistory());
+        // Win+Shift+V 被系统占用了；默认用 Win+Alt+V，也被占用时依次换下一个
+        foreach (var (modifiers, vk, name) in new (uint, uint, string)[]
+        {
+            (HotKeys.MOD_WIN | HotKeys.MOD_ALT, 0x56, "Win+Alt+V"),
+            (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x56, "Ctrl+Alt+Shift+V"),
+            (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x48, "Ctrl+Alt+Shift+H"),
+        })
+        {
+            if (!hotKeys.Register(modifiers, vk, $"{name}（剪贴板历史）", () => coordinator.ShowHistory())) continue;
+            HistoryHotKey = name;
+            break;
+        }
         tray = new TrayIcon(this);
         Updater.Changed += OnUpdaterChanged;
         Updater.StartSchedule();
@@ -100,7 +111,8 @@ internal sealed class App : Application
         }
     }
 
-    public bool HistoryHotKeyRegistered { get; private set; }
+    /// 剪贴板历史实际生效的快捷键；都注册不上时为 null
+    public string? HistoryHotKey { get; private set; }
 
     public void ShowClipboardHistory() => coordinator?.ShowHistory();
 

@@ -181,7 +181,7 @@ try {
     if ($clip -ne 'aGVsbG8gcG9wIHdvcmxk') { throw "全部功能 → 编码转换复制到的是「$clip」" }
     Write-Host '✓ 全部功能列表：搜索、执行、复制结果'
 
-    # 5c. 剪贴板历史：复制三段文字，Win+Shift+V 打开历史，搜「second」回车，粘贴到记事本
+    # 5c. 剪贴板历史：复制三段文字，Win+Alt+V 打开历史，搜「second」回车，粘贴到记事本
     Set-NotepadText 'placeholder'
     foreach ($item in 'first item', 'second item', 'third item') {
         Set-Clipboard -Value $item
@@ -190,10 +190,11 @@ try {
     Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '(?s)剪贴板历史：记录.*剪贴板历史：记录.*剪贴板历史：记录' 10 | Out-Null
     Set-Foreground $notepad.MainWindowHandle
     Invoke-Key 0x41 -Ctrl
+    if ((Get-PopLog) -notmatch '快捷键 Win\+Alt\+V（剪贴板历史） 已注册') { throw "Win+Alt+V 没注册上：`n$(Get-PopLog)" }
     [PopCi.Native]::keybd_event(0x5B, 0, 0, [UIntPtr]::Zero)   # Win
-    [PopCi.Native]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)   # Shift
+    [PopCi.Native]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)   # Alt
     Invoke-Key 0x56                                            # V
-    [PopCi.Native]::keybd_event(0x10, 0, 2, [UIntPtr]::Zero)
+    [PopCi.Native]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
     [PopCi.Native]::keybd_event(0x5B, 0, 2, [UIntPtr]::Zero)
     Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '剪贴板历史已显示' 10 | Out-Null
     Start-Sleep -Milliseconds 500
