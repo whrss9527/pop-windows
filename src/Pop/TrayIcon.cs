@@ -80,6 +80,26 @@ internal sealed class TrayIcon : IDisposable
         }
         menu.Items.Add(hold);
 
+        var historyItem = new Forms.ToolStripMenuItem("剪贴板历史") { ShortcutKeyDisplayString = app.HistoryHotKeyRegistered ? "Win+Shift+V" : null };
+        historyItem.Click += (_, _) => app.ShowClipboardHistory();
+        menu.Items.Add(historyItem);
+        var historyMenu = new Forms.ToolStripMenuItem("剪贴板历史设置");
+        var record = new Forms.ToolStripMenuItem("记录剪贴板历史") { Checked = settings.ClipboardHistory };
+        record.Click += (_, _) => app.UpdateSettings(s => s.ClipboardHistory = !s.ClipboardHistory);
+        historyMenu.DropDownItems.Add(record);
+        foreach (var days in new[] { 1, 7, 30, 90, 365 })
+        {
+            var keep = new Forms.ToolStripMenuItem($"保存 {days} 天") { Checked = settings.ClipboardRetentionDays == days };
+            keep.Click += (_, _) => app.UpdateSettings(s => s.ClipboardRetentionDays = days);
+            historyMenu.DropDownItems.Add(keep);
+        }
+        historyMenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+        var clear = new Forms.ToolStripMenuItem("清空（保留固定的）");
+        clear.Click += (_, _) => app.ClearClipboardHistory();
+        historyMenu.DropDownItems.Add(clear);
+        menu.Items.Add(historyMenu);
+        menu.Items.Add(new Forms.ToolStripSeparator());
+
         var direct = new Forms.ToolStripMenuItem("选中算式、单位、颜色时直接出结果") { Checked = settings.DirectResults };
         direct.Click += (_, _) => app.UpdateSettings(s => s.DirectResults = !s.DirectResults);
         menu.Items.Add(direct);

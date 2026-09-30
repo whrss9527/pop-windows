@@ -15,6 +15,18 @@ public sealed class AppSettings
     /// 选中算式、带单位的数值、颜色、时间戳时直接出结果，不弹圆盘
     public bool DirectResults { get; set; } = true;
 
+    /// 记录剪贴板历史
+    public bool ClipboardHistory { get; set; } = true;
+
+    /// 剪贴板历史保存多少天
+    public int ClipboardRetentionDays { get; set; } = 30;
+
+    /// 剪贴板历史最多保存多少条（固定的不算）
+    public int ClipboardMaxItems { get; set; } = 500;
+
+    /// 这些 App（程序名，不带 .exe）复制的内容不记进剪贴板历史
+    public List<string> ClipboardExcludedApps { get; set; } = ["KeePass", "KeePassXC", "1Password", "Bitwarden"];
+
     /// 自动检查更新
     public bool CheckForUpdates { get; set; } = true;
 
@@ -68,6 +80,22 @@ public sealed class AppSettings
                         break;
                     case "directresults" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False:
                         settings.DirectResults = p.Value.GetBoolean();
+                        break;
+                    case "clipboardhistory" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False:
+                        settings.ClipboardHistory = p.Value.GetBoolean();
+                        break;
+                    case "clipboardretentiondays" when p.Value.ValueKind == JsonValueKind.Number && p.Value.TryGetInt32(out var days):
+                        settings.ClipboardRetentionDays = Math.Clamp(days, 1, 3650);
+                        break;
+                    case "clipboardmaxitems" when p.Value.ValueKind == JsonValueKind.Number && p.Value.TryGetInt32(out var max):
+                        settings.ClipboardMaxItems = Math.Clamp(max, 10, 100_000);
+                        break;
+                    case "clipboardexcludedapps" when p.Value.ValueKind == JsonValueKind.Array:
+                        settings.ClipboardExcludedApps = p.Value.EnumerateArray()
+                            .Where(v => v.ValueKind == JsonValueKind.String)
+                            .Select(v => v.GetString()!.Trim())
+                            .Where(v => v.Length > 0)
+                            .ToList();
                         break;
                     case "checkforupdates" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False:
                         settings.CheckForUpdates = p.Value.GetBoolean();

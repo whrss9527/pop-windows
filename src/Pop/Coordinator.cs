@@ -23,6 +23,8 @@ internal sealed class Coordinator : IDisposable
     private readonly RingWindow ring = new();
     private readonly ResultCard card = new();
     private readonly ActionListWindow actionList = new();
+    private readonly ClipboardHistoryWindow historyWindow = new();
+    private readonly ClipboardHistory history;
     private readonly Func<AppSettings> settings;
     private Session? session;
 
@@ -30,6 +32,7 @@ internal sealed class Coordinator : IDisposable
     private volatile bool ringOpen;
     private volatile bool cardOpen;
     private volatile bool listOpen;
+    private volatile bool historyOpen;
     private volatile int ringCount;
 
     /// 长按成立后最多等这么久读取选中内容：选中的是算式、单位、颜色这些时直接出结果，不用先弹圆盘再换成卡片
@@ -47,12 +50,19 @@ internal sealed class Coordinator : IDisposable
         public bool Finished { get; set; }
     }
 
-    public Coordinator(Dispatcher dispatcher, InputHook hook, Func<AppSettings> settings)
+    public Coordinator(Dispatcher dispatcher, InputHook hook, Func<AppSettings> settings, ClipboardHistory history)
     {
         this.dispatcher = dispatcher;
         this.hook = hook;
         this.settings = settings;
+        this.history = history;
         reader = new SelectionReader(clipboard);
+        reader.CopyStarting += () => history.Monitor.IgnoreChangesFor(TimeSpan.FromMilliseconds(1500));
+        historyWindow.Chosen += async item =>
+        {
+            historyOpen = false;
+            await PasteFromHistory(item);
+        };
         paster = new Paster(clipboard);
 
         hook.Triggered += (x, y) => dispatcher.BeginInvoke(() => OnTriggered(x, y));
@@ -62,6 +72,7 @@ internal sealed class Coordinator : IDisposable
         {
             if (cardOpen) dispatcher.BeginInvoke(() => { if (!card.ContainsPhysical(x, y)) CloseCard(); });
             if (listOpen) dispatcher.BeginInvoke(() => { if (!actionList.ContainsPhysical(x, y)) CloseList(); });
+            if (historyOpen) dispatcher.BeginInvoke(() => { if (!historyWindow.ContainsPhysical(x, y)) CloseHistory(); });
         };
         hook.KeyFilter = FilterKey;
         card.CopyRequested += text => clipboard.SetText(text, temporary: false);
@@ -81,6 +92,7 @@ internal sealed class Coordinator : IDisposable
         ring.Close();
         card.Close();
         actionList.Close();
+        historyWindow.Close();
         clipboard.Dispose();
     }
 
@@ -88,6 +100,7 @@ internal sealed class Coordinator : IDisposable
     {
         CloseCard();
         CloseList();
+        CloseHistory();
         Log.Info($"长按 ({x}, {y})");
         var selection = ReadSelectionAsync();
         var s = new Session(x, y, selection);
@@ -181,6 +194,7 @@ internal sealed class Coordinator : IDisposable
     private bool FilterKey(int vk)
     {
         if (listOpen) return FilterListKey(vk);
+        if (historyOpen) return FilterHistoryKey(vk);
         if (ringOpen)
         {
             if (vk == VK_ESCAPE)
@@ -220,23 +234,14 @@ internal sealed class Coordinator : IDisposable
     /// 「全部功能」列表打开时，按键都交给列表；按着 Ctrl、Alt、Win 的组合键照常交给系统，同时关掉列表
     private bool FilterListKey(int vk)
     {
-        const int VK_BACK = 0x08, VK_SPACE = 0x20, VK_UP = 0x26, VK_DOWN = 0x28, VK_OEM_MINUS = 0xBD, VK_OEM_PERIOD = 0xBE;
+        const int VK_BACK = 0x08, VK_UP = 0x26, VK_DOWN = 0x28;
         static bool Down(int key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
         if (Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C))
         {
             dispatcher.BeginInvoke(CloseList);
             return false;
         }
-        char? typed = vk switch
-        {
-            >= 0x41 and <= 0x5A => (char)('a' + vk - 0x41),
-            >= 0x30 and <= 0x39 => (char)('0' + vk - 0x30),
-            >= 0x60 and <= 0x69 => (char)('0' + vk - 0x60),
-            VK_SPACE => ' ',
-            VK_OEM_MINUS => '-',
-            VK_OEM_PERIOD => '.',
-            _ => null,
-        };
+        var typed = TypedChar(vk);
         switch (vk)
         {
             case VK_ESCAPE:
@@ -302,6 +307,129 @@ internal sealed class Coordinator : IDisposable
         listOpen = true;
     }
 
+    /// 打开剪贴板历史；不给位置时放在指针旁边
+    public void ShowHistory(int? x = null, int? y = null)
+    {
+        if (x is null || y is null)
+        {
+            Native.GetCursorPos(out var cursor);
+            (x, y) = (cursor.X, cursor.Y);
+        }
+        CloseCard();
+        CloseList();
+        historyWindow.ShowAt(history.Store, x.Value, y.Value);
+        historyOpen = true;
+    }
+
+    private void CloseHistory()
+    {
+        historyOpen = false;
+        historyWindow.Dismiss();
+    }
+
+    /// 把这一条放回剪贴板，再粘贴到当前 App
+    private async Task PasteFromHistory(ClipboardItem item)
+    {
+        try
+        {
+            switch (item.Kind)
+            {
+                case ClipboardKind.Text:
+                    clipboard.SetText(item.Text, temporary: false);
+                    break;
+                case ClipboardKind.Files:
+                    var files = new System.Collections.Specialized.StringCollection();
+                    files.AddRange(item.FilePaths.ToArray());
+                    System.Windows.Clipboard.SetFileDropList(files);
+                    break;
+                case ClipboardKind.Image when history.Store.ImagePath(item) is { } path:
+                    var image = new System.Windows.Media.Imaging.BitmapImage();
+                    image.BeginInit();
+                    image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    image.UriSource = new Uri(path);
+                    image.EndInit();
+                    System.Windows.Clipboard.SetImage(image);
+                    break;
+                default:
+                    return;
+            }
+            history.Store.MarkUsed(item.Id, DateTimeOffset.Now);
+            await Task.Delay(60);
+            InputInjector.CtrlChord(0x56); // V
+            Log.Info($"剪贴板历史：粘贴一条{ClipboardHistory.Name(item.Kind)}");
+        }
+        catch (Exception e) when (e is System.Runtime.InteropServices.COMException or System.Runtime.InteropServices.ExternalException or IOException or NotSupportedException)
+        {
+            Log.Error("从剪贴板历史粘贴失败", e);
+        }
+    }
+
+    /// 剪贴板历史打开时的按键：打字搜索，↑↓ 选择，回车粘贴，Ctrl+1–9 直接粘贴，Delete 删除，Ctrl+P 固定
+    private bool FilterHistoryKey(int vk)
+    {
+        const int VK_BACK = 0x08, VK_UP = 0x26, VK_DOWN = 0x28, VK_DELETE = 0x2E;
+        static bool Down(int key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
+        if (Down(0x11) && !Down(0x12))
+        {
+            if (vk is >= 0x31 and <= 0x39)
+            {
+                var index = vk - 0x31;
+                dispatcher.BeginInvoke(() => historyWindow.ChooseAt(index));
+                return true;
+            }
+            if (vk == 0x50) // P
+            {
+                dispatcher.BeginInvoke(historyWindow.TogglePin);
+                return true;
+            }
+        }
+        if (Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C))
+        {
+            if (vk is 0x11 or 0xA2 or 0xA3) return false; // 只按下了 Ctrl
+            dispatcher.BeginInvoke(CloseHistory);
+            return false;
+        }
+        switch (vk)
+        {
+            case VK_ESCAPE:
+                dispatcher.BeginInvoke(CloseHistory);
+                return true;
+            case VK_RETURN:
+                dispatcher.BeginInvoke(historyWindow.Choose);
+                return true;
+            case VK_UP:
+                dispatcher.BeginInvoke(() => historyWindow.Move(-1));
+                return true;
+            case VK_DOWN:
+                dispatcher.BeginInvoke(() => historyWindow.Move(1));
+                return true;
+            case VK_BACK:
+                dispatcher.BeginInvoke(historyWindow.Backspace);
+                return true;
+            case VK_DELETE:
+                dispatcher.BeginInvoke(historyWindow.DeleteSelected);
+                return true;
+        }
+        if (TypedChar(vk) is { } c)
+        {
+            dispatcher.BeginInvoke(() => historyWindow.Type(c));
+            return true;
+        }
+        return vk is not (0x10 or 0xA0 or 0xA1 or 0x14);
+    }
+
+    /// 搜索框能输入的字符：字母、数字、空格、减号、点
+    private static char? TypedChar(int vk) => vk switch
+    {
+        >= 0x41 and <= 0x5A => (char)('a' + vk - 0x41),
+        >= 0x30 and <= 0x39 => (char)('0' + vk - 0x30),
+        >= 0x60 and <= 0x69 => (char)('0' + vk - 0x60),
+        0x20 => ' ',
+        0xBD => '-',
+        0xBE => '.',
+        _ => null,
+    };
+
     private void CloseList()
     {
         listOpen = false;
@@ -341,6 +469,9 @@ internal sealed class Coordinator : IDisposable
                     break;
                 case ActionEffect.ShowAll:
                     ShowList(content, x, y);
+                    break;
+                case ActionEffect.ShowHistory:
+                    ShowHistory(x, y);
                     break;
             }
         }

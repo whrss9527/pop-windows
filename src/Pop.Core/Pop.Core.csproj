@@ -1,7 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- 和系统无关的逻辑：长按判定、圆盘几何、版本和发布信息、校验和。单元测试在任何系统上都能跑 -->
+  <!-- 和系统无关的逻辑：长按判定、圆盘几何、版本和发布信息、校验和、剪贴板历史。单元测试在任何系统上都能跑 -->
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>Pop.Core</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- 剪贴板历史的数据库；自带 SQLite 原生库（Windows、Linux 都有），单文件发布时一起打进 Pop.exe -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.31" />
+  </ItemGroup>
 </Project>

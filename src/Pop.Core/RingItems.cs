@@ -17,6 +17,8 @@ public enum ActionEffect
     Toast,
     /// 打开「全部功能」列表
     ShowAll,
+    /// 打开剪贴板历史
+    ShowHistory,
 }
 
 public sealed record ActionResult(ActionEffect Effect, string? Text = null, CardContent? Card = null)
@@ -85,6 +87,9 @@ public static partial class Actions
     public static readonly PopAction All = new("all", "全部功能", "", "qb quanbu gn gongneng all more", ContentKind.None,
         _ => new ActionResult(ActionEffect.ShowAll));
 
+    public static readonly PopAction ClipboardHistory = new("clipboard", "剪贴板历史", "\uE77F", "jtb jianqieban ls lishi clipboard history paste", ContentKind.None,
+        _ => new ActionResult(ActionEffect.ShowHistory));
+
     public static readonly PopAction Calculate = new("calc", "计算", "", "js jisuan calc math", ContentKind.Math,
         c => CardFor(c, ContentKind.Math));
 
@@ -110,7 +115,7 @@ public static partial class Actions
 
     private static IReadOnlyList<PopAction> BuildList()
     {
-        var list = new List<PopAction> { Copy, Search, Open, Translate, Calculate, Units, Color, Time, Number, Count, Upper, Lower };
+        var list = new List<PopAction> { Copy, Search, Open, Translate, ClipboardHistory, Calculate, Units, Color, Time, Number, Count, Upper, Lower };
         list.AddRange(TextTools());
         return list;
     }

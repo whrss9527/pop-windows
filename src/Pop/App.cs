@@ -10,6 +10,8 @@ internal sealed class App : Application
     private InputHook? hook;
     private Coordinator? coordinator;
     private TrayIcon? tray;
+    private ClipboardHistory? history;
+    private HotKeys? hotKeys;
     private bool notifiedVersion;
 
     public App(StartupOptions options)
@@ -42,7 +44,10 @@ internal sealed class App : Application
 
         hook = new InputHook { Enabled = Settings.Enabled, HoldMilliseconds = Settings.HoldMilliseconds };
         hook.Start();
-        coordinator = new Coordinator(Dispatcher, hook, () => Settings);
+        history = new ClipboardHistory(() => Settings);
+        coordinator = new Coordinator(Dispatcher, hook, () => Settings, history);
+        hotKeys = new HotKeys();
+        HistoryHotKeyRegistered = hotKeys.Register(HotKeys.MOD_WIN | HotKeys.MOD_SHIFT, 0x56, "Win+Shift+V（剪贴板历史）", () => coordinator.ShowHistory());
         tray = new TrayIcon(this);
         Updater.Changed += OnUpdaterChanged;
         Updater.StartSchedule();
@@ -66,6 +71,7 @@ internal sealed class App : Application
             hook.Enabled = Settings.Enabled;
             hook.HoldMilliseconds = Settings.HoldMilliseconds;
         }
+        history?.Cleanup();
     }
 
     public async Task CheckForUpdatesAsync(bool userInitiated)
@@ -94,9 +100,21 @@ internal sealed class App : Application
         }
     }
 
+    public bool HistoryHotKeyRegistered { get; private set; }
+
+    public void ShowClipboardHistory() => coordinator?.ShowHistory();
+
+    public void ClearClipboardHistory()
+    {
+        history?.Store.Clear(keepPinned: true);
+        Log.Info("清空了剪贴板历史（保留固定的）");
+    }
+
     public void Quit()
     {
+        hotKeys?.Dispose();
         coordinator?.Dispose();
+        history?.Dispose();
         hook?.Dispose();
         tray?.Dispose();
         Updater.Dispose();

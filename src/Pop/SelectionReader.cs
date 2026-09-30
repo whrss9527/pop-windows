@@ -10,6 +10,9 @@ internal sealed record Selection(string Text, string Source, string WindowClass,
 /// 在界面线程上调用。
 internal sealed class SelectionReader(ClipboardAccess clipboard)
 {
+    /// 马上要模拟 Ctrl+C（剪贴板历史借这个跳过这一次变化）
+    public event Action? CopyStarting;
+
     private static readonly TimeSpan AutomationTimeout = TimeSpan.FromMilliseconds(600);
     // 浏览器第一次被 UI Automation 访问时要先建立无障碍树，这期间对 Ctrl+C 的响应也会慢一些
     private static readonly TimeSpan CopyTimeout = TimeSpan.FromMilliseconds(1000);
@@ -18,7 +21,7 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
     {
         var foreground = GetForegroundWindow();
         var windowClass = WindowClass(foreground);
-        var process = ProcessName(foreground);
+        var process = ProcessNameOf(foreground);
 
         // 读取前先记一笔：如果在读取过程中闪退，日志的最后一行能看出是在哪个窗口
         Log.Info($"读取选中内容：窗口 {windowClass}（{process}）");
@@ -36,25 +39,6 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         }
 
         return new Selection(await ReadWithCopyAsync() ?? "", "copy", windowClass, process);
-    }
-
-    /// 只查这一个进程；Process.GetProcessById 会枚举所有进程，浏览器开着很多子进程时要好几百毫秒
-    private static string ProcessName(IntPtr hwnd)
-    {
-        GetWindowThreadProcessId(hwnd, out var pid);
-        if (pid == 0) return "";
-        var handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-        if (handle == IntPtr.Zero) return "";
-        try
-        {
-            var buffer = new System.Text.StringBuilder(1024);
-            var size = buffer.Capacity;
-            return QueryFullProcessImageName(handle, 0, buffer, ref size) ? Path.GetFileNameWithoutExtension(buffer.ToString()) : "";
-        }
-        finally
-        {
-            CloseHandle(handle);
-        }
     }
 
     /// 在单独的线程上读，目标 App 卡住时不拖累 Pop。
@@ -91,6 +75,7 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
     {
         var snapshot = clipboard.Save();
         var before = ClipboardAccess.SequenceNumber;
+        CopyStarting?.Invoke();
         InputInjector.CtrlChord(0x43); // C
         var watch = Stopwatch.StartNew();
         while (ClipboardAccess.SequenceNumber == before && watch.Elapsed < CopyTimeout)
