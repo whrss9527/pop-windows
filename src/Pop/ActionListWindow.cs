@@ -1,213 +1,193 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Interop;
 using System.Windows.Media;
 using Pop.Core;
 
 namespace Pop;
 
-/// 「全部功能」列表：可以搜索（名称、拼音首字母、英文），方向键选择，回车执行，Esc 或点别处关闭。
-/// 要接收键盘输入，所以这个窗口会拿到焦点；执行前把焦点还给原来的 App
-internal sealed class ActionListWindow : Window
+/// 「全部功能」列表：和圆盘一样不抢焦点，原来的 App 一直在前台（替换原文直接粘贴回去）。
+/// 键盘输入由全局键盘钩子转过来：字母、数字改搜索词（名称的拼音首字母、英文），方向键选择，回车执行，Esc 关闭
+internal sealed class ActionListWindow : OverlayWindow
 {
-    private readonly TextBox search = new();
-    private readonly ListBox list = new();
-    private readonly TextBlock hint = new();
+    private const double ListWidth = 320;
+    private const int VisibleRows = 10;
+
+    private readonly Border root = new();
+    private readonly TextBlock query = new();
+    private readonly StackPanel rows = new();
+    private readonly ScrollViewer scroller = new();
     private ClassifiedContent content = ClassifiedContent.Empty;
-    private IntPtr previousForeground;
-    private bool choosing;
-    /// 列表真正拿到焦点之后才在失去焦点时关闭：显示的那一刻系统可能先激活又立刻收回
-    private bool armed;
+    private IReadOnlyList<PopAction> results = [];
+    private string text = "";
+    private int selected;
+    private Theme theme = Theme.Current();
 
-    /// 选了一个功能；参数是功能和原来前台的窗口
-    public event Action<PopAction, IntPtr>? Chosen;
+    /// 选了一个功能（回车或者鼠标点）
+    public event Action<PopAction>? Chosen;
 
-    public ActionListWindow()
+    public ActionListWindow() : base(clickThrough: false)
     {
         Title = "Pop 全部功能";
-        WindowStyle = WindowStyle.None;
-        AllowsTransparency = true;
-        Background = Brushes.Transparent;
-        ResizeMode = ResizeMode.NoResize;
-        ShowInTaskbar = false;
-        Topmost = true;
-        ShowActivated = false;
-        Width = 340;
-        Height = 420;
-        new WindowInteropHelper(this).EnsureHandle();
-        Native.AddExStyle(new WindowInteropHelper(this).Handle, Native.WS_EX_TOOLWINDOW);
-
-        search.FontFamily = Theme.TextFont;
-        search.FontSize = 14;
-        search.Padding = new Thickness(8, 6, 8, 6);
-        search.BorderThickness = new Thickness(0);
-        search.TextChanged += (_, _) => Refresh();
-        search.PreviewKeyDown += OnKey;
-
-        list.BorderThickness = new Thickness(0);
-        list.Background = Brushes.Transparent;
-        list.Focusable = false;
-        ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
-        list.MouseLeftButtonUp += (_, _) => Choose();
-
-        hint.FontFamily = Theme.TextFont;
-        hint.FontSize = 11;
-        hint.Margin = new Thickness(10, 4, 10, 0);
-        hint.Text = "↑↓ 选择　回车执行　Esc 关闭";
-
-        Deactivated += (_, _) =>
-        {
-            var foreground = Native.GetForegroundWindow();
-            Log.Info($"全部功能列表失去焦点，现在的前台窗口是 {Native.WindowClass(foreground)}");
-            if (armed && !choosing) Hide();
-        };
-        Activated += (_, _) => armed = IsVisible;
+        Content = root;
+        scroller.Content = rows;
+        scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+        scroller.Focusable = false;
     }
 
-    public void ShowFor(ClassifiedContent selected, int x, int y, IntPtr foreground)
-    {
-        content = selected;
-        previousForeground = foreground;
-        choosing = false;
-        armed = false;
-        var theme = Theme.Current();
+    public bool IsOpen => IsVisible && root.Opacity > 0;
 
-        var panel = new DockPanel();
+    public void ShowFor(ClassifiedContent selectedContent, int x, int y)
+    {
+        content = selectedContent;
+        text = "";
+        theme = Theme.Current();
+
         var searchBox = new Border
         {
-            Child = search,
+            Child = query,
             CornerRadius = new CornerRadius(8),
             Background = new SolidColorBrush(theme.Segment),
+            Padding = new Thickness(10, 7, 10, 7),
             Margin = new Thickness(0, 0, 0, 6),
         };
-        search.Background = Brushes.Transparent;
-        search.Foreground = new SolidColorBrush(theme.Text);
-        search.CaretBrush = new SolidColorBrush(theme.Text);
-        DockPanel.SetDock(searchBox, Dock.Top);
-        panel.Children.Add(searchBox);
-        hint.Foreground = new SolidColorBrush(theme.SecondaryText);
-        DockPanel.SetDock(hint, Dock.Bottom);
-        panel.Children.Add(hint);
-        panel.Children.Add(list);
+        query.FontFamily = Theme.TextFont;
+        query.FontSize = 14;
+        if (query.Parent is Border old) old.Child = null;
+        searchBox.Child = query;
 
-        if (search.Parent is Border oldBox) oldBox.Child = null;
-        if (list.Parent is Panel oldList) oldList.Children.Remove(list);
-        if (hint.Parent is Panel oldHint) oldHint.Children.Remove(hint);
-        searchBox.Child = search;
-        Content = new Border
+        var hint = new TextBlock
         {
-            Child = panel,
-            Padding = new Thickness(10),
-            Margin = new Thickness(10),
-            CornerRadius = new CornerRadius(12),
-            Background = new SolidColorBrush(theme.Surface),
-            BorderBrush = new SolidColorBrush(theme.SurfaceBorder),
-            BorderThickness = new Thickness(1),
-            Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 16, ShadowDepth = 3, Opacity = theme.Dark ? 0.5 : 0.2, Direction = 270 },
+            Text = "输入拼音首字母或英文搜索　↑↓ 选择　回车执行　Esc 关闭",
+            FontFamily = Theme.TextFont,
+            FontSize = 11,
+            Margin = new Thickness(4, 6, 4, 0),
+            Foreground = new SolidColorBrush(theme.SecondaryText),
+            TextWrapping = TextWrapping.Wrap,
         };
+        var panel = new DockPanel { Width = ListWidth };
+        DockPanel.SetDock(searchBox, Dock.Top);
+        DockPanel.SetDock(hint, Dock.Bottom);
+        panel.Children.Add(searchBox);
+        panel.Children.Add(hint);
+        if (scroller.Parent is Panel oldPanel) oldPanel.Children.Remove(scroller);
+        scroller.Height = VisibleRows * 30;
+        panel.Children.Add(scroller);
 
-        search.Text = "";
+        root.Child = panel;
+        root.Padding = new Thickness(10);
+        root.Margin = new Thickness(12);
+        root.CornerRadius = new CornerRadius(12);
+        root.Background = new SolidColorBrush(theme.Surface);
+        root.BorderBrush = new SolidColorBrush(theme.SurfaceBorder);
+        root.BorderThickness = new Thickness(1);
+        root.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 16, ShadowDepth = 3, Opacity = theme.Dark ? 0.5 : 0.2, Direction = 270 };
+
         Refresh();
 
-        // 放在指针旁边，放不下就往里挪（物理像素）
+        root.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var (work, scale) = Native.MonitorAt(x, y);
-        var w = (int)(Width * scale);
-        var h = (int)(Height * scale);
+        var w = (int)Math.Ceiling(root.DesiredSize.Width * scale);
+        var h = (int)Math.Ceiling(root.DesiredSize.Height * scale);
         var left = (int)Math.Clamp(x - w / 2.0, work.Left, Math.Max(work.Left, work.Right - w));
-        var top = (int)Math.Clamp(y - 40 * scale, work.Top, Math.Max(work.Top, work.Bottom - h));
+        var top = (int)Math.Clamp(y - 30 * scale, work.Top, Math.Max(work.Top, work.Bottom - h));
+        Width = root.DesiredSize.Width;
+        Height = root.DesiredSize.Height;
+        MarkShowing();
+        root.BeginAnimation(OpacityProperty, null);
+        root.Opacity = 1;
+        PlacePhysical(left, top, w, h);
         Show();
-        Native.SetWindowPos(new WindowInteropHelper(this).Handle, Native.HWND_TOPMOST, left, top, w, h, 0);
-        Native.ForceForeground(new WindowInteropHelper(this).Handle);
-        Activate();
-        search.Focus();
-        Keyboard.Focus(search);
-        var active = Native.GetForegroundWindow() == new WindowInteropHelper(this).Handle;
-        Log.Info($"全部功能列表已显示，{(active ? "拿到了焦点" : $"没拿到焦点（前台是 {Native.WindowClass(Native.GetForegroundWindow())}）")}，{list.Items.Count} 项");
+        Dispatcher.BeginInvoke(() => PlacePhysical(left, top, w, h), System.Windows.Threading.DispatcherPriority.Loaded);
+        Log.Info($"全部功能列表已显示，{results.Count} 项");
+    }
+
+    public void Dismiss()
+    {
+        if (!IsVisible) return;
+        FadeOutAndHide(root, 90);
+    }
+
+    public void Type(char c)
+    {
+        text += c;
+        Refresh();
+    }
+
+    public void Backspace()
+    {
+        if (text.Length == 0) return;
+        text = text[..^1];
+        Refresh();
+    }
+
+    public void Move(int delta)
+    {
+        if (results.Count == 0) return;
+        var index = selected;
+        for (var i = 0; i < results.Count; i++)
+        {
+            index = (index + delta + results.Count) % results.Count;
+            if (results[index].IsAvailable(content)) break;
+        }
+        selected = index;
+        Paint();
+    }
+
+    public void Choose()
+    {
+        if (selected < 0 || selected >= results.Count || !results[selected].IsAvailable(content)) return;
+        var action = results[selected];
+        Log.Info($"全部功能列表：选中 {action.Id}，搜索「{text}」");
+        Dismiss();
+        Chosen?.Invoke(action);
     }
 
     private void Refresh()
     {
-        var theme = Theme.Current();
-        list.Items.Clear();
-        foreach (var action in Actions.Filter(search.Text, content))
+        query.Text = text.Length == 0 ? "搜索功能" : text + "▏";
+        query.Foreground = new SolidColorBrush(text.Length == 0 ? theme.SecondaryText : theme.Text);
+        results = Actions.Filter(text, content);
+        selected = results.ToList().FindIndex(a => a.IsAvailable(content));
+        Paint();
+    }
+
+    private void Paint()
+    {
+        rows.Children.Clear();
+        for (var i = 0; i < results.Count; i++)
         {
+            var action = results[i];
             var available = action.IsAvailable(content);
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2, 3, 2, 3), Tag = action };
-            row.Children.Add(new TextBlock
+            var isSelected = i == selected;
+            var foreground = new SolidColorBrush(isSelected ? theme.AccentText : available ? theme.Text : theme.DisabledText);
+            var line = new StackPanel { Orientation = Orientation.Horizontal };
+            line.Children.Add(new TextBlock { Text = action.Glyph, FontFamily = Theme.IconFont, FontSize = 15, Width = 28, VerticalAlignment = VerticalAlignment.Center, Foreground = foreground });
+            line.Children.Add(new TextBlock { Text = action.Title, FontFamily = Theme.TextFont, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Foreground = foreground });
+            var row = new Border
             {
-                Text = action.Glyph,
-                FontFamily = Theme.IconFont,
-                FontSize = 16,
-                Width = 28,
-                VerticalAlignment = VerticalAlignment.Center,
-                Foreground = new SolidColorBrush(available ? theme.Text : theme.DisabledText),
-            });
-            row.Children.Add(new TextBlock
+                Child = line,
+                Height = 30,
+                Padding = new Thickness(8, 0, 8, 0),
+                CornerRadius = new CornerRadius(6),
+                Background = isSelected ? new SolidColorBrush(theme.Accent) : Brushes.Transparent,
+                Cursor = available ? System.Windows.Input.Cursors.Hand : null,
+            };
+            var index = i;
+            if (available)
             {
-                Text = action.Title,
-                FontFamily = Theme.TextFont,
-                FontSize = 14,
-                VerticalAlignment = VerticalAlignment.Center,
-                Foreground = new SolidColorBrush(available ? theme.Text : theme.DisabledText),
-            });
-            list.Items.Add(new ListBoxItem { Content = row, Tag = action, IsEnabled = available });
+                row.MouseLeftButtonUp += (_, _) =>
+                {
+                    selected = index;
+                    Choose();
+                };
+            }
+            rows.Children.Add(row);
         }
-        list.SelectedIndex = list.Items.Cast<ListBoxItem>().ToList().FindIndex(i => i.IsEnabled);
-        if (list.SelectedItem is not null) list.ScrollIntoView(list.SelectedItem);
-    }
-
-    private void OnKey(object sender, KeyEventArgs e)
-    {
-        if (e.Key is Key.Enter or Key.Escape) Log.Info($"全部功能列表：{e.Key}，搜索「{search.Text}」");
-        switch (e.Key)
+        if (selected >= 0)
         {
-            case Key.Escape:
-                Hide();
-                RestoreForeground();
-                e.Handled = true;
-                break;
-            case Key.Enter:
-                Choose();
-                e.Handled = true;
-                break;
-            case Key.Down:
-                Move(1);
-                e.Handled = true;
-                break;
-            case Key.Up:
-                Move(-1);
-                e.Handled = true;
-                break;
+            var offset = selected * 30.0;
+            if (offset < scroller.VerticalOffset) scroller.ScrollToVerticalOffset(offset);
+            else if (offset + 30 > scroller.VerticalOffset + scroller.Height) scroller.ScrollToVerticalOffset(offset + 30 - scroller.Height);
         }
-    }
-
-    private void Move(int delta)
-    {
-        var items = list.Items.Cast<ListBoxItem>().ToList();
-        var index = list.SelectedIndex;
-        for (var i = 0; i < items.Count; i++)
-        {
-            index = (index + delta + items.Count) % items.Count;
-            if (items[index].IsEnabled) break;
-        }
-        list.SelectedIndex = index;
-        if (list.SelectedItem is not null) list.ScrollIntoView(list.SelectedItem);
-    }
-
-    private void Choose()
-    {
-        if (list.SelectedItem is not ListBoxItem { IsEnabled: true, Tag: PopAction action }) return;
-        choosing = true;
-        Hide();
-        RestoreForeground();
-        Chosen?.Invoke(action, previousForeground);
-    }
-
-    /// 把焦点还给打开列表之前的 App（替换原文要粘贴到那里）
-    private void RestoreForeground()
-    {
-        if (previousForeground != IntPtr.Zero && Native.IsWindow(previousForeground))
-            Native.ForceForeground(previousForeground);
     }
 }
