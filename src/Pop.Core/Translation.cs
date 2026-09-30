@@ -9,7 +9,7 @@ namespace Pop.Core;
 /// 翻译服务
 public enum TranslationEngine
 {
-    /// 必应翻译：Edge 浏览器内置翻译用的服务，免费、不用设置
+    /// 必应翻译：免费、不用设置。先用必应翻译网页的接口，不行再用 Edge 浏览器内置翻译的接口
     Bing,
     /// Microsoft Translator（Azure）：用自己的 Key，每月有免费额度
     Azure,
@@ -101,25 +101,84 @@ public sealed partial class Translator(HttpClient http, Func<DateTimeOffset>? cl
                     if (!string.IsNullOrWhiteSpace(azureRegion)) request.Headers.Add("Ocp-Apim-Subscription-Region", azureRegion.Trim());
                 }, ProviderName(engine), ct);
             case TranslationEngine.Bing:
-                try
-                {
-                    return await EdgeAsync(text, to, ct);
-                }
-                catch (TranslationException edge) when (!ct.IsCancellationRequested && text.Length <= WebMaxLength)
-                {
-                    // Edge 的接口用不了（比如改了地址）：换成必应翻译网页用的接口；也不行的话报第一个错误
-                    try
-                    {
-                        return await WebAsync(text, to, ct);
-                    }
-                    catch (TranslationException second)
-                    {
-                        throw new TranslationException(edge.Message, second);
-                    }
-                }
+                return await BingAsync(text, to, ct);
             default:
                 throw new TranslationException("当前设置是在浏览器里翻译");
         }
+    }
+
+    /// 上一次是 Edge 的接口翻译成功的，下次先用它
+    private bool preferEdge;
+
+    /// 必应翻译有两条路：必应翻译网页用的接口，和 Edge 浏览器内置翻译用的接口。
+    /// 先用上一次成功的那条，失败了换另一条；都失败的话报先试的那条的错误
+    private async Task<TranslationResult> BingAsync(string text, string to, CancellationToken ct)
+    {
+        var routes = new List<(bool Edge, Func<Task<TranslationResult>> Run)>
+        {
+            (false, () => WebLongAsync(text, to, ct)),
+            (true, () => EdgeAsync(text, to, ct)),
+        };
+        if (preferEdge) routes.Reverse();
+        TranslationException? first = null;
+        foreach (var (edge, run) in routes)
+        {
+            try
+            {
+                var result = await run();
+                preferEdge = edge;
+                return result;
+            }
+            catch (TranslationException e) when (!ct.IsCancellationRequested)
+            {
+                first ??= e;
+            }
+        }
+        throw first!;
+    }
+
+    /// 网页接口一次只能翻译 1000 个字：长文字按段落、句子分成几块依次翻译再拼起来
+    private async Task<TranslationResult> WebLongAsync(string text, string to, CancellationToken ct)
+    {
+        var chunks = Chunks(text, WebMaxLength);
+        if (chunks.Count == 1) return await WebAsync(text, to, ct);
+        var output = new StringBuilder();
+        TranslationResult? head = null;
+        // 在句子中间切开的两块，译成用空格分词的语言时中间补一个空格
+        var spaced = !to.StartsWith("zh", StringComparison.OrdinalIgnoreCase) && to is not "ja" and not "ko" and not "th";
+        foreach (var (chunk, separator) in chunks)
+        {
+            var part = await WebAsync(chunk, to, ct);
+            head ??= part;
+            output.Append(part.Text).Append(separator.Length == 0 && spaced ? " " : separator);
+        }
+        return head! with { Text = output.ToString().TrimEnd() };
+    }
+
+    /// 把文字分成不超过 max 个字符的几块：优先在换行处分，其次在句末标点处，实在不行硬切。
+    /// 每一块带上它后面原来的分隔（换行），拼回去时保持原来的段落
+    public static IReadOnlyList<(string Text, string Separator)> Chunks(string text, int max)
+    {
+        var result = new List<(string, string)>();
+        var rest = text;
+        while (rest.Length > max)
+        {
+            var window = rest[..max];
+            var cut = window.LastIndexOf('\n');
+            var separator = "\n";
+            if (cut < max / 3)
+            {
+                cut = window.LastIndexOfAny(['。', '！', '？', '.', '!', '?', ';', '；']);
+                separator = "";
+                if (cut < max / 3) cut = max - 1;
+            }
+            var chunk = rest[..(cut + 1)];
+            result.Add((separator == "\n" ? chunk.TrimEnd('\r', '\n') : chunk, separator));
+            rest = rest[(cut + 1)..];
+            if (separator == "\n") rest = rest.TrimStart('\r', '\n');
+        }
+        if (rest.Length > 0) result.Add((rest, ""));
+        return result;
     }
 
     private async Task<TranslationResult> EdgeAsync(string text, string to, CancellationToken ct)
@@ -258,18 +317,21 @@ public sealed partial class Translator(HttpClient http, Func<DateTimeOffset>? cl
                 ["key"] = session.Key,
             });
             string json;
+            HttpStatusCode status;
             try
             {
                 using var response = await http.SendAsync(request, ct);
                 json = await response.Content.ReadAsStringAsync(ct);
-                if (!response.IsSuccessStatusCode) throw new TranslationException($"必应翻译出错了（{(int)response.StatusCode}）");
+                status = response.StatusCode;
             }
             catch (HttpRequestException e)
             {
                 throw new TranslationException("连不上必应翻译，请检查网络", e);
             }
-            // 会话过期时返回的是一个带 statusCode 的对象，不是数组：换个会话再试一次
-            if (json.TrimStart().StartsWith('[')) return Parse(json, to, provider) with { Via = "web" };
+            if (status == HttpStatusCode.TooManyRequests) throw new TranslationException("必应翻译的请求太频繁了，请稍后再试");
+            // 会话过期或者被拒绝时返回的是一个带 statusCode 的对象或者 401：换个会话再试一次
+            if ((int)status < 300 && json.TrimStart().StartsWith('[')) return Parse(json, to, provider) with { Via = "web" };
+            if ((int)status >= 500) throw new TranslationException($"必应翻译出错了（{(int)status}），请稍后再试");
             web = null;
         }
         throw new TranslationException("必应翻译拒绝了请求，请稍后再试");

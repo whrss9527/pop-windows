@@ -273,16 +273,27 @@ internal sealed class ResultCard : OverlayWindow
     /// 一行结果：左边说明，右边值；鼠标移上去变色，点一下复制这一行
     private FrameworkElement LineRow(ResultLine line, Theme theme, bool monospace)
     {
+        // 多行的值（格式化的 JSON 之类）：说明放在上面，值占满整行
+        var stacked = line.Value.Contains('\n');
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        if (stacked)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition());
+        }
+        else
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
         var label = new TextBlock
         {
             Text = line.Label,
             FontSize = Theme.Caption,
             Foreground = theme.Brush(theme.SecondaryText),
-            VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = stacked ? VerticalAlignment.Top : VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 0, 0, stacked ? 4 : 0),
         };
         var value = new TextBlock
         {
@@ -294,7 +305,8 @@ internal sealed class ResultCard : OverlayWindow
             Foreground = theme.Brush(theme.Text),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        Grid.SetColumn(value, 1);
+        if (stacked) Grid.SetRow(value, 1);
+        else Grid.SetColumn(value, 1);
         grid.Children.Add(label);
         grid.Children.Add(value);
 
