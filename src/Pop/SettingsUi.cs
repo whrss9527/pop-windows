@@ -9,19 +9,26 @@ namespace Pop;
 /// 设置窗口和插件编辑器共用的卡片和控件：颜色都引用 WPF-UI 的主题资源，跟着深浅色变
 internal static class SettingsUi
 {
-    /// 屏幕矮（比如 1366×768 再放大 125%）的时候窗口不超出工作区，内容在窗口里滚动；打开后整个窗口都在工作区里
+    /// 屏幕矮（比如 1366×768 再放大 125%）的时候，窗口打开后缩到它所在显示器的工作区里，内容在窗口里滚动
     public static void FitToWorkArea(Window window)
     {
-        const double margin = 12;
-        var work = SystemParameters.WorkArea;
-        window.Width = Math.Min(window.Width, work.Width - 2 * margin);
-        window.Height = Math.Min(window.Height, work.Height - 2 * margin);
-        window.MinWidth = Math.Min(window.MinWidth, window.Width);
-        window.MinHeight = Math.Min(window.MinHeight, window.Height);
         window.Loaded += (_, _) =>
         {
-            window.Left = Math.Clamp(window.Left, work.Left, Math.Max(work.Left, work.Right - window.ActualWidth));
-            window.Top = Math.Clamp(window.Top, work.Top, Math.Max(work.Top, work.Bottom - window.ActualHeight));
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+            if (!Native.GetWindowRect(hwnd, out var r)) return;
+            // 物理像素
+            var (work, scale) = Native.MonitorAt((r.Left + r.Right) / 2, (r.Top + r.Bottom) / 2);
+            var margin = (int)Math.Round(8 * scale);
+            var (workLeft, workTop, workRight, workBottom) = ((int)work.Left + margin, (int)work.Top + margin, (int)work.Right - margin, (int)work.Bottom - margin);
+            var width = Math.Min(r.Right - r.Left, workRight - workLeft);
+            var height = Math.Min(r.Bottom - r.Top, workBottom - workTop);
+            var left = Math.Clamp(r.Left, workLeft, Math.Max(workLeft, workRight - width));
+            var top = Math.Clamp(r.Top, workTop, Math.Max(workTop, workBottom - height));
+            if (left == r.Left && top == r.Top && width == r.Right - r.Left && height == r.Bottom - r.Top) return;
+            // 先放宽最小尺寸，不然 WPF 会把窗口撑回去
+            window.MinWidth = Math.Min(window.MinWidth, width / scale);
+            window.MinHeight = Math.Min(window.MinHeight, height / scale);
+            Native.SetWindowPos(hwnd, IntPtr.Zero, left, top, width, height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
         };
     }
 
