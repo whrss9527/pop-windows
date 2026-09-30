@@ -290,9 +290,6 @@ try {
     Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '设置窗口已打开' 15 | Out-Null
     Start-Sleep -Milliseconds 800
     Save-Screenshot (Join-Path $OutDir 'settings-general.png')
-    Invoke-Key 0x09 -Ctrl   # Ctrl+Tab：下一页「圆盘」
-    Start-Sleep -Milliseconds 400
-    Save-Screenshot (Join-Path $OutDir 'settings-ring.png')
     Invoke-Key 0x1B          # Esc 关闭
     Start-Sleep -Milliseconds 400
     Assert-PopAlive 'settings'
