@@ -15,6 +15,12 @@ public sealed class AppSettings
     /// 选中算式、带单位的数值、颜色、时间戳时直接出结果，不弹圆盘
     public bool DirectResults { get; set; } = true;
 
+    /// 圆盘上每一格的功能 ID，正上方开始顺时针；4–8 格
+    public List<string> RingSlots { get; set; } = [.. RingItems.DefaultIds];
+
+    /// 直接出结果的内容类型：math、measurement、color、timestamp、datetime、number
+    public List<string> DirectKinds { get; set; } = [.. Pop.Core.DirectResults.DefaultKindNames];
+
     /// 记录剪贴板历史
     public bool ClipboardHistory { get; set; } = true;
 
@@ -91,11 +97,14 @@ public sealed class AppSettings
                         settings.ClipboardMaxItems = Math.Clamp(max, 10, 100_000);
                         break;
                     case "clipboardexcludedapps" when p.Value.ValueKind == JsonValueKind.Array:
-                        settings.ClipboardExcludedApps = p.Value.EnumerateArray()
-                            .Where(v => v.ValueKind == JsonValueKind.String)
-                            .Select(v => v.GetString()!.Trim())
-                            .Where(v => v.Length > 0)
-                            .ToList();
+                        settings.ClipboardExcludedApps = Strings(p.Value);
+                        break;
+                    case "ringslots" when p.Value.ValueKind == JsonValueKind.Array:
+                        var slots = Strings(p.Value);
+                        if (slots.Count is >= RingItems.MinSlots and <= RingItems.MaxSlots) settings.RingSlots = slots;
+                        break;
+                    case "directkinds" when p.Value.ValueKind == JsonValueKind.Array:
+                        settings.DirectKinds = Strings(p.Value).Where(k => Pop.Core.DirectResults.KindNamed(k) is not null).ToList();
                         break;
                     case "checkforupdates" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False:
                         settings.CheckForUpdates = p.Value.GetBoolean();
@@ -111,6 +120,17 @@ public sealed class AppSettings
         }
         return settings;
     }
+
+    private static List<string> Strings(JsonElement array) =>
+        array.EnumerateArray()
+            .Where(v => v.ValueKind == JsonValueKind.String)
+            .Select(v => v.GetString()!.Trim())
+            .Where(v => v.Length > 0)
+            .ToList();
+
+    /// 直接出结果的内容类型（关掉「直接出结果」时为 None）
+    public ContentKind DirectKindFlags =>
+        !DirectResults ? ContentKind.None : DirectKinds.Select(Pop.Core.DirectResults.KindNamed).Aggregate(ContentKind.None, (all, k) => all | (k ?? ContentKind.None));
 
     public string ToJson() => JsonSerializer.Serialize(this, Options);
 

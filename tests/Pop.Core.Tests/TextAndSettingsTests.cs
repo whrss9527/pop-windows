@@ -117,3 +117,52 @@ public class AppSettingsTests
         Assert.True(AppSettings.Load(path).Enabled);
     }
 }
+
+public class RingAndDirectSettingsTests
+{
+    [Fact]
+    public void DefaultsMatchTheBuiltInRing()
+    {
+        var s = new AppSettings();
+        Assert.Equal(RingItems.DefaultIds, s.RingSlots);
+        Assert.Equal(DirectResults.DefaultKinds, s.DirectKindFlags);
+        s.DirectResults = false;
+        Assert.Equal(ContentKind.None, s.DirectKindFlags);
+    }
+
+    [Fact]
+    public void ReadsRingSlotsAndDirectKinds()
+    {
+        var s = AppSettings.FromJson("""{"ringSlots":["calc","copy","hash","all","json"],"directKinds":["number","MATH","nope"]}""");
+        Assert.Equal(["calc", "copy", "hash", "all", "json"], s.RingSlots);
+        Assert.Equal(ContentKind.Number | ContentKind.Math, s.DirectKindFlags);
+        // 格子数不在 4–8 之间时不用
+        Assert.Equal(RingItems.DefaultIds, AppSettings.FromJson("""{"ringSlots":["copy","all"]}""").RingSlots);
+        var round = AppSettings.FromJson(s.ToJson());
+        Assert.Equal(s.RingSlots, round.RingSlots);
+        Assert.Equal(s.DirectKinds, round.DirectKinds);
+    }
+
+    [Fact]
+    public void BuildsRingsFromIds()
+    {
+        var ring = RingItems.Build(["copy", "unknown", "calc", "json", "all"]);
+        Assert.Equal(["copy", "calc", "json", "all"], ring.Select(a => a.Id));
+        Assert.Equal(RingItems.DefaultIds, RingItems.Build(["copy"]).Select(a => a.Id));
+        Assert.Contains(RingItems.Choices, a => a.Id == "all");
+
+        var link = ContentClassifier.Classify("https://example.com");
+        Assert.Contains(RingItems.For(ring, link), a => a.Id == "copy");
+        var withSearch = RingItems.Build(["copy", "search", "open", "all"]);
+        // 圆盘上已经有「打开」时，「搜索」不换
+        Assert.Equal(withSearch, RingItems.For(withSearch, link));
+    }
+
+    [Fact]
+    public void DirectResultsFollowTheChosenKinds()
+    {
+        var number = ContentClassifier.Classify("0xFF");
+        Assert.Null(DirectResults.For(number));
+        Assert.Equal("数字", DirectResults.For(number, AppSettings.FromJson("""{"directKinds":["number"]}""").DirectKindFlags)?.Title);
+    }
+}

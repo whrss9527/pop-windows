@@ -247,6 +247,19 @@ try {
         Write-Host "✓ $name 里读取选中文字并复制"
     }
 
+    # 6b. 再运行一次 Pop.exe：正在运行的 Pop 打开设置窗口
+    Start-Process -FilePath $Exe | Out-Null
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '设置窗口已打开' 15 | Out-Null
+    Start-Sleep -Milliseconds 800
+    Save-Screenshot (Join-Path $OutDir 'settings-general.png')
+    Invoke-Key 0x09 -Ctrl   # Ctrl+Tab：下一页「圆盘」
+    Start-Sleep -Milliseconds 400
+    Save-Screenshot (Join-Path $OutDir 'settings-ring.png')
+    Invoke-Key 0x1B          # Esc 关闭
+    Start-Sleep -Milliseconds 400
+    Assert-PopAlive 'settings'
+    Write-Host '✓ 再次运行 Pop.exe 打开设置窗口'
+
     # 7. 深色外观下的圆盘截图（换回普通文字，不然会直接出结果卡片）
     Stop-Process -Id $pop.Id -Force
     Start-Sleep -Seconds 1

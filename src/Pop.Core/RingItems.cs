@@ -134,14 +134,30 @@ public static partial class Actions
 
 public static class RingItems
 {
-    /// 默认的圆盘：正上方开始顺时针
-    public static readonly IReadOnlyList<PopAction> Default =
-        [Actions.Copy, Actions.Search, Actions.Translate, Actions.Upper, Actions.Count, Actions.All];
+    public const int MinSlots = 4;
+    public const int MaxSlots = 8;
 
-    /// 按选中的内容调整圆盘：选中链接、邮箱或路径时，「搜索」换成「打开」
-    public static IReadOnlyList<PopAction> For(ClassifiedContent content)
+    /// 默认的圆盘：正上方开始顺时针
+    public static readonly IReadOnlyList<string> DefaultIds = ["copy", "search", "translate", "upper", "count", "all"];
+
+    public static IReadOnlyList<PopAction> Default { get; } = Build(DefaultIds);
+
+    /// 可以放到圆盘上的功能：全部功能列表里的，加上「全部功能」本身
+    public static IReadOnlyList<PopAction> Choices => [.. Actions.List, Actions.All];
+
+    /// 按设置里的 ID 排好圆盘；不认识的 ID 跳过，格子数不对时用默认的
+    public static IReadOnlyList<PopAction> Build(IEnumerable<string> ids)
     {
-        if (!Actions.Open.IsAvailable(content)) return Default;
-        return Default.Select(i => i.Id == Actions.Search.Id ? Actions.Open : i).ToList();
+        var slots = ids.Select(Actions.Find).OfType<PopAction>().ToList();
+        return slots.Count is >= MinSlots and <= MaxSlots ? slots : Build(DefaultIds);
+    }
+
+    /// 按选中的内容调整圆盘：选中链接、邮箱或路径时，「搜索」换成「打开」（圆盘上已经有「打开」时不换）
+    public static IReadOnlyList<PopAction> For(ClassifiedContent content) => For(Default, content);
+
+    public static IReadOnlyList<PopAction> For(IReadOnlyList<PopAction> ring, ClassifiedContent content)
+    {
+        if (!Actions.Open.IsAvailable(content) || ring.Contains(Actions.Open)) return ring;
+        return ring.Select(i => i.Id == Actions.Search.Id ? Actions.Open : i).ToList();
     }
 }
