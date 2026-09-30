@@ -18,6 +18,11 @@
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- 发布时预先编译成机器码：第一次弹出圆盘、卡片时不用现场编译，慢的机器上也不会卡一下。
+         只编译界面相关的程序集，见下面的 PublishReadyToRunExclude -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <!-- 单文件发布默认把整个运行时一起重新编译成一大块，会大 20 MB；运行时本身已经预编译过，只编译自己的就够了 -->
+    <PublishReadyToRunComposite>false</PublishReadyToRunComposite>
     <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
     <!-- 高 DPI 设置写在 app.manifest 里（WPF 靠它按显示器缩放），WinForms 的检查会误报 -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
@@ -33,6 +38,14 @@
     <!-- 中文字体：Noto Sans CJK SC 的常用字子集（SIL Open Font License） -->
     <Resource Include="Assets\Fonts\*.otf" />
     <Resource Include="Assets\Fonts\LICENSE-OFL.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 这几个预先编译后会大很多（Windows SDK 的接口大 30 MB 以上），又不在弹出圆盘和卡片的路上：
+         文字识别、JavaScript 插件第一次用时现场编译 -->
+    <PublishReadyToRunExclude Include="Microsoft.Windows.SDK.NET.dll" />
+    <PublishReadyToRunExclude Include="WinRT.Runtime.dll" />
+    <PublishReadyToRunExclude Include="Jint.dll" />
+    <PublishReadyToRunExclude Include="Acornima.dll" />
   </ItemGroup>
   <ItemGroup>
     <!-- Windows 原生 UI Automation（UIAutomationCore）的 COM 接口 -->

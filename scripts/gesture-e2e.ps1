@@ -90,8 +90,28 @@ function Assert-PopAlive([string]$Step) {
     if ($pop.HasExited) { throw "Pop 在「${Step}」时退出了，退出码 $($pop.ExitCode)" }
 }
 
+# Pop 的某个浮窗（按标题找）现在是不是显示着
+function Test-PopWindowVisible([string]$Title) {
+    $hwnd = [PopCi.Native]::FindWindow([NullString]::Value, $Title)
+    return $hwnd -ne [IntPtr]::Zero -and [PopCi.Native]::IsWindowVisible($hwnd)
+}
+
+# 等 Pop 的浮窗出现（-Visible）或者收起
+function Wait-PopWindow([string]$Title, [switch]$Visible, [int]$TimeoutSeconds = 10) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Test-PopWindowVisible $Title) -ne $Visible.IsPresent) {
+        if ((Get-Date) -gt $deadline) {
+            $state = if ($Visible) { '没有出现' } else { '没有收起' }
+            throw "等了 ${TimeoutSeconds} 秒，「${Title}」${state}。日志：`n$(Get-PopLog)"
+        }
+        Start-Sleep -Milliseconds 100
+    }
+}
+
 # 长按，往 (dx, dy) 方向划，截图，松开
 function Invoke-LongPress([int]$Dx, [int]$Dy, [string]$Shot, [switch]$BackToCenter, [IntPtr]$Hwnd = [IntPtr]::Zero) {
+    # 上一步的圆盘收起来了再按：Pop 的界面线程还忙着的话，这次的长按和松开会排在一起处理
+    Wait-PopWindow 'Pop 圆盘'
     if ($Hwnd -eq [IntPtr]::Zero) { $Hwnd = $notepad.MainWindowHandle }
     $cx, $cy = Get-WindowCenter $Hwnd
     [PopCi.Native]::SetCursorPos($cx, $cy) | Out-Null
@@ -124,10 +144,12 @@ try {
     Select-AllInNotepad
     Invoke-LongPress 0 110 'upper'
     Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '执行 upper' 10 | Out-Null
-    Start-Sleep -Milliseconds 500
+    # 记事本读走剪贴板以后 Pop 才把原来的内容放回去，并记一笔
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '粘贴完成' 10 | Out-Null
     $text = Get-NotepadText
     Write-Host "记事本里现在是：$text"
-    if ($text.Trim() -ne $sample.ToUpperInvariant()) { throw "替换原文失败，记事本里是「$text」" }
+    # -cne：区分大小写
+    if ($text.Trim() -cne $sample.ToUpperInvariant()) { throw "替换原文失败，记事本里是「$text」。日志：`n$(Get-PopLog)" }
     $log = Get-PopLog
     if ($log -notmatch '选中内容：来源 (uia|copy).*内容「hello pop world」') { throw "没读到选中的文字。日志：`n$log" }
     Write-Host '✓ 长按 → 划向「大写」→ 替换原文'
@@ -135,9 +157,12 @@ try {
     # 2. 往左下方划（第 4 格「字数」），弹出结果卡片；Esc 关掉
     Select-AllInNotepad
     Invoke-LongPress (-95) 55 'count'
-    Save-Screenshot (Join-Path $OutDir 'count-card.png')
     Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '执行 count' 10 | Out-Null
+    Wait-PopWindow 'Pop 结果' -Visible
+    Start-Sleep -Milliseconds 300   # 弹出动画
+    Save-Screenshot (Join-Path $OutDir 'count-card.png')
     Invoke-Key 0x1B
+    Wait-PopWindow 'Pop 结果'
     Write-Host '✓ 字数统计卡片'
 
     # 3. 在圆心松开：关闭圆盘，什么都不执行

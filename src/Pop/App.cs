@@ -73,6 +73,7 @@ internal sealed class App : Application
         SetUpPlugins(Paths.Plugins);
         hook = new InputHook { Enabled = Settings.Enabled, HoldMilliseconds = Settings.HoldMilliseconds };
         hook.Start();
+        NativeAutomation.WarmUp();
         history = new ClipboardHistory(() => Settings);
         coordinator = new Coordinator(Dispatcher, hook, () => Settings, history, () => Plugins, PluginRunner);
         hotKeys = new HotKeys();

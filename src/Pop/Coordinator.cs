@@ -73,7 +73,7 @@ internal sealed class Coordinator : IDisposable
             historyOpen = false;
             await PasteFromHistory(item);
         };
-        paster = new Paster(clipboard);
+        paster = new Paster();
 
         hook.Triggered += (x, y) => dispatcher.BeginInvoke(() => OnTriggered(x, y));
         hook.Moved += (x, y) => dispatcher.BeginInvoke(() => OnMoved(x, y));
@@ -108,6 +108,7 @@ internal sealed class Coordinator : IDisposable
         card.Close();
         actionList.Close();
         historyWindow.Close();
+        paster.Dispose();
         clipboard.Dispose();
     }
 
@@ -123,9 +124,10 @@ internal sealed class Coordinator : IDisposable
 
         await Task.WhenAny(selection, Task.Delay(DirectWait));
         if (session != s || s.Finished) return;
+        ClassifiedContent? content = null;
         if (selection.IsCompleted)
         {
-            var content = ContentClassifier.Classify(selection.Result.Text);
+            content = ContentClassifier.Classify(selection.Result.Text);
             if (DirectResults.TranslatesDirectly(content, settings().DirectKindFlags))
             {
                 s.Finished = true;
@@ -140,17 +142,17 @@ internal sealed class Coordinator : IDisposable
                 ShowResult(x, y, direct);
                 return;
             }
-            if (s.ReleasedEarly)
-            {
-                // 还没看到圆盘就松开了，当作没按
-                s.Finished = true;
-                return;
-            }
-            ShowRing(s, content);
+        }
+        if (s.ReleasedEarly)
+        {
+            // 还没看到圆盘就松开了（Pop 忙的时候也会这样），当作没按
+            s.Finished = true;
+            Log.Info("圆盘弹出前就松开了，不执行");
             return;
         }
 
-        ShowRing(s, null);
+        ShowRing(s, content);
+        if (content is not null) return;
         var result = await selection;
         if (session == s && !s.Finished) UpdateRing(s, ContentClassifier.Classify(result.Text));
     }
@@ -162,12 +164,14 @@ internal sealed class Coordinator : IDisposable
 
     private void ShowRing(Session s, ClassifiedContent? content)
     {
+        var watch = Stopwatch.StartNew();
         s.Items = content is null ? Ring : RingItems.For(Ring, content);
         s.RingShown = true;
         ringCount = s.Items.Count;
         ringOpen = true;
         ring.ShowAt(s.X, s.Y, s.Items);
         if (content is not null) ring.SetContent(content, s.Items);
+        LogIfSlow("弹出圆盘", watch);
     }
 
     private void UpdateRing(Session s, ClassifiedContent content)
@@ -673,14 +677,30 @@ internal sealed class Coordinator : IDisposable
 
     private void ShowResult(int x, int y, CardContent content)
     {
+        var watch = Stopwatch.StartNew();
         card.ShowResult(x, y, content);
         cardOpen = true;
+        LogIfSlow("显示卡片", watch);
+    }
+
+    /// 界面线程被占住太久时记一笔：这期间长按、松开都在排队，圆盘和卡片也不会动
+    private static void LogIfSlow(string what, Stopwatch watch)
+    {
+        if (watch.ElapsedMilliseconds >= 200) Log.Info($"{what}用了 {watch.ElapsedMilliseconds} ms");
     }
 
     private async Task Replace(string text)
     {
         Log.Info("替换原文");
-        await paster.PasteAsync(text);
+        var result = await paster.PasteAsync(text);
+        var others = result.OtherReaders.Count > 0 ? $"（{string.Join("、", result.OtherReaders.Distinct())} 也读了剪贴板）" : "";
+        Log.Info(result.Outcome switch
+        {
+            Paster.Outcome.Pasted => $"粘贴完成：目标 App 过了 {result.Milliseconds} ms 来读，原来的剪贴板已恢复{others}",
+            Paster.Outcome.NotRead => $"目标 App {Paster.Deadline.TotalSeconds:0} 秒内没有来读剪贴板，原来的内容已恢复{others}",
+            Paster.Outcome.Replaced => "粘贴期间剪贴板里放进了别的内容，不再恢复原来的",
+            _ => "替换原文失败：打不开剪贴板",
+        });
     }
 
     private void ShowToast(int x, int y, string message)

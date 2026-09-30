@@ -220,6 +220,10 @@ internal static unsafe class Native
     [DllImport("user32.dll")]
     public static extern uint GetClipboardSequenceNumber();
 
+    /// 现在开着剪贴板的窗口（延迟提供的内容被读取时，就是来读的那个程序）
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetOpenClipboardWindow();
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern uint RegisterClipboardFormat(string lpszFormat);
 
