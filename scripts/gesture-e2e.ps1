@@ -187,6 +187,8 @@ try {
         $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0'
         $edgeStatus = & curl.exe -s -o NUL -m 15 -w '%{http_code}' -A $ua 'https://edge.microsoft.com/translate/auth'
         Write-Host "Edge 翻译令牌接口：${edgeStatus}"
+        $old = & curl.exe -s -m 15 -X POST -A $ua -H 'Content-Type: application/json' -d '["Good morning"]' -w ' %{http_code}' 'https://edge.microsoft.com/translate/translatetext?from=&to=zh-Hans&isEnterpriseClient=false'
+        Write-Host "Edge 旧的翻译接口：${old}"
         try {
             $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
             $page = Invoke-WebRequest -Uri 'https://www.bing.com/translator' -UserAgent $ua -WebSession $session -TimeoutSec 15

@@ -332,12 +332,13 @@ public sealed partial class Translator(HttpClient http, Func<DateTimeOffset>? cl
             }
             if ((int)status < 300 && json.TrimStart().StartsWith('[')) return Parse(json, to, provider) with { Via = "web" };
             var reply = new InvalidOperationException($"必应翻译网页接口返回 {(int)status}：{Snippet(json)}");
-            if (status == HttpStatusCode.TooManyRequests || WebRejection(json) == "limit")
+            // 401 是这台电脑（这个网络出口）的免费次数用完了，换会话也没用
+            if (status is HttpStatusCode.TooManyRequests or HttpStatusCode.Unauthorized || WebRejection(json) == "limit")
                 throw new TranslationException("必应翻译的免费次数暂时用完了，请过一会儿再试；也可以在设置里填自己的 Microsoft Translator Key", reply);
             if (WebRejection(json) == "captcha")
                 throw new TranslationException("必应翻译要求人工验证，请过一会儿再试，或者在浏览器里打开", reply);
             if ((int)status >= 500) throw new TranslationException($"必应翻译出错了（{(int)status}），请稍后再试", reply);
-            // 会话过期时返回的是一个带 statusCode 的对象，或者 401：换个会话再试一次
+            // 会话过期时返回的是一个带 statusCode 的对象（比如 205）：换个会话再试一次
             web = null;
             last = reply;
         }

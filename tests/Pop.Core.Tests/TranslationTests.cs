@@ -66,7 +66,7 @@ public class TranslationTests
     [Fact]
     public async Task BingWebSessionIsRenewedOnceWhenRejected()
     {
-        foreach (var rejection in new Func<HttpResponseMessage>[] { () => Json("""{"statusCode":205}"""), () => Json("{}", HttpStatusCode.Unauthorized) })
+        foreach (var rejection in new Func<HttpResponseMessage>[] { () => Json("""{"statusCode":205}"""), () => Json("{}", HttpStatusCode.Forbidden) })
         {
             var translateCalls = 0;
             var handler = new FakeHandler((request, _) =>
@@ -80,10 +80,15 @@ public class TranslationTests
     [Fact]
     public async Task BingWebLimitsAndCaptchasAreExplained()
     {
-        foreach (var (reply, expected) in new[] { ("""{"statusCode":401,"errorMessage":""}""", "免费次数"), ("""{"ShowCaptcha":true}""", "人工验证") })
+        foreach (var (reply, status, expected) in new[]
+        {
+            ("""{"statusCode":401,"errorMessage":""}""", HttpStatusCode.OK, "免费次数"),
+            ("""{"ShowCaptcha":false}""", HttpStatusCode.Unauthorized, "免费次数"),
+            ("""{"ShowCaptcha":true}""", HttpStatusCode.OK, "人工验证"),
+        })
         {
             var handler = new FakeHandler((request, _) =>
-                Is(request, Translator.BingWebUrl) ? Page(WebPage) : Is(request, Translator.BingAuthUrl) ? new HttpResponseMessage(HttpStatusCode.NotFound) : Json(reply));
+                Is(request, Translator.BingWebUrl) ? Page(WebPage) : Is(request, Translator.BingAuthUrl) ? new HttpResponseMessage(HttpStatusCode.NotFound) : Json(reply, status));
             var e = await Assert.ThrowsAsync<TranslationException>(() => new Translator(new HttpClient(handler)).TranslateAsync("Hello", "zh-Hans", TranslationEngine.Bing));
             Assert.Contains(expected, e.Message);
             Assert.Contains(reply, e.InnerException?.Message);
