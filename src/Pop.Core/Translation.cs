@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Pop.Core;
 
@@ -16,7 +17,8 @@ public enum TranslationEngine
     Browser,
 }
 
-public sealed record TranslationResult(string Text, string From, string To, string Provider);
+/// <param name="Via">走的是哪条路（日志里用）：edge 是 Edge 浏览器用的接口，web 是必应翻译网页用的接口</param>
+public sealed record TranslationResult(string Text, string From, string To, string Provider, string Via = "");
 
 public sealed class TranslationException(string message, Exception? inner = null) : Exception(message, inner);
 
@@ -57,17 +59,26 @@ public static class Languages
 }
 
 /// 在 Pop 自己的卡片里翻译
-public sealed class Translator(HttpClient http, Func<DateTimeOffset>? clock = null)
+public sealed partial class Translator(HttpClient http, Func<DateTimeOffset>? clock = null)
 {
     public const int MaxLength = 5000;
     public const string BingAuthUrl = "https://edge.microsoft.com/translate/auth";
     public const string BingTranslateUrl = "https://api-edge.cognitive.microsofttranslator.com/translate";
+    public const string BingWebUrl = "https://www.bing.com/translator";
     public const string AzureTranslateUrl = "https://api.cognitive.microsofttranslator.com/translate";
+
+    /// 必应的接口不认没有浏览器标识的请求
+    public const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0";
+
+    /// 必应翻译网页一次最多翻译这么多字
+    public const int WebMaxLength = 1000;
 
     private readonly Func<DateTimeOffset> now = clock ?? (() => DateTimeOffset.UtcNow);
     private readonly SemaphoreSlim tokenLock = new(1, 1);
     private string? token;
     private DateTimeOffset tokenExpires;
+    private WebSession? web;
+    private int webRequests;
 
     public static string ProviderName(TranslationEngine engine) => engine switch
     {
@@ -92,24 +103,50 @@ public sealed class Translator(HttpClient http, Func<DateTimeOffset>? clock = nu
             case TranslationEngine.Bing:
                 try
                 {
-                    var bearer = await TokenAsync(forceRefresh: false, ct);
-                    return await SendAsync(BingTranslateUrl, text, to, r => r.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer), ProviderName(engine), ct);
+                    return await EdgeAsync(text, to, ct);
                 }
-                catch (UnauthorizedException)
+                catch (TranslationException edge) when (!ct.IsCancellationRequested && text.Length <= WebMaxLength)
                 {
-                    // 令牌过期或者失效了，重新要一个再试一次
-                    var bearer = await TokenAsync(forceRefresh: true, ct);
+                    // Edge 的接口用不了（比如改了地址）：换成必应翻译网页用的接口；也不行的话报第一个错误
                     try
                     {
-                        return await SendAsync(BingTranslateUrl, text, to, r => r.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer), ProviderName(engine), ct);
+                        return await WebAsync(text, to, ct);
                     }
-                    catch (UnauthorizedException e)
+                    catch (TranslationException second)
                     {
-                        throw new TranslationException("必应翻译拒绝了请求，请稍后再试", e);
+                        throw new TranslationException(edge.Message, second);
                     }
                 }
             default:
                 throw new TranslationException("当前设置是在浏览器里翻译");
+        }
+    }
+
+    private async Task<TranslationResult> EdgeAsync(string text, string to, CancellationToken ct)
+    {
+        void Authorize(HttpRequestMessage request, string bearer)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
+            request.Headers.UserAgent.ParseAdd(BrowserUserAgent);
+        }
+        var provider = ProviderName(TranslationEngine.Bing);
+        try
+        {
+            var bearer = await TokenAsync(forceRefresh: false, ct);
+            return await SendAsync(BingTranslateUrl, text, to, r => Authorize(r, bearer), provider, ct) with { Via = "edge" };
+        }
+        catch (UnauthorizedException)
+        {
+            // 令牌过期或者失效了，重新要一个再试一次
+            var bearer = await TokenAsync(forceRefresh: true, ct);
+            try
+            {
+                return await SendAsync(BingTranslateUrl, text, to, r => Authorize(r, bearer), provider, ct) with { Via = "edge" };
+            }
+            catch (UnauthorizedException e)
+            {
+                throw new TranslationException("必应翻译拒绝了请求，请稍后再试", e);
+            }
         }
     }
 
@@ -124,7 +161,9 @@ public sealed class Translator(HttpClient http, Func<DateTimeOffset>? clock = nu
             string fresh;
             try
             {
-                using var response = await http.GetAsync(BingAuthUrl, ct);
+                using var request = new HttpRequestMessage(HttpMethod.Get, BingAuthUrl);
+                request.Headers.UserAgent.ParseAdd(BrowserUserAgent);
+                using var response = await http.SendAsync(request, ct);
                 if (!response.IsSuccessStatusCode) throw new TranslationException($"连不上必应翻译（{(int)response.StatusCode}）");
                 fresh = (await response.Content.ReadAsStringAsync(ct)).Trim();
             }
@@ -142,6 +181,98 @@ public sealed class Translator(HttpClient http, Func<DateTimeOffset>? clock = nu
         {
             tokenLock.Release();
         }
+    }
+
+    /// 必应翻译网页的会话：网页里的 IG、IID 和防滥用的 key、token，翻译时要一起发回去
+    public sealed record WebSession(string Host, string Ig, string Iid, string Key, string Token, DateTimeOffset Expires);
+
+    [GeneratedRegex(@"IG:""([0-9A-Za-z]+)""")]
+    private static partial Regex IgPattern();
+
+    [GeneratedRegex(@"data-iid=""([^""]+)""")]
+    private static partial Regex IidPattern();
+
+    [GeneratedRegex(@"params_AbusePreventionHelper\s*=\s*\[\s*(\d+)\s*,\s*""([^""]+)""\s*,\s*(\d+)")]
+    private static partial Regex AbusePattern();
+
+    /// 从必应翻译网页里读出会话参数；读不出来返回 null
+    public static WebSession? ParseWebSession(string html, string host, DateTimeOffset now)
+    {
+        var ig = IgPattern().Match(html);
+        var abuse = AbusePattern().Match(html);
+        if (!ig.Success || !abuse.Success) return null;
+        var iid = IidPattern().Match(html);
+        var lifetime = long.TryParse(abuse.Groups[3].Value, out var ms) && ms > 0 ? TimeSpan.FromMilliseconds(ms) : TimeSpan.FromMinutes(30);
+        if (lifetime > TimeSpan.FromHours(1)) lifetime = TimeSpan.FromHours(1);
+        return new WebSession(host, ig.Groups[1].Value, iid.Success ? iid.Groups[1].Value : "translator.5028", abuse.Groups[1].Value, abuse.Groups[2].Value, now + lifetime - TimeSpan.FromMinutes(1));
+    }
+
+    private async Task<WebSession> WebSessionAsync(bool forceRefresh, CancellationToken ct)
+    {
+        await tokenLock.WaitAsync(ct);
+        try
+        {
+            if (!forceRefresh && web is not null && now() < web.Expires) return web;
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, BingWebUrl);
+                request.Headers.UserAgent.ParseAdd(BrowserUserAgent);
+                request.Headers.AcceptLanguage.ParseAdd("zh-CN,zh;q=0.9,en;q=0.8");
+                using var response = await http.SendAsync(request, ct);
+                if (!response.IsSuccessStatusCode) throw new TranslationException($"连不上必应翻译网页（{(int)response.StatusCode}）");
+                var html = await response.Content.ReadAsStringAsync(ct);
+                // 在中国大陆会跳到 cn.bing.com，之后的请求也发到那里
+                var host = response.RequestMessage?.RequestUri?.Host ?? "www.bing.com";
+                web = ParseWebSession(html, host, now()) ?? throw new TranslationException("必应翻译网页改版了，读不到翻译参数");
+                webRequests = 0;
+                return web;
+            }
+            catch (HttpRequestException e)
+            {
+                throw new TranslationException("连不上必应翻译，请检查网络", e);
+            }
+        }
+        finally
+        {
+            tokenLock.Release();
+        }
+    }
+
+    /// 必应翻译网页用的接口（ttranslatev3），返回的格式和正式接口一样
+    private async Task<TranslationResult> WebAsync(string text, string to, CancellationToken ct)
+    {
+        var provider = ProviderName(TranslationEngine.Bing);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var session = await WebSessionAsync(forceRefresh: attempt > 0, ct);
+            var url = $"https://{session.Host}/ttranslatev3?isVertical=1&IG={session.Ig}&IID={session.Iid}.{Interlocked.Increment(ref webRequests)}";
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.UserAgent.ParseAdd(BrowserUserAgent);
+            request.Headers.Referrer = new Uri($"https://{session.Host}/translator");
+            request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["fromLang"] = "auto-detect",
+                ["to"] = to,
+                ["text"] = text,
+                ["token"] = session.Token,
+                ["key"] = session.Key,
+            });
+            string json;
+            try
+            {
+                using var response = await http.SendAsync(request, ct);
+                json = await response.Content.ReadAsStringAsync(ct);
+                if (!response.IsSuccessStatusCode) throw new TranslationException($"必应翻译出错了（{(int)response.StatusCode}）");
+            }
+            catch (HttpRequestException e)
+            {
+                throw new TranslationException("连不上必应翻译，请检查网络", e);
+            }
+            // 会话过期时返回的是一个带 statusCode 的对象，不是数组：换个会话再试一次
+            if (json.TrimStart().StartsWith('[')) return Parse(json, to, provider) with { Via = "web" };
+            web = null;
+        }
+        throw new TranslationException("必应翻译拒绝了请求，请稍后再试");
     }
 
     /// JWT 第二段里的 exp（Unix 秒）

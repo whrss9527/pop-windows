@@ -24,7 +24,7 @@ internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
     protected override double ListHeight => 7 * 54;
     protected override string Placeholder => "搜索剪贴板历史";
     protected override IReadOnlyList<(string Keys, string Action)> Hints =>
-        [("Enter", "粘贴"), ("Ctrl 1–9", "直接粘贴"), ("Del", "删除"), ("Ctrl P", "固定"), ("Esc", "关闭")];
+        [("Enter", "粘贴"), ("Ctrl 1–9", "直接粘贴"), ("Del", "删除"), ("Ctrl P", "固定")];
 
     public void ShowAt(ClipboardStore history, int x, int y)
     {

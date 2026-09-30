@@ -27,6 +27,16 @@ internal sealed class TrayFlyout : Window
     private readonly StackPanel body = new() { Margin = new Thickness(16, 16, 16, 10) };
     private bool closing;
 
+    /// 截背景时多截的高度（DIP），够放下更新提示
+    private const double ExtraHeight = 96;
+
+    private Frost.Shot? shot;
+    private double scale = 1;
+    private int left;
+    /// 面板固定的那条边（物理像素）：往上长时是下沿，否则是上沿
+    private int edge;
+    private bool growsUp;
+
     public TrayFlyout(App app)
     {
         this.app = app;
@@ -51,12 +61,12 @@ internal sealed class TrayFlyout : Window
         {
             if (e.Key == Key.Escape) CloseAnimated();
         };
-        app.SettingsChanged += Fill;
-        app.Updater.Changed += Fill;
+        app.SettingsChanged += Refill;
+        app.Updater.Changed += Refill;
         Closed += (_, _) =>
         {
-            app.SettingsChanged -= Fill;
-            app.Updater.Changed -= Fill;
+            app.SettingsChanged -= Refill;
+            app.Updater.Changed -= Refill;
         };
     }
 
@@ -64,49 +74,73 @@ internal sealed class TrayFlyout : Window
     public void ShowNear(int x, int y)
     {
         Fill();
-        body.Measure(new Size(PanelWidth, double.PositiveInfinity));
-        var height = Math.Ceiling(body.DesiredSize.Height);
-
-        var (bounds, work, scale) = Native.MonitorDetailsAt(x, y);
+        var height = Measure();
+        var (bounds, work, monitorScale) = Native.MonitorDetailsAt(x, y);
+        scale = monitorScale;
         var w = (int)Math.Ceiling(PanelWidth * scale);
         var h = (int)Math.Ceiling(height * scale);
         var gap = (int)Math.Round(Gap * scale);
-        // 任务栏在哪一边，面板就贴着那一边弹出来
-        int left, top;
+        // 任务栏在哪一边，面板就贴着那一边弹出来。任务栏在下面时面板的下沿固定，内容变多时往上长
         double fromX = 0, fromY = 0;
         if (y >= work.Bottom || (y > work.Top && work.Bottom < bounds.Bottom && y > work.Bottom - 4 * scale))
         {
             left = (int)Math.Clamp(x - w / 2.0, work.Left + gap, Math.Max(work.Left + gap, work.Right - w - gap));
-            top = (int)work.Bottom - h - gap;
+            edge = (int)work.Bottom - gap;
+            growsUp = true;
             fromY = 16;
         }
         else if (y < work.Top)
         {
             left = (int)Math.Clamp(x - w / 2.0, work.Left + gap, Math.Max(work.Left + gap, work.Right - w - gap));
-            top = (int)work.Top + gap;
+            edge = (int)work.Top + gap;
             fromY = -16;
         }
-        else if (x >= work.Right)
+        else if (x >= work.Right || x < work.Left)
         {
-            left = (int)work.Right - w - gap;
-            top = (int)Math.Clamp(y - h / 2.0, work.Top + gap, Math.Max(work.Top + gap, work.Bottom - h - gap));
-            fromX = 16;
-        }
-        else if (x < work.Left)
-        {
-            left = (int)work.Left + gap;
-            top = (int)Math.Clamp(y - h / 2.0, work.Top + gap, Math.Max(work.Top + gap, work.Bottom - h - gap));
-            fromX = -16;
+            left = x >= work.Right ? (int)work.Right - w - gap : (int)work.Left + gap;
+            edge = (int)Math.Clamp(y - h / 2.0, work.Top + gap, Math.Max(work.Top + gap, work.Bottom - h - gap));
+            fromX = x >= work.Right ? 16 : -16;
         }
         else
         {
             // 图标在任务栏的溢出区里，或者不知道任务栏在哪：放在工作区右下角
             left = (int)work.Right - w - gap;
-            top = (int)work.Bottom - h - gap;
+            edge = (int)work.Bottom - gap;
+            growsUp = true;
             fromY = 16;
         }
 
-        var shot = Frost.Capture(left, top, w, h, scale);
+        // 背景多截一截，内容变多（比如出现了更新提示）时也够用
+        var extra = (int)Math.Round(ExtraHeight * scale);
+        var top = growsUp ? edge - h : edge;
+        shot = Frost.Capture(left, growsUp ? top - extra : top, w, h + extra, scale);
+        Layout(height);
+        root.Opacity = 0;
+        Show();
+        Layout(height);
+        Activate();
+
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(fromX, 0, Motion.Ms(220)) { EasingFunction = ease });
+        slide.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(fromY, 0, Motion.Ms(220)) { EasingFunction = ease });
+        root.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, Motion.Ms(150)));
+        Log.Info("托盘面板已显示");
+    }
+
+    /// 面板内容的高度（DIP）
+    private double Measure()
+    {
+        body.Measure(new Size(PanelWidth, double.PositiveInfinity));
+        return Math.Ceiling(body.DesiredSize.Height);
+    }
+
+    /// 按内容的高度摆好毛玻璃面板和窗口
+    private void Layout(double height)
+    {
+        var w = (int)Math.Ceiling(PanelWidth * scale);
+        var h = (int)Math.Ceiling(height * scale);
+        var top = growsUp ? edge - h : edge;
+        if (body.Parent is Panel old) old.Children.Remove(body);
         var panel = Frost.Panel(shot, left, top, PanelWidth, height, Theme.OverlayRadius, theme, body);
         panel.Margin = new Thickness(Theme.ShadowPad);
         root.Children.Clear();
@@ -115,21 +149,11 @@ internal sealed class TrayFlyout : Window
         var pad = (int)Math.Round(Theme.ShadowPad * scale);
         Width = PanelWidth + 2 * Theme.ShadowPad;
         Height = height + 2 * Theme.ShadowPad;
-        root.Opacity = 0;
         var hwnd = new WindowInteropHelper(this).Handle;
-        Native.SetWindowPos(hwnd, Native.HWND_TOPMOST, left - pad, top - pad, w + 2 * pad, h + 2 * pad, 0);
-        Show();
         Native.SetWindowPos(hwnd, Native.HWND_TOPMOST, left - pad, top - pad, w + 2 * pad, h + 2 * pad, 0);
         // 缩放比例不同的显示器上 WPF 会按系统建议的位置重新摆一次，这里再放回来
         Dispatcher.BeginInvoke(() => Native.SetWindowPos(hwnd, Native.HWND_TOPMOST, left - pad, top - pad, w + 2 * pad, h + 2 * pad, 0),
             System.Windows.Threading.DispatcherPriority.Loaded);
-        Activate();
-
-        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(fromX, 0, Motion.Ms(220)) { EasingFunction = ease });
-        slide.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(fromY, 0, Motion.Ms(220)) { EasingFunction = ease });
-        root.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, Motion.Ms(150)));
-        Log.Info("托盘面板已显示");
     }
 
     public void CloseAnimated()
@@ -152,6 +176,14 @@ internal sealed class TrayFlyout : Window
             action();
         };
         timer.Start();
+    }
+
+    /// 重新填内容；已经显示出来的话按新的高度重新摆
+    private void Refill()
+    {
+        if (closing) return;
+        Fill();
+        if (IsVisible) Layout(Measure());
     }
 
     private void Fill()
@@ -206,7 +238,7 @@ internal sealed class TrayFlyout : Window
         var check = IconButton(WpfUi.SymbolRegular.ArrowSync24, "检查更新", async () =>
         {
             await app.CheckForUpdatesAsync(userInitiated: true);
-            Fill();
+            Refill();
         });
         check.IsEnabled = app.Updater.Available is null;
         Grid.SetColumn(check, 2);

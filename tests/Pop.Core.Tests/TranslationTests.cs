@@ -46,6 +46,9 @@ public class TranslationTests
         Assert.StartsWith(Translator.BingTranslateUrl + "?api-version=3.0&to=zh-Hans", post.RequestUri!.AbsoluteUri);
         Assert.Equal("Bearer", post.Headers.Authorization?.Scheme);
         Assert.Equal("""[{"Text":"Hello, world"}]""", body);
+        Assert.Equal("edge", result.Via);
+        // 两个请求都带浏览器标识，不带的话令牌接口会返回 404
+        Assert.All(handler.Requests, r => Assert.Contains("Edg/", r.Request.Headers.UserAgent.ToString()));
 
         // 令牌还没过期：第二次不再要令牌
         await translator.TranslateAsync("again", "zh-Hans", TranslationEngine.Bing);
@@ -65,6 +68,82 @@ public class TranslationTests
         var result = await new Translator(new HttpClient(handler)).TranslateAsync("Hello", "zh-Hans", TranslationEngine.Bing);
         Assert.Equal("你好，世界", result.Text);
         Assert.Equal(2, handler.Requests.Count(r => r.Request.RequestUri!.AbsoluteUri.StartsWith(Translator.BingAuthUrl, StringComparison.Ordinal)));
+    }
+
+    private const string WebPage = """
+        <html><script>var _G={IG:"A1B2C3D4E5",EF:{}};var params_AbusePreventionHelper = [1759226400000,"tok-EN_123",3600000];</script>
+        <div id="rich_tta" data-iid="translator.5028"></div></html>
+        """;
+
+    [Fact]
+    public async Task BingFallsBackToTheWebTranslatorWhenTheEdgeServiceIsGone()
+    {
+        var handler = new FakeHandler((request, _) =>
+        {
+            var url = request.RequestUri!.AbsoluteUri;
+            if (url.StartsWith(Translator.BingAuthUrl, StringComparison.Ordinal)) return new HttpResponseMessage(HttpStatusCode.NotFound);
+            if (url.StartsWith(Translator.BingWebUrl, StringComparison.Ordinal)) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(WebPage) };
+            return Json(Answer);
+        });
+        var translator = new Translator(new HttpClient(handler));
+
+        var result = await translator.TranslateAsync("Hello, world", "zh-Hans", TranslationEngine.Bing);
+        Assert.Equal("你好，世界", result.Text);
+        Assert.Equal("web", result.Via);
+        Assert.Equal("必应翻译", result.Provider);
+
+        var (post, body) = handler.Requests.Last();
+        Assert.Equal(HttpMethod.Post, post.Method);
+        Assert.Equal("https://www.bing.com/ttranslatev3?isVertical=1&IG=A1B2C3D4E5&IID=translator.5028.1", post.RequestUri!.AbsoluteUri);
+        Assert.Equal("https://www.bing.com/translator", post.Headers.Referrer?.AbsoluteUri);
+        Assert.Contains("Edg/", post.Headers.UserAgent.ToString());
+        Assert.Equal("fromLang=auto-detect&to=zh-Hans&text=Hello%2C+world&token=tok-EN_123&key=1759226400000", body);
+
+        // 会话还没过期：第二次不再打开网页，请求编号加一
+        await translator.TranslateAsync("again", "zh-Hans", TranslationEngine.Bing);
+        Assert.Single(handler.Requests, r => r.Request.RequestUri!.AbsoluteUri.StartsWith(Translator.BingWebUrl, StringComparison.Ordinal));
+        Assert.EndsWith("IID=translator.5028.2", handler.Requests.Last().Request.RequestUri!.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task BingWebSessionIsRenewedOnceWhenExpired()
+    {
+        var translateCalls = 0;
+        var handler = new FakeHandler((request, _) =>
+        {
+            var url = request.RequestUri!.AbsoluteUri;
+            if (url.StartsWith(Translator.BingAuthUrl, StringComparison.Ordinal)) return new HttpResponseMessage(HttpStatusCode.NotFound);
+            if (url.StartsWith(Translator.BingWebUrl, StringComparison.Ordinal)) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(WebPage) };
+            return ++translateCalls == 1 ? Json("""{"statusCode":205}""") : Json(Answer);
+        });
+        var result = await new Translator(new HttpClient(handler)).TranslateAsync("Hello", "zh-Hans", TranslationEngine.Bing);
+        Assert.Equal("你好，世界", result.Text);
+        Assert.Equal(2, handler.Requests.Count(r => r.Request.RequestUri!.AbsoluteUri.StartsWith(Translator.BingWebUrl, StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task WhenBothBingRoutesFailTheFirstErrorIsShown()
+    {
+        var handler = new FakeHandler((request, _) => request.RequestUri!.AbsoluteUri.StartsWith(Translator.BingAuthUrl, StringComparison.Ordinal)
+            ? new HttpResponseMessage(HttpStatusCode.NotFound)
+            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<html>captcha</html>") });
+        var e = await Assert.ThrowsAsync<TranslationException>(() => new Translator(new HttpClient(handler)).TranslateAsync("Hello", "zh-Hans", TranslationEngine.Bing));
+        Assert.Equal("连不上必应翻译（404）", e.Message);
+        Assert.Contains("改版", e.InnerException?.Message);
+    }
+
+    [Fact]
+    public void WebSessionIsReadFromThePage()
+    {
+        var now = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
+        var session = Translator.ParseWebSession(WebPage, "cn.bing.com", now)!;
+        Assert.Equal("cn.bing.com", session.Host);
+        Assert.Equal("A1B2C3D4E5", session.Ig);
+        Assert.Equal("translator.5028", session.Iid);
+        Assert.Equal("1759226400000", session.Key);
+        Assert.Equal("tok-EN_123", session.Token);
+        Assert.Equal(now.AddMinutes(59), session.Expires);
+        Assert.Null(Translator.ParseWebSession("<html></html>", "www.bing.com", now));
     }
 
     [Fact]

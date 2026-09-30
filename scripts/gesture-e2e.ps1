@@ -172,6 +172,12 @@ try {
 
     # 5a. 翻译：往右下方划（第 2 格「翻译」），卡片里先显示「正在翻译」，译文回来后原地换掉。
     # 翻译服务在外网上，偶尔连不上时只提示，不算失败
+    # 必应翻译的两个接口在 runner 上能不能连上，带不带浏览器标识（出问题时看这里）
+    foreach ($url in 'https://edge.microsoft.com/translate/auth', 'https://www.bing.com/translator') {
+        $plain = & curl.exe -s -o NUL -m 15 -w '%{http_code}' -H 'User-Agent:' $url
+        $browser = & curl.exe -s -o NUL -m 15 -w '%{http_code}' -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0' $url
+        Write-Host "${url}：不带浏览器标识 ${plain}，带浏览器标识 ${browser}"
+    }
     Set-NotepadText 'Good morning, how are you today?'
     Invoke-LongPress 95 55 'translate'
     Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '执行 translate' 10 | Out-Null
@@ -285,9 +291,10 @@ try {
         $exePath = $browser.Paths | Where-Object { Test-Path $_ } | Select-Object -First 1
         if (-not $exePath) { throw "这台 runner 上没有 $name" }
         $browserProfile = Join-Path $env:RUNNER_TEMP "pop-$name-profile"
-        Start-Process $exePath -ArgumentList '--no-first-run', '--no-default-browser-check', "--user-data-dir=`"$browserProfile`"", '--new-window', '--window-position=120,60', '--window-size=900,700', "`"$page`""
+        # runner 的虚拟显卡上浏览器偶尔画不出页面，用软件渲染
+        Start-Process $exePath -ArgumentList '--no-first-run', '--no-default-browser-check', '--disable-gpu', "--user-data-dir=`"$browserProfile`"", '--new-window', '--window-position=120,60', '--window-size=900,700', "`"$page`""
         $browserWindow = [IntPtr]::Zero
-        for ($i = 0; $i -lt 60 -and $browserWindow -eq [IntPtr]::Zero; $i++) {
+        for ($i = 0; $i -lt 120 -and $browserWindow -eq [IntPtr]::Zero; $i++) {
             Start-Sleep -Milliseconds 500
             $w = Get-Process $name -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like 'PopBrowserTest*' } | Select-Object -First 1
             if ($w) { $browserWindow = $w.MainWindowHandle }

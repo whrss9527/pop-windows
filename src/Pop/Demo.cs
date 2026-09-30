@@ -86,14 +86,14 @@ internal static class Demo
                     ("card-unit", DirectResults.For(ContentClassifier.Classify("5 km"))!),
                     ("card-color", DirectResults.For(ContentClassifier.Classify("#FF8800"))!),
                     ("card-time", DirectResults.For(ContentClassifier.Classify("1735660800"))!),
-                    ("card-count", new CardContent("字数统计", TextActions.Lines(TextActions.Count("Pop 让选中的文字更有用。Select, hold, done.")))),
+                    ("card-count", new CardContent("字数统计", TextActions.Lines(TextActions.Count("Pop 让选中的文字更有用。Select, hold, done."))) { Icon = Actions.Count.Glyph }),
                 };
-                if (Actions.Find("codec")?.Run(ContentClassifier.Classify("hello pop world")) is { Card: { } codec })
-                    cards.Add(("card-codec", codec));
+                if (Actions.Find("codec") is { } codecAction && codecAction.Run(ContentClassifier.Classify("hello pop world")) is { Card: { } codec })
+                    cards.Add(("card-codec", codec with { Icon = codec.Icon ?? codecAction.Glyph }));
                 // 内容很长的卡片：正文区域滚动
                 var json = "{\"name\":\"Pop\",\"version\":\"0.7.0\",\"features\":[\"ring\",\"translate\",\"clipboard\",\"ocr\",\"pin\"],\"settings\":{\"holdMilliseconds\":250,\"directResults\":true,\"ringSlots\":[\"copy\",\"search\",\"translate\",\"upper\",\"count\",\"all\"],\"clipboard\":{\"retentionDays\":30,\"maxItems\":500,\"excludedApps\":[\"KeePass\",\"1Password\",\"Bitwarden\"]}},\"platforms\":[{\"os\":\"Windows 10\",\"minimum\":\"1809\"},{\"os\":\"Windows 11\",\"minimum\":\"21H2\"}]}";
-                if (Actions.Find("json")?.Run(ContentClassifier.Classify(json)) is { Card: { } formatted })
-                    cards.Add(("card-long", formatted));
+                if (Actions.Find("json") is { } jsonAction && jsonAction.Run(ContentClassifier.Classify(json)) is { Card: { } formatted })
+                    cards.Add(("card-long", formatted with { Icon = formatted.Icon ?? jsonAction.Glyph }));
                 foreach (var (name, content) in cards)
                 {
                     var card = new ResultCard();

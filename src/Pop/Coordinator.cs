@@ -534,7 +534,8 @@ internal sealed class Coordinator : IDisposable
                     ShowToast(x, y, "选中的内容用不了这个功能");
                     break;
                 case ActionEffect.Card when result.Card is { } resultCard:
-                    ShowResult(x, y, resultCard);
+                    // 卡片没有自己的图标时用这个功能的图标
+                    ShowResult(x, y, resultCard.Icon is null && resultCard.Swatch is null ? resultCard with { Icon = action.Glyph } : resultCard);
                     break;
                 case ActionEffect.Replace when result.Text is { } replacement:
                     await Replace(replacement);
@@ -596,7 +597,7 @@ internal sealed class Coordinator : IDisposable
         {
             var translated = await translator.TranslateAsync(text, to, s.TranslationEngine,
                 SecretStore.Get(SecretStore.AzureTranslatorKey), s.AzureTranslatorRegion);
-            Log.Info($"翻译完成：{translated.Provider}，{translated.From} → {translated.To}，{translated.Text.Length} 个字符，用时 {watch.ElapsedMilliseconds} ms{(LogSelection ? $"，译文「{Abbreviate(translated.Text)}」" : "")}");
+            Log.Info($"翻译完成：{translated.Provider}（{translated.Via}），{translated.From} → {translated.To}，{translated.Text.Length} 个字符，用时 {watch.ElapsedMilliseconds} ms{(LogSelection ? $"，译文「{Abbreviate(translated.Text)}」" : "")}");
             result = TranslationCards.Result(text, translated);
         }
         catch (TranslationException e)

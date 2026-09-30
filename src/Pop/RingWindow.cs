@@ -195,8 +195,8 @@ internal sealed class RingWindow : OverlayWindow
             canvas.Children.Add(new Line { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, Stroke = theme.Brush(theme.Divider), StrokeThickness = 1 });
         }
 
-        // 高亮：主题色的一段圆环，描边加粗让四个角变圆
-        highlight.Data = Wedge(-step / 2 + 3.2, step / 2 - 3.2, OuterRadius - 10, InnerRadius + 9);
+        // 高亮：主题色的一段圆环，和圆盘边缘、分隔线之间留出一样宽的空隙；描边加粗让四个角变圆
+        highlight.Data = Segment(step, OuterRadius - HighlightInset - HighlightCorner, InnerRadius + HighlightInset + HighlightCorner, HighlightGap + HighlightCorner);
         highlight.RenderTransform = highlightRotation;
         highlight.BeginAnimation(OpacityProperty, null);
         highlight.Opacity = 0;
@@ -291,19 +291,30 @@ internal sealed class RingWindow : OverlayWindow
         return (Center + radius * Math.Sin(rad), Center - radius * Math.Cos(rad));
     }
 
-    /// 圆环上的一段，角度 0 朝上、顺时针
-    private static Geometry Wedge(double fromDegrees, double toDegrees, double outer, double inner)
+    /// 高亮和圆盘边缘、中间圆之间的空隙，和相邻格子分界线之间的空隙（DIP）
+    private const double HighlightInset = 6;
+    private const double HighlightGap = 3;
+    /// 高亮四个角的圆角（描边宽度的一半）
+    private const double HighlightCorner = 5;
+
+    /// 正上方那一格的高亮形状：两条直边和这一格的分界线平行、离开 gap，所以空隙内外一样宽
+    private static Geometry Segment(double step, double outer, double inner, double gap)
     {
+        var half = step / 2;
+        var outerMargin = Math.Asin(Math.Min(1, gap / outer)) * 180 / Math.PI;
+        var innerMargin = Math.Asin(Math.Min(1, gap / inner)) * 180 / Math.PI;
         Point P(double degrees, double r)
         {
             var (x, y) = At(degrees, r);
             return new Point(x, y);
         }
-        var large = toDegrees - fromDegrees > 180;
-        var figure = new PathFigure { StartPoint = P(fromDegrees, outer), IsClosed = true, IsFilled = true };
-        figure.Segments.Add(new ArcSegment(P(toDegrees, outer), new Size(outer, outer), 0, large, SweepDirection.Clockwise, true));
-        figure.Segments.Add(new LineSegment(P(toDegrees, inner), true));
-        figure.Segments.Add(new ArcSegment(P(fromDegrees, inner), new Size(inner, inner), 0, large, SweepDirection.Counterclockwise, true));
+        var from = -half;
+        var to = half;
+        var large = step - 2 * outerMargin > 180;
+        var figure = new PathFigure { StartPoint = P(from + outerMargin, outer), IsClosed = true, IsFilled = true };
+        figure.Segments.Add(new ArcSegment(P(to - outerMargin, outer), new Size(outer, outer), 0, large, SweepDirection.Clockwise, true));
+        figure.Segments.Add(new LineSegment(P(to - innerMargin, inner), true));
+        figure.Segments.Add(new ArcSegment(P(from + innerMargin, inner), new Size(inner, inner), 0, step - 2 * innerMargin > 180, SweepDirection.Counterclockwise, true));
         var geometry = new PathGeometry([figure]);
         geometry.Freeze();
         return geometry;

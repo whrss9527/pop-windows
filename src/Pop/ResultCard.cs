@@ -102,20 +102,34 @@ internal sealed class ResultCard : OverlayWindow
 
         // 标题行：图标（或色块）、标题、关闭按钮
         var header = new DockPanel { LastChildFill = true };
-        var close = new WpfUi.Button
+        var close = Subtle(new WpfUi.Button
         {
             Icon = new WpfUi.SymbolIcon { Symbol = WpfUi.SymbolRegular.Dismiss16, FontSize = 12 },
-            Appearance = WpfUi.ControlAppearance.Transparent,
             Width = 28,
             Height = 28,
             Padding = new Thickness(0),
             Focusable = false,
             Cursor = Cursors.Hand,
             ToolTip = "关闭（Esc）",
-        };
+        }, theme);
         close.Click += (_, _) => Dismiss();
         DockPanel.SetDock(close, Dock.Right);
         header.Children.Add(close);
+        // 说明文字（「英语 → 简体中文 · 必应翻译」）放在标题行右边
+        if (!string.IsNullOrEmpty(content.Caption))
+        {
+            var caption = new TextBlock
+            {
+                Text = content.Caption,
+                FontSize = 11,
+                Foreground = theme.Brush(theme.TertiaryText),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(12, 0, 6, 0),
+            };
+            DockPanel.SetDock(caption, Dock.Right);
+            header.Children.Add(caption);
+        }
         if (content.Swatch is { } swatch && TryColor(swatch) is { } color)
         {
             var chip = new Border
@@ -200,7 +214,8 @@ internal sealed class ResultCard : OverlayWindow
             scrollContent.Children.Add(new TextBlock
             {
                 Text = content.Body,
-                FontFamily = content.Monospace && !prominent ? Theme.MonoFont : Theme.TextFont,
+                // 等宽字体只给代码一样的正文（格式化好的 JSON）；结果行上面的说明文字用正文字体
+                FontFamily = content.Monospace && prominent ? Theme.MonoFont : Theme.TextFont,
                 FontSize = prominent ? Theme.BodyLarge : Theme.Body,
                 LineHeight = prominent ? 25 : 21,
                 TextWrapping = TextWrapping.Wrap,
@@ -211,20 +226,24 @@ internal sealed class ResultCard : OverlayWindow
 
         foreach (var line in content.Lines) scrollContent.Children.Add(LineRow(line, theme, content.Monospace));
 
-        // 底部：说明文字、链接、替换原文、复制
-        var footer = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 14, 0, 0) };
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        // 底部：左边是链接，右边是替换原文、复制
+        var footer = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 14, 0, 0) };
         foreach (var link in content.Links ?? [])
         {
-            var button = ActionButton(link.Title, WpfUi.ControlAppearance.Transparent, theme);
+            var button = Subtle(ActionButton(link.Title, WpfUi.ControlAppearance.Transparent, theme), theme);
             button.Foreground = theme.Brush(theme.Accent);
+            button.Icon = new WpfUi.SymbolIcon { Symbol = WpfUi.SymbolRegular.Open16, FontSize = 13 };
+            button.Margin = new Thickness(-8, 0, 0, 0);
+            button.Padding = new Thickness(8, 0, 10, 0);
             button.Click += (_, _) =>
             {
                 Dismiss();
                 LinkRequested?.Invoke(link.Url);
             };
-            buttons.Children.Add(button);
+            DockPanel.SetDock(button, Dock.Left);
+            footer.Children.Add(button);
         }
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal };
         if (!content.Loading && content.Replacement is { } replacement)
         {
             var replace = ActionButton("替换原文", WpfUi.ControlAppearance.Secondary, theme);
@@ -247,16 +266,7 @@ internal sealed class ResultCard : OverlayWindow
         }
         DockPanel.SetDock(buttons, Dock.Right);
         footer.Children.Add(buttons);
-        footer.Children.Add(new TextBlock
-        {
-            Text = content.Caption ?? "",
-            FontSize = 11,
-            Foreground = theme.Brush(theme.TertiaryText),
-            VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(0, 0, 8, 0),
-        });
-        if (buttons.Children.Count > 0 || !string.IsNullOrEmpty(content.Caption)) panel.Children.Add(footer);
+        if (footer.Children.Count > 1 || buttons.Children.Count > 0) panel.Children.Add(footer);
         return panel;
     }
 
@@ -322,6 +332,20 @@ internal sealed class ResultCard : OverlayWindow
         Focusable = false,
         Cursor = Cursors.Hand,
     };
+
+    /// 没有底色和边框的按钮：鼠标移上去才显示浅色的底
+    private static WpfUi.Button Subtle(WpfUi.Button button, Theme theme)
+    {
+        button.Appearance = WpfUi.ControlAppearance.Transparent;
+        button.Background = Brushes.Transparent;
+        button.BorderBrush = Brushes.Transparent;
+        button.BorderThickness = new Thickness(0);
+        button.MouseOverBackground = theme.Brush(theme.Hover);
+        button.MouseOverBorderBrush = Brushes.Transparent;
+        button.PressedBackground = theme.Brush(theme.Selected);
+        button.PressedBorderBrush = Brushes.Transparent;
+        return button;
+    }
 
     private static Color? TryColor(string hex)
     {
