@@ -16,6 +16,9 @@ internal sealed class ResultCard : OverlayWindow
     /// 第一次弹出时按这个大小截下背景，之后内容变了（翻译结果回来了）也够用
     private const double MaxCardHeight = 560;
 
+    /// 正文和结果行最多这么高，再多就滚动
+    private const double MaxBodyHeight = 400;
+
     private readonly Grid root = new();
     private readonly ScaleTransform scale = new(1, 1);
     private readonly System.Windows.Threading.DispatcherTimer autoClose = new();
@@ -163,7 +166,20 @@ internal sealed class ResultCard : OverlayWindow
             });
         }
 
-        // 正文
+        // 正文和结果行放在一个能滚动的区域里，内容很长时卡片不会超出屏幕
+        var scrollContent = new StackPanel { Margin = new Thickness(8, 0, 4, 0) };
+        var scroller = new ScrollViewer
+        {
+            Content = scrollContent,
+            MaxHeight = MaxBodyHeight,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            CanContentScroll = false,
+            Focusable = false,
+            Margin = new Thickness(-8, 0, -4, 0),
+        };
+        panel.Children.Add(scroller);
+
         if (content.Loading)
         {
             var loading = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 4) };
@@ -176,12 +192,12 @@ internal sealed class ResultCard : OverlayWindow
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = theme.Brush(theme.SecondaryText),
             });
-            panel.Children.Add(loading);
+            scrollContent.Children.Add(loading);
         }
         else if (!string.IsNullOrEmpty(content.Body))
         {
             var prominent = content.Lines.Count == 0;
-            panel.Children.Add(new TextBlock
+            scrollContent.Children.Add(new TextBlock
             {
                 Text = content.Body,
                 FontFamily = content.Monospace && !prominent ? Theme.MonoFont : Theme.TextFont,
@@ -193,7 +209,7 @@ internal sealed class ResultCard : OverlayWindow
             });
         }
 
-        foreach (var line in content.Lines) panel.Children.Add(LineRow(line, theme, content.Monospace));
+        foreach (var line in content.Lines) scrollContent.Children.Add(LineRow(line, theme, content.Monospace));
 
         // 底部：说明文字、链接、替换原文、复制
         var footer = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 14, 0, 0) };

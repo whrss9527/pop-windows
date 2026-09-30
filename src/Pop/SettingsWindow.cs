@@ -868,7 +868,8 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
         [
             Row(null, "Noto Sans CJK", "界面里的中文字体（常用字子集），SIL Open Font License 1.1", ActionButton("查看许可", null, ShowFontLicense), indent: 2),
             Row(null, "WPF-UI 和 Fluent System Icons", "界面控件和图标，MIT 许可", null, indent: 2),
-            Row(null, "Microsoft.Data.Sqlite", "剪贴板历史的数据库，MIT 许可", null, indent: 2),
+            Row(null, "Microsoft.Data.Sqlite 和 SQLitePCLRaw", "剪贴板历史的数据库，MIT 和 Apache 2.0 许可", null, indent: 2),
+            Row(null, "Interop.UIAutomationClient", "读取其他 App 里选中的文字，MIT 许可", null, indent: 2),
         ]));
     }
 
