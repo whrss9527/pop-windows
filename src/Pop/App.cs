@@ -48,17 +48,12 @@ internal sealed class App : Application
         coordinator = new Coordinator(Dispatcher, hook, () => Settings, history);
         hotKeys = new HotKeys();
         // Win+Shift+V 被系统占用了；默认用 Win+Alt+V，也被占用时依次换下一个
-        foreach (var (modifiers, vk, name) in new (uint, uint, string)[]
-        {
-            (HotKeys.MOD_WIN | HotKeys.MOD_ALT, 0x56, "Win+Alt+V"),
-            (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x56, "Ctrl+Alt+Shift+V"),
-            (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x48, "Ctrl+Alt+Shift+H"),
-        })
-        {
-            if (!hotKeys.Register(modifiers, vk, $"{name}（剪贴板历史）", () => coordinator.ShowHistory())) continue;
-            HistoryHotKey = name;
-            break;
-        }
+        HistoryHotKey = RegisterFirst("剪贴板历史", () => coordinator.ShowHistory(), (HotKeys.MOD_WIN | HotKeys.MOD_ALT, 0x56, "Win+Alt+V"),
+            (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x56, "Ctrl+Alt+Shift+V"), (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x48, "Ctrl+Alt+Shift+H"));
+        OcrHotKey = RegisterFirst("截图识字", () => _ = coordinator.CaptureTextAsync(), (HotKeys.MOD_WIN | HotKeys.MOD_ALT, 0x4F, "Win+Alt+O"),
+            (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x4F, "Ctrl+Alt+Shift+O"));
+        PinHotKey = RegisterFirst("截图贴图", () => _ = coordinator.CapturePinAsync(), (HotKeys.MOD_WIN | HotKeys.MOD_ALT, 0x50, "Win+Alt+P"),
+            (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x50, "Ctrl+Alt+Shift+P"));
         tray = new TrayIcon(this);
         ListenForSecondInstance();
         Updater.Changed += OnUpdaterChanged;
@@ -113,8 +108,22 @@ internal sealed class App : Application
         }
     }
 
-    /// 剪贴板历史实际生效的快捷键；都注册不上时为 null
+    /// 实际生效的快捷键；都注册不上时为 null
     public string? HistoryHotKey { get; private set; }
+    public string? OcrHotKey { get; private set; }
+    public string? PinHotKey { get; private set; }
+
+    /// 依次尝试注册，返回注册上的那一个
+    private string? RegisterFirst(string title, Action handler, params (uint Modifiers, uint Key, string Name)[] candidates)
+    {
+        foreach (var (modifiers, key, name) in candidates)
+            if (hotKeys!.Register(modifiers, key, $"{name}（{title}）", handler)) return name;
+        return null;
+    }
+
+    public void CaptureText() => _ = coordinator?.CaptureTextAsync();
+
+    public void CapturePin() => _ = coordinator?.CapturePinAsync();
 
     public void ShowClipboardHistory() => coordinator?.ShowHistory();
 

@@ -53,6 +53,29 @@ namespace PopCi {
 }
 [PopCi.Native]::SetProcessDPIAware() | Out-Null
 
+function Invoke-LeftDown { [PopCi.Native]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero) }
+function Invoke-LeftUp { [PopCi.Native]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero) }
+
+# 按下 Win+Alt+某个键
+function Invoke-WinAlt([byte]$vk) {
+    [PopCi.Native]::keybd_event(0x5B, 0, 0, [UIntPtr]::Zero)
+    [PopCi.Native]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+    Invoke-Key $vk
+    [PopCi.Native]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+    [PopCi.Native]::keybd_event(0x5B, 0, 2, [UIntPtr]::Zero)
+}
+
+# 按住左键从 (x1, y1) 拖到 (x2, y2)
+function Invoke-LeftDrag([int]$X1, [int]$Y1, [int]$X2, [int]$Y2) {
+    [PopCi.Native]::SetCursorPos($X1, $Y1) | Out-Null
+    Start-Sleep -Milliseconds 100
+    Move-Pointer $X1 $Y1 $X1 $Y1 1
+    Invoke-LeftDown
+    Move-Pointer $X1 $Y1 $X2 $Y2 15
+    Start-Sleep -Milliseconds 150
+    Invoke-LeftUp
+}
+
 function Invoke-RightDown { [PopCi.Native]::mouse_event(0x0008, 0, 0, 0, [UIntPtr]::Zero) }
 function Invoke-RightUp { [PopCi.Native]::mouse_event(0x0010, 0, 0, 0, [UIntPtr]::Zero) }
 

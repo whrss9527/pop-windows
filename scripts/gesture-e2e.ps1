@@ -209,6 +209,44 @@ try {
     if ($text.Trim() -ne 'second item') { throw "从剪贴板历史粘贴后记事本里是「$text」" }
     Write-Host '✓ 剪贴板历史：记录、快捷键打开、搜索、粘贴'
 
+    # 5d. 截图识字：记事本里放大一行字，Win+Alt+O 框选这一行，识别出的文字要对
+    Set-NotepadText 'POP OCR TEST 2026'
+    Invoke-Key 0x23 -Ctrl                                     # Ctrl+End 取消选中
+    for ($i = 0; $i -lt 10; $i++) { Invoke-Key 0xBB -Ctrl }   # Ctrl+= 放大
+    Start-Sleep -Milliseconds 500
+    $r = New-Object PopCi.Native+RECT
+    [PopCi.Native]::GetWindowRect($notepad.MainWindowHandle, [ref]$r) | Out-Null
+    Invoke-WinAlt 0x4F                                        # Win+Alt+O
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '框选区域：\d+ 个显示器' 10 | Out-Null
+    Start-Sleep -Milliseconds 500
+    Invoke-LeftDrag ($r.Left + 4) ($r.Top + 52) ($r.Left + 640) ($r.Top + 130)
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '识别文字：' 20 | Out-Null
+    Start-Sleep -Milliseconds 500
+    Save-Screenshot (Join-Path $OutDir 'ocr-card.png')
+    $log = Get-PopLog
+    if ($log -notmatch '识别文字：识别出 \d+ 个字符，内容「[^」]*POP\s*OCR\s*TEST') { throw "截图识字没识别出来：`n$(($log -split "`n" | Select-String '识别文字|框选|文字识别') -join "`n")" }
+    Invoke-Key 0x1B
+    Write-Host '✓ 截图识字'
+
+    # 5e. 截图贴图：Win+Alt+P 框选一块区域，贴在最前面
+    Invoke-WinAlt 0x50                                        # Win+Alt+P
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '(?s)框选区域：\d+ 个显示器.*框选区域：\d+ 个显示器' 10 | Out-Null
+    Start-Sleep -Milliseconds 500
+    Invoke-LeftDrag ($r.Left + 4) ($r.Top + 52) ($r.Left + 400) ($r.Top + 200)
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '贴图：\d+×\d+，现在有 1 张' 10 | Out-Null
+    [PopCi.Native]::SetCursorPos($r.Left + 700, $r.Top + 400) | Out-Null
+    Start-Sleep -Milliseconds 500
+    Save-Screenshot (Join-Path $OutDir 'pin.png')
+    # 双击贴图关掉，不挡后面的测试
+    [PopCi.Native]::SetCursorPos($r.Left + 150, $r.Top + 120) | Out-Null
+    Start-Sleep -Milliseconds 100
+    Move-Pointer ($r.Left + 150) ($r.Top + 120) ($r.Left + 150) ($r.Top + 120) 1
+    Invoke-LeftDown; Invoke-LeftUp; Start-Sleep -Milliseconds 60; Invoke-LeftDown; Invoke-LeftUp
+    Start-Sleep -Milliseconds 300
+    for ($i = 0; $i -lt 10; $i++) { Invoke-Key 0xBD -Ctrl }   # Ctrl+- 缩回去
+    Invoke-Key 0x30 -Ctrl                                     # Ctrl+0
+    Write-Host '✓ 截图贴图'
+
     # 6. 浏览器：Chrome 和 Edge 里选中网页文字，长按 → 往上划「复制」
     $browsers = @(
         @{ Name = 'chrome'; Paths = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") },

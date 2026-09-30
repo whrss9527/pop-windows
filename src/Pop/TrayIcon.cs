@@ -90,6 +90,18 @@ internal sealed class TrayIcon : IDisposable
         var historyItem = new Forms.ToolStripMenuItem("剪贴板历史") { ShortcutKeyDisplayString = app.HistoryHotKey };
         historyItem.Click += (_, _) => app.ShowClipboardHistory();
         menu.Items.Add(historyItem);
+        var ocr = new Forms.ToolStripMenuItem("截图识字") { ShortcutKeyDisplayString = app.OcrHotKey };
+        ocr.Click += (_, _) => app.CaptureText();
+        menu.Items.Add(ocr);
+        var pin = new Forms.ToolStripMenuItem("截图贴图") { ShortcutKeyDisplayString = app.PinHotKey };
+        pin.Click += (_, _) => app.CapturePin();
+        menu.Items.Add(pin);
+        if (PinWindow.Count > 0)
+        {
+            var closePins = new Forms.ToolStripMenuItem($"关闭所有贴图（{PinWindow.Count}）");
+            closePins.Click += (_, _) => PinWindow.CloseAll();
+            menu.Items.Add(closePins);
+        }
         var historyMenu = new Forms.ToolStripMenuItem("剪贴板历史设置");
         var record = new Forms.ToolStripMenuItem("记录剪贴板历史") { Checked = settings.ClipboardHistory };
         record.Click += (_, _) => app.UpdateSettings(s => s.ClipboardHistory = !s.ClipboardHistory);
