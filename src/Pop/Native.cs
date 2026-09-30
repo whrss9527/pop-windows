@@ -153,6 +153,18 @@ internal static unsafe class Native
     [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
 
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindow(IntPtr hWnd);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
@@ -235,6 +247,25 @@ internal static unsafe class Native
 
     [DllImport("kernel32.dll")]
     public static extern UIntPtr GlobalSize(IntPtr hMem);
+
+    /// 把自己的窗口切到前台。后台进程直接调用 SetForegroundWindow 会被系统拒绝，
+    /// 先临时把输入队列挂到当前前台窗口的线程上再切
+    public static void ForceForeground(IntPtr hwnd)
+    {
+        var foreground = GetForegroundWindow();
+        var foregroundThread = GetWindowThreadProcessId(foreground, out _);
+        var current = GetCurrentThreadId();
+        var attached = foregroundThread != 0 && foregroundThread != current && AttachThreadInput(current, foregroundThread, true);
+        try
+        {
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+        }
+        finally
+        {
+            if (attached) AttachThreadInput(current, foregroundThread, false);
+        }
+    }
 
     public static string WindowClass(IntPtr hwnd)
     {

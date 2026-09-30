@@ -26,9 +26,8 @@ internal sealed class RingWindow : OverlayWindow
     private readonly RotateTransform highlightRotation = new(0, Center, Center);
     private readonly TextBlock status = new();
     private readonly List<(TextBlock Glyph, TextBlock Title)> labels = [];
-    private IReadOnlyList<RingItem> items = [];
-    private string? selection;
-    private bool selectionKnown;
+    private IReadOnlyList<PopAction> items = [];
+    private ClassifiedContent? content;
     private int? highlighted;
     private double highlightAngle;
     private Theme theme = Theme.Current();
@@ -43,16 +42,15 @@ internal sealed class RingWindow : OverlayWindow
         Content = root;
     }
 
-    public IReadOnlyList<RingItem> Items => items;
+    public IReadOnlyList<PopAction> Items => items;
 
     /// 物理像素下的缩放比例（显示时所在显示器）
     public double Scale { get; private set; } = 1;
 
-    public void ShowAt(int x, int y, IReadOnlyList<RingItem> ringItems)
+    public void ShowAt(int x, int y, IReadOnlyList<PopAction> ringItems)
     {
         items = ringItems;
-        selection = null;
-        selectionKnown = false;
+        content = null;
         highlighted = null;
         theme = Theme.Current();
         Build();
@@ -87,10 +85,9 @@ internal sealed class RingWindow : OverlayWindow
     }
 
     /// 选中的内容读到了：更新中间的预览，读不到文字的格子变灰；链接之类的内容会换掉某些格子
-    public void SetContent(ClassifiedContent content, IReadOnlyList<RingItem> ringItems)
+    public void SetContent(ClassifiedContent selected, IReadOnlyList<PopAction> ringItems)
     {
-        selection = content.Text;
-        selectionKnown = true;
+        content = selected;
         if (!ReferenceEquals(ringItems, items) && !ringItems.SequenceEqual(items))
         {
             items = ringItems;
@@ -99,8 +96,8 @@ internal sealed class RingWindow : OverlayWindow
             Build();
             Highlight(keep);
         }
-        status.Text = content.IsEmpty ? "没有选中文字" : CenterText(content);
-        status.Foreground = new SolidColorBrush(content.IsEmpty ? theme.SecondaryText : theme.Text);
+        status.Text = selected.IsEmpty ? "没有选中文字" : CenterText(selected);
+        status.Foreground = new SolidColorBrush(selected.IsEmpty ? theme.SecondaryText : theme.Text);
         RefreshLabels();
     }
 
@@ -116,7 +113,7 @@ internal sealed class RingWindow : OverlayWindow
         highlighted = index;
         if (index is { } i)
         {
-            var available = !selectionKnown || RingItems.IsAvailable(items[i], selection);
+            var available = content is null || items[i].IsAvailable(content);
             highlight.Fill = new SolidColorBrush(available ? theme.Accent : theme.SecondaryText);
             var target = RingGeometry.NextHighlightAngle(highlightAngle, i, items.Count);
             if (highlight.Opacity < 0.01)
@@ -236,7 +233,7 @@ internal sealed class RingWindow : OverlayWindow
     {
         for (var i = 0; i < labels.Count; i++)
         {
-            var available = !selectionKnown || RingItems.IsAvailable(items[i], selection);
+            var available = content is null || items[i].IsAvailable(content);
             var color = i == highlighted ? theme.AccentText : available ? theme.Text : theme.DisabledText;
             var brush = new SolidColorBrush(color);
             labels[i].Glyph.Foreground = brush;

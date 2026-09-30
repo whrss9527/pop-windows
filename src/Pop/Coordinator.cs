@@ -22,6 +22,7 @@ internal sealed class Coordinator : IDisposable
     private readonly Paster paster;
     private readonly RingWindow ring = new();
     private readonly ResultCard card = new();
+    private readonly ActionListWindow actionList = new();
     private readonly Func<AppSettings> settings;
     private Session? session;
 
@@ -38,7 +39,9 @@ internal sealed class Coordinator : IDisposable
         public int X { get; } = x;
         public int Y { get; } = y;
         public Task<Selection> Selection { get; } = selection;
-        public IReadOnlyList<RingItem> Items { get; set; } = RingItems.Default;
+        /// 长按时的前台窗口（「全部功能」列表拿走焦点后要还给它）
+        public IntPtr Foreground { get; } = Native.GetForegroundWindow();
+        public IReadOnlyList<PopAction> Items { get; set; } = RingItems.Default;
         public bool RingShown { get; set; }
         /// 圆盘还没弹出来右键就松开了
         public bool ReleasedEarly { get; set; }
@@ -64,12 +67,21 @@ internal sealed class Coordinator : IDisposable
         card.CopyRequested += text => clipboard.SetText(text, temporary: false);
         card.ReplaceRequested += async text => await Replace(text);
         card.Dismissed += () => cardOpen = false;
+        actionList.Chosen += async (action, _) =>
+        {
+            if (lastList is not { } last) return;
+            // 等焦点回到原来的 App 再执行（替换原文要粘贴到那里）
+            await Task.Delay(120);
+            Log.Info($"执行 {action.Id}（全部功能）");
+            await Run(action, last.Content, last.X, last.Y);
+        };
     }
 
     public void Dispose()
     {
         ring.Close();
         card.Close();
+        actionList.Close();
         clipboard.Dispose();
     }
 
@@ -218,48 +230,63 @@ internal sealed class Coordinator : IDisposable
         // 还没读完的话等它读完（通常只差几十毫秒）
         var selection = await s.Selection;
         Log.Info($"执行 {item.Id}");
-        await Execute(item, ContentClassifier.Classify(selection.Text), s.X, s.Y);
+        await Execute(item, ContentClassifier.Classify(selection.Text), s.X, s.Y, s.Foreground);
     }
 
-    private async Task Execute(RingItem item, ClassifiedContent content, int x, int y)
+    private (ClassifiedContent Content, int X, int Y)? lastList;
+
+    private async Task Execute(PopAction action, ClassifiedContent content, int x, int y, IntPtr foreground)
     {
-        var text = content.Text;
-        if (!RingItems.IsAvailable(item, text))
+        if (action.Id == Actions.All.Id)
         {
-            ShowToast(x, y, "没有读到选中的文字");
+            Log.Info("打开全部功能");
+            lastList = (content, x, y);
+            actionList.ShowFor(content, x, y, foreground);
+            return;
+        }
+        await Run(action, content, x, y);
+    }
+
+    private async Task Run(PopAction action, ClassifiedContent content, int x, int y)
+    {
+        if (!action.IsAvailable(content))
+        {
+            ShowToast(x, y, content.IsEmpty ? "没有读到选中的文字" : "选中的内容用不了这个功能");
             return;
         }
         try
         {
-            switch (item.Id)
+            var result = action.Run(content);
+            switch (result?.Effect)
             {
-                case "copy":
-                    clipboard.SetText(text, temporary: false);
+                case null:
+                    ShowToast(x, y, "选中的内容用不了这个功能");
+                    break;
+                case ActionEffect.Card when result.Card is { } resultCard:
+                    ShowResult(x, y, resultCard);
+                    break;
+                case ActionEffect.Replace when result.Text is { } replacement:
+                    await Replace(replacement);
+                    break;
+                case ActionEffect.Copy when result.Text is { } copied:
+                    clipboard.SetText(copied, temporary: false);
                     ShowToast(x, y, "已复制");
                     break;
-                case "search":
-                    Open(TextActions.SearchUrl(text));
+                case ActionEffect.Open when result.Text is { } target:
+                    Open(target);
                     break;
-                case "open":
-                    Open(content.Url ?? content.Path ?? text);
+                case ActionEffect.Toast when result.Text is { } message:
+                    ShowToast(x, y, message);
                     break;
-                case "translate":
-                    Open(TextActions.TranslateUrl(text));
-                    break;
-                case "upper":
-                    await Replace(TextActions.ToUpper(text));
-                    break;
-                case "lower":
-                    await Replace(TextActions.ToLower(text));
-                    break;
-                case "count":
-                    ShowResult(x, y, CardContent.Text("字数统计", TextActions.Describe(TextActions.Count(text))));
+                case ActionEffect.ShowAll:
+                    lastList = (content, x, y);
+                    actionList.ShowFor(content, x, y, Native.GetForegroundWindow());
                     break;
             }
         }
         catch (Exception e)
         {
-            Log.Error($"执行 {item.Id} 失败", e);
+            Log.Error($"执行 {action.Id} 失败", e);
             ShowToast(x, y, "出错了，详情见日志");
         }
     }

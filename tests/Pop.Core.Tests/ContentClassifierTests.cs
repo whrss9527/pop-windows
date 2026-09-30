@@ -191,4 +191,65 @@ public class DirectResultsTests
         Assert.DoesNotContain(items, i => i.Id == "search");
         Assert.Same(RingItems.Default, RingItems.For(ContentClassifier.Classify("hello")));
     }
+
+    [Fact]
+    public void ActionsAvailabilityAndSearch()
+    {
+        var text = ContentClassifier.Classify("hello");
+        var math = ContentClassifier.Classify("1+2");
+        Assert.True(Actions.Copy.IsAvailable(text));
+        Assert.False(Actions.Copy.IsAvailable(ClassifiedContent.Empty));
+        Assert.True(Actions.All.IsAvailable(ClassifiedContent.Empty));
+        Assert.False(Actions.Calculate.IsAvailable(text));
+        Assert.True(Actions.Calculate.IsAvailable(math));
+        Assert.Equal("3", Actions.Calculate.Run(math)?.Card?.Replacement);
+
+        // 名称、拼音首字母、英文都能搜到
+        Assert.Contains(Actions.Filter("计算", math), a => a.Id == "calc");
+        Assert.Contains(Actions.Filter("js", math), a => a.Id == "calc");
+        Assert.Contains(Actions.Filter("CALC", math), a => a.Id == "calc");
+        Assert.Equal("calc", Actions.Filter("", math).First(a => a.IsAvailable(math) && a.Requires == ContentKind.Math).Id);
+        // 能用的排在前面
+        var all = Actions.Filter("", text);
+        var firstUnavailable = all.ToList().FindIndex(a => !a.IsAvailable(text));
+        Assert.True(firstUnavailable < 0 || all.Skip(firstUnavailable).All(a => !a.IsAvailable(text)));
+        Assert.Equal(all.Count, all.Select(a => a.Id).Distinct().Count());
+        Assert.Equal("all", RingItems.Default[5].Id);
+    }
+}
+
+public class TextToolActionsTests
+{
+    [Fact]
+    public void CodecCardStartsWithBase64ForPlainText()
+    {
+        var content = ContentClassifier.Classify("hello pop world");
+        var card = Actions.Codec.Run(content)?.Card;
+        Assert.NotNull(card);
+        Assert.Equal("aGVsbG8gcG9wIHdvcmxk", card.PrimaryText);
+        Assert.Contains(Actions.Filter("base64", content), a => a.Id == "codec");
+        Assert.Equal("codec", Actions.Filter("base64", content)[0].Id);
+    }
+
+    [Fact]
+    public void JsonCardReplacesWithPrettyText()
+    {
+        var content = ContentClassifier.Classify("""{"b":1,"a":[1,2]}""");
+        var card = Actions.Json.Run(content)?.Card;
+        Assert.NotNull(card);
+        Assert.StartsWith("{\n  \"b\": 1", card.Replacement);
+        Assert.False(Actions.Json.IsAvailable(ContentClassifier.Classify("hello")));
+    }
+
+    [Fact]
+    public void ToolsOnlyShowUpWhenUseful()
+    {
+        var word = ContentClassifier.Classify("hello");
+        Assert.False(Actions.LineTool.IsAvailable(word));
+        Assert.True(Actions.LineTool.IsAvailable(ContentClassifier.Classify("a\nb\nc")));
+        Assert.True(Actions.Random.IsAvailable(ClassifiedContent.Empty));
+        Assert.NotNull(Actions.Hash.Run(word)?.Card);
+        Assert.Equal(Actions.List.Count, Actions.List.Select(a => a.Id).Distinct().Count());
+        Assert.All(Actions.List, a => Assert.Equal(a, Actions.Find(a.Id)));
+    }
 }
