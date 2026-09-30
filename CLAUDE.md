@@ -25,7 +25,7 @@
 ## 界面
 
 - 配色、字号、圆角都在 `Theme.cs`，浮窗（圆盘、卡片、列表、托盘面板）用它；设置窗口用 WPF-UI 的主题资源（`SetResourceReference` 引用 `TextFillColorPrimaryBrush`、`CardBackgroundFillColorDefaultBrush` 这些键），跟着深浅色自动变。
-- 毛玻璃在 `Frost.cs`：浮窗是透明的分层窗口，用不了系统的亚克力，弹出前截下后面那块屏幕，缩小到四分之一用 `FastBlur`（三次方框模糊，近似高斯）模糊好当底。别换回 WPF 的 `BlurEffect`：没有显卡加速时（CI、虚拟机、远程桌面）它每一帧都在 CPU 上模糊整张图，显示一张卡片界面线程要等几百毫秒。
+- 毛玻璃在 `Frost.cs`：浮窗是透明的分层窗口，用不了系统的亚克力，弹出前截下后面那块屏幕模糊当底。
 - 图标用 WPF-UI 带的 Fluent System Icons（`Icons.Make`，名字是 `SymbolRegular` 的枚举名，比如 `Copy24`）；功能的图标名写在 `Pop.Core` 里。`SymbolIcon` 只显示得了 0xFFFF 以内的码位，枚举里有两千多个比这大（比如 `Calendar24`、`LinkMultiple24`），会显示成别的字；`Icons.Parse` 把它们当作找不到，选图标时先看枚举值。
 - 字体：`Theme.TextFont` 先用 Segoe UI Variable / Segoe UI 显示西文，中文落到随包带的 Noto Sans CJK SC（`src/Pop/Assets/Fonts`，常用字子集，Regular 和 Medium 两个字重，`scripts/make-fonts.py` 生成），子集里没有的字再用微软雅黑。强调用 `FontWeights.Medium` 或 `SemiBold`，别用 `Bold`：中文只带到 Medium，Bold 会被系统加粗得发糊。
 - 不要调用 WPF-UI 的 `ApplicationThemeManager.Apply` 而不先换掉 `Application.MainWindow`：它会改主窗口的窗口样式，而主窗口默认是第一个创建的浮窗。`App.ApplyAppearance` 里已经处理好了。
