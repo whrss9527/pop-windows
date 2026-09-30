@@ -86,15 +86,29 @@ internal sealed class RingWindow : OverlayWindow
         FadeOutAndHide(root, 110);
     }
 
-    /// 选中的内容读到了：更新中间的预览，读不到文字的格子变灰
-    public void SetSelection(string? text)
+    /// 选中的内容读到了：更新中间的预览，读不到文字的格子变灰；链接之类的内容会换掉某些格子
+    public void SetContent(ClassifiedContent content, IReadOnlyList<RingItem> ringItems)
     {
-        selection = text;
+        selection = content.Text;
         selectionKnown = true;
-        status.Text = string.IsNullOrEmpty(text) ? "没有选中文字" : Preview(text);
-        status.Foreground = new SolidColorBrush(string.IsNullOrEmpty(text) ? theme.SecondaryText : theme.Text);
+        if (!ReferenceEquals(ringItems, items) && !ringItems.SequenceEqual(items))
+        {
+            items = ringItems;
+            var keep = highlighted;
+            highlighted = null;
+            Build();
+            Highlight(keep);
+        }
+        status.Text = content.IsEmpty ? "没有选中文字" : CenterText(content);
+        status.Foreground = new SolidColorBrush(content.IsEmpty ? theme.SecondaryText : theme.Text);
         RefreshLabels();
     }
+
+    /// 普通文字显示开头一段，链接、算式这些显示类型
+    private static string CenterText(ClassifiedContent content) =>
+        content.Kinds is ContentKind.Text or (ContentKind.Text | ContentKind.ChineseText) or (ContentKind.Text | ContentKind.ForeignText)
+            ? Preview(content.Text)
+            : content.Summary;
 
     public void Highlight(int? index)
     {

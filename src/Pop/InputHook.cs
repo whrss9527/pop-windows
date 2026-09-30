@@ -18,6 +18,11 @@ internal sealed class InputHook : IDisposable
     private Timer? holdTimer;
     private volatile bool enabled = true;
 
+    // 补发右键的请求：在钩子回调返回之后、由钩子线程的消息循环发出，保证被扣下的那个事件先处理完
+    private const uint WM_REPLAY = 0x8001; // WM_APP + 1
+    private const int ReplayDownKind = 1;
+    private const int ReplayClickKind = 2;
+
     /// 长按成立，参数是按下的位置（物理像素）。在计时器线程上调用
     public event Action<int, int>? Triggered;
     /// 长按成立后指针移动。在钩子线程上调用
@@ -70,6 +75,9 @@ internal sealed class InputHook : IDisposable
             ready.Set();
             while (GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
             {
+                if (msg.message != WM_REPLAY) continue;
+                if ((int)msg.wParam == ReplayDownKind) InputInjector.RightDown();
+                else if ((int)msg.wParam == ReplayClickKind) InputInjector.RightClick();
             }
             if (mouseHook != IntPtr.Zero) UnhookWindowsHookEx(mouseHook);
             if (keyboardHook != IntPtr.Zero) UnhookWindowsHookEx(keyboardHook);
@@ -130,10 +138,10 @@ internal sealed class InputHook : IDisposable
                     StartHoldTimer(tracker.Token, x, y);
                     break;
                 case PressAction.ReplayDown:
-                    InputInjector.RightDown();
+                    PostThreadMessage(threadId, WM_REPLAY, ReplayDownKind, IntPtr.Zero);
                     break;
                 case PressAction.ReplayClick:
-                    InputInjector.RightClick();
+                    PostThreadMessage(threadId, WM_REPLAY, ReplayClickKind, IntPtr.Zero);
                     break;
                 case PressAction.Moved:
                     Moved?.Invoke(x, y);

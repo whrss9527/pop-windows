@@ -117,14 +117,51 @@ try {
     Invoke-RightDown
     Start-Sleep -Milliseconds 60
     Invoke-RightUp
-    Start-Sleep -Milliseconds 800
+    $menu = [IntPtr]::Zero
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Milliseconds 100
+        $menu = [PopCi.Native]::FindWindow('#32768', $null)
+        if ($menu -ne [IntPtr]::Zero -and [PopCi.Native]::IsWindowVisible($menu)) { break }
+    }
     Save-Screenshot (Join-Path $OutDir 'short-click-menu.png')
-    $menu = [PopCi.Native]::FindWindow('#32768', $null)
     if ($menu -eq [IntPtr]::Zero -or -not [PopCi.Native]::IsWindowVisible($menu)) { throw '短按右键没有弹出右键菜单' }
     Invoke-Key 0x1B
     Write-Host '✓ 短按右键弹出系统菜单'
 
-    # 5. 浏览器：Chrome 和 Edge 里选中网页文字，长按 → 往上划「复制」
+    # 5. 直达结果：选中算式、带单位的数值，长按直接弹出结果卡片（不出圆盘）；回车复制结果
+    function Set-NotepadText([string]$Text) {
+        Set-Foreground $notepad.MainWindowHandle
+        Set-Clipboard -Value $Text
+        Invoke-Key 0x41 -Ctrl   # Ctrl+A
+        Invoke-Key 0x56 -Ctrl   # Ctrl+V
+        Start-Sleep -Milliseconds 200
+        Invoke-Key 0x41 -Ctrl
+        Start-Sleep -Milliseconds 200
+    }
+    Set-NotepadText '128*3'
+    Invoke-LongPress 0 0 'direct-math'
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '直达结果：计算' 10 | Out-Null
+    Save-Screenshot (Join-Path $OutDir 'direct-math-card.png')
+    Set-Clipboard -Value 'before'
+    Invoke-Key 0x0D   # 回车：复制结果
+    Start-Sleep -Milliseconds 300
+    $clip = (Get-Clipboard -Raw).Trim()
+    if ($clip -ne '384') { throw "回车复制的计算结果是「$clip」" }
+    Write-Host '✓ 选中算式直接出结果，回车复制'
+
+    Set-NotepadText '5 km'
+    Invoke-LongPress 0 0 'direct-unit'
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '直达结果：单位换算' 10 | Out-Null
+    Save-Screenshot (Join-Path $OutDir 'direct-unit-card.png')
+    Invoke-Key 0x1B
+    Set-NotepadText '#FF8800'
+    Invoke-LongPress 0 0 'direct-color'
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '直达结果：颜色' 10 | Out-Null
+    Save-Screenshot (Join-Path $OutDir 'direct-color-card.png')
+    Invoke-Key 0x1B
+    Write-Host '✓ 带单位的数值、颜色直接出结果'
+
+    # 6. 浏览器：Chrome 和 Edge 里选中网页文字，长按 → 往上划「复制」
     $browsers = @(
         @{ Name = 'chrome'; Paths = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") },
         @{ Name = 'msedge'; Paths = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") }
@@ -162,10 +199,11 @@ try {
         Write-Host "✓ $name 里读取选中文字并复制"
     }
 
-    # 6. 深色外观下的圆盘截图
+    # 7. 深色外观下的圆盘截图（换回普通文字，不然会直接出结果卡片）
     Stop-Process -Id $pop.Id -Force
     Start-Sleep -Seconds 1
     $pop = Start-Pop @{ POP_APPEARANCE = 'dark' }
+    Set-NotepadText 'hello pop world'
     Select-AllInNotepad
     Invoke-LongPress 110 (-64) 'dark' -BackToCenter
     Write-Host '✓ 深色外观截图'
