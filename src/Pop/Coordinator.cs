@@ -102,6 +102,14 @@ internal sealed class Coordinator : IDisposable
         };
     }
 
+    /// 启动后界面空闲时调用：先把第一次显示卡片要载入的东西载入好
+    public void WarmUp()
+    {
+        var watch = Stopwatch.StartNew();
+        card.WarmUp();
+        Log.Info($"卡片准备好了，用时 {watch.ElapsedMilliseconds} ms");
+    }
+
     public void Dispose()
     {
         ring.Close();

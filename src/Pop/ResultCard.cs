@@ -88,6 +88,20 @@ internal sealed class ResultCard : OverlayWindow
         autoClose.Start();
     }
 
+    /// 第一次显示卡片要载入 WPF-UI 按钮、滚动区域的样式和模板，要半秒左右，这期间长按、松开都在排队。
+    /// 启动后界面空闲时先在这个（还没显示的）窗口里搭一张卡片、量一下尺寸，把它们载入好
+    public void WarmUp()
+    {
+        if (IsVisible) return;
+        var theme = Theme.Current();
+        var sample = new CardContent("字数", [new ResultLine("字符", "15"), new ResultLine("单词", "3")],
+            Replacement: "HELLO POP WORLD", Caption: "示例", Links: [new CardLink("在浏览器中打开", "https://example.com")], Icon: "Copy24");
+        root.Children.Add(Frost.Panel(null, 0, 0, MinCardWidth, 160, Theme.OverlayRadius, theme, Card(sample, theme)));
+        root.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        root.Arrange(new System.Windows.Rect(root.DesiredSize));
+        root.Children.Clear();
+    }
+
     public void Dismiss()
     {
         if (!IsVisible) return;

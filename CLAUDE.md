@@ -32,4 +32,4 @@
 - 自定义插件的核心在 `src/Pop.Core/Plugins`（格式、模板、匹配、运行、文件夹），文件格式要和 macOS 版逐字节一致（有测试对比）；界面在 `SettingsWindow` 的「我的插件」和 `PluginEditorWindow`。插件的 PopAction 由 `Actions.SetPlugins` 放进 `Actions.List`，判断内置功能的 ID 用 `Actions.IsBuiltIn`，不要用 `Actions.Find`（它也找得到插件）。改到 `Actions` 的全局插件列表的测试放在 `Actions registry` 这个不并行的测试集合里。
 - 长按手势测试把 `directKinds` 里的 `foreign` 去掉了（选中英文默认直接翻译，不弹圆盘），要测直接翻译得另外改设置。
 - 替换原文（`Paster`）用「延迟提供」把文字放进剪贴板，剪贴板的主人是单独线程上的窗口：目标 App 来读时才给文字，读走以后再恢复原来的剪贴板，日志里记「粘贴完成：目标 App 过了 … ms 来读」。别改回固定等一段时间再恢复，反应慢的 App 会贴成原来的内容。
-- 界面线程被占住时，长按和松开会排队到一起处理，松开先到就当作没按（日志「圆盘弹出前就松开了」）；弹出圆盘、显示卡片超过 200 ms 会记日志。发布时 `Pop`、`Pop.Core`、WPF-UI 预先编译（ReadyToRun，不用 composite，否则整个运行时一起重编大 20 MB）。
+- 界面线程被占住时，长按和松开会排队到一起处理，松开先到就当作没按（日志「圆盘弹出前就松开了」）；弹出圆盘、显示卡片超过 200 ms 会记日志；卡片第一次显示要载入 WPF-UI 的按钮模板（半秒左右），启动后界面空闲时 `ResultCard.WarmUp` 先载入好。发布时 `Pop`、`Pop.Core`、WPF-UI 预先编译（ReadyToRun，不用 composite，否则整个运行时一起重编大 20 MB）。

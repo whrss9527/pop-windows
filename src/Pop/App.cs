@@ -96,6 +96,7 @@ internal sealed class App : Application
         if (!System.IO.File.Exists(Paths.Settings)) SaveSettings();
 
         if (options.ShowSettings) ShowSettings();
+        if (!SmokeTest.ExitAfterStart) _ = Dispatcher.BeginInvoke(() => coordinator.WarmUp(), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         SmokeTest.Report($"started version={Updater.CurrentVersion} hooks={(hook.IsInstalled ? "ok" : "failed")} updated-from={options.UpdatedFrom ?? "-"}");
         if (SmokeTest.ExitAfterStart) Quit();
     }
