@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 和系统无关的逻辑：长按判定、圆盘几何、版本和发布信息、校验和。单元测试在任何系统上都能跑 -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Pop.Core</RootNamespace>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,99 @@
+name: Release
+
+# 打包并发布到 GitHub Releases。正式版由 CI 在 main 上自动调用；
+# 想先给少数人试用时，在 Actions 页面手动运行，勾选「作为测试版」。
+on:
+  workflow_call:
+    inputs:
+      beta:
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      beta:
+        description: 作为测试版
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Version
+        id: v
+        run: |
+          $base = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $version = if ('${{ inputs.beta }}' -eq 'true') { "$base-beta.${{ github.run_number }}" } else { $base }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "base=$base" >> $env:GITHUB_OUTPUT
+          Write-Host "发布 $version"
+
+      - name: Unit tests
+        run: dotnet test tests/Pop.Core.Tests -c Release
+
+      - name: Publish
+        run: dotnet publish src/Pop -c Release -p:Version=${{ steps.v.outputs.version }} -o out/publish
+
+      - name: Package
+        run: |
+          $version = '${{ steps.v.outputs.version }}'
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $zip = "dist/Pop-$version-win-x64.zip"
+          Compress-Archive -Path out/publish/Pop.exe -DestinationPath $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("dist/SHA256SUMS.txt", "$hash  Pop-$version-win-x64.zip`n")
+          Get-Content dist/SHA256SUMS.txt
+
+      - name: Release notes
+        run: |
+          $base = '${{ steps.v.outputs.base }}'
+          $lines = Get-Content CHANGELOG.md -Encoding UTF8
+          $start = ($lines | Select-String -Pattern "^## $([regex]::Escape($base))（" | Select-Object -First 1).LineNumber
+          $section = @()
+          if ($start) {
+            foreach ($line in $lines[$start..($lines.Length - 1)]) {
+              if ($line -match '^## ') { break }
+              $section += $line
+            }
+          }
+          $notes = @()
+          if ('${{ inputs.beta }}' -eq 'true') { $notes += '> 测试版：只有在 Pop 菜单里打开「接收测试版」的用户才会收到更新提示。'; $notes += '' }
+          $notes += $section
+          $notes += @(
+            '',
+            '## 安装',
+            '',
+            '1. 下载下面的 `Pop-${{ steps.v.outputs.version }}-win-x64.zip`，解压出 `Pop.exe`；',
+            '2. 放到一个自己的文件夹里，例如 `%LOCALAPPDATA%\Programs\Pop`（一键更新需要能写入这个文件夹，不要放在 Program Files 里）；',
+            '3. 双击运行。安装包还没有代码签名，第一次运行时 Windows 可能提示「已保护你的电脑」，点「更多信息」→「仍要运行」。',
+            '',
+            '已经装了旧版本的话，点任务栏右下角的 Pop 图标，选「更新到 ${{ steps.v.outputs.version }}」即可。'
+          )
+          $notes -join "`n" | Set-Content dist/notes.md -Encoding UTF8
+          Get-Content dist/notes.md
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = '${{ steps.v.outputs.version }}'
+          $flags = @()
+          if ('${{ inputs.beta }}' -eq 'true') { $flags += '--prerelease' } else { $flags += '--latest' }
+          gh release create "v$version" "dist/Pop-$version-win-x64.zip" dist/SHA256SUMS.txt `
+            --title "Pop $version" --notes-file dist/notes.md --target $env:GITHUB_SHA @flags
