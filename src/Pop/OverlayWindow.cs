@@ -11,8 +11,7 @@ namespace Pop;
 internal abstract class OverlayWindow : Window
 {
     /// 动画放慢的倍数，截图时用（POP_ANIMATION_SCALE=6）
-    protected static readonly double AnimationScale =
-        double.TryParse(Environment.GetEnvironmentVariable("POP_ANIMATION_SCALE"), out var s) && s > 0 ? s : 1;
+    protected static readonly double AnimationScale = Motion.Scale;
 
     protected OverlayWindow(bool clickThrough)
     {
@@ -26,7 +25,8 @@ internal abstract class OverlayWindow : Window
         Focusable = false;
         SnapsToDevicePixels = true;
         UseLayoutRounding = true;
-        TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+        FontFamily = Theme.TextFont;
+        Theme.ApplyTextOptions(this);
 
         var hwnd = new WindowInteropHelper(this).EnsureHandle();
         AddExStyle(hwnd, WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | (clickThrough ? WS_EX_TRANSPARENT : 0));
@@ -34,7 +34,7 @@ internal abstract class OverlayWindow : Window
 
     protected IntPtr Handle => new WindowInteropHelper(this).Handle;
 
-    protected static Duration Ms(double milliseconds) => new(TimeSpan.FromMilliseconds(milliseconds * AnimationScale));
+    protected static Duration Ms(double milliseconds) => Motion.Ms(milliseconds);
 
     /// 窗口左上角放到物理像素 (x, y)，大小也是物理像素
     protected void PlacePhysical(int x, int y, int width, int height) =>

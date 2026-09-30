@@ -276,12 +276,20 @@ internal static unsafe class Native
     /// 某个点所在显示器的工作区（物理像素）和缩放比例
     public static (Pop.Core.Rect WorkArea, double Scale) MonitorAt(int x, int y)
     {
+        var (_, work, scale) = MonitorDetailsAt(x, y);
+        return (work, scale);
+    }
+
+    /// 某个点所在显示器的整个区域、工作区（去掉任务栏，物理像素）和缩放比例
+    public static (Pop.Core.Rect Bounds, Pop.Core.Rect WorkArea, double Scale) MonitorDetailsAt(int x, int y)
+    {
         var monitor = MonitorFromPoint(new POINT { X = x, Y = y }, MONITOR_DEFAULTTONEAREST);
         var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
         GetMonitorInfo(monitor, ref info);
         double scale = 1;
         if (GetDpiForMonitor(monitor, 0, out var dpiX, out _) == 0 && dpiX > 0) scale = dpiX / 96.0;
         var w = info.rcWork;
-        return (new Pop.Core.Rect(w.Left, w.Top, w.Right, w.Bottom), scale);
+        var m = info.rcMonitor;
+        return (new Pop.Core.Rect(m.Left, m.Top, m.Right, m.Bottom), new Pop.Core.Rect(w.Left, w.Top, w.Right, w.Bottom), scale);
     }
 }

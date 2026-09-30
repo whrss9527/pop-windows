@@ -21,6 +21,21 @@ public sealed class AppSettings
     /// 直接出结果的内容类型：math、measurement、color、timestamp、datetime、number
     public List<string> DirectKinds { get; set; } = [.. Pop.Core.DirectResults.DefaultKindNames];
 
+    /// 停用的功能（ID）：不出现在圆盘和「全部功能」里，也不直接出结果
+    public List<string> DisabledActions { get; set; } = [];
+
+    /// 翻译服务
+    public TranslationEngine TranslationEngine { get; set; } = TranslationEngine.Bing;
+
+    /// 翻译成哪种语言；auto 表示中文翻成英语、其他翻成简体中文
+    public string TranslateTarget { get; set; } = "auto";
+
+    /// Microsoft Translator 的区域（Key 存在 Windows 的凭据里，不在这个文件里）
+    public string AzureTranslatorRegion { get; set; } = "";
+
+    /// 功能是不是启用了
+    public bool IsEnabled(string actionId) => !DisabledActions.Contains(actionId, StringComparer.OrdinalIgnoreCase);
+
     /// 记录剪贴板历史
     public bool ClipboardHistory { get; set; } = true;
 
@@ -48,6 +63,7 @@ public sealed class AppSettings
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
         NumberHandling = JsonNumberHandling.AllowReadingFromString,
+        Converters = { new JsonStringEnumConverter() },
     };
 
     public static AppSettings Load(string path)
@@ -106,6 +122,18 @@ public sealed class AppSettings
                     case "directkinds" when p.Value.ValueKind == JsonValueKind.Array:
                         settings.DirectKinds = Strings(p.Value).Where(k => Pop.Core.DirectResults.KindNamed(k) is not null).ToList();
                         break;
+                    case "disabledactions" when p.Value.ValueKind == JsonValueKind.Array:
+                        settings.DisabledActions = Strings(p.Value);
+                        break;
+                    case "translationengine" when p.Value.ValueKind == JsonValueKind.String && Enum.TryParse<TranslationEngine>(p.Value.GetString(), true, out var engine):
+                        settings.TranslationEngine = engine;
+                        break;
+                    case "translatetarget" when p.Value.ValueKind == JsonValueKind.String && p.Value.GetString()!.Trim().Length > 0:
+                        settings.TranslateTarget = p.Value.GetString()!.Trim();
+                        break;
+                    case "azuretranslatorregion" when p.Value.ValueKind == JsonValueKind.String:
+                        settings.AzureTranslatorRegion = p.Value.GetString()!.Trim();
+                        break;
                     case "checkforupdates" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False:
                         settings.CheckForUpdates = p.Value.GetBoolean();
                         break;
@@ -130,7 +158,11 @@ public sealed class AppSettings
 
     /// 直接出结果的内容类型（关掉「直接出结果」时为 None）
     public ContentKind DirectKindFlags =>
-        !DirectResults ? ContentKind.None : DirectKinds.Select(Pop.Core.DirectResults.KindNamed).Aggregate(ContentKind.None, (all, k) => all | (k ?? ContentKind.None));
+        !DirectResults ? ContentKind.None : DirectKinds
+            .Select(Pop.Core.DirectResults.KindNamed)
+            .OfType<ContentKind>()
+            .Where(k => IsEnabled(Pop.Core.DirectResults.ActionFor(k)))
+            .Aggregate(ContentKind.None, (all, k) => all | k);
 
     public string ToJson() => JsonSerializer.Serialize(this, Options);
 

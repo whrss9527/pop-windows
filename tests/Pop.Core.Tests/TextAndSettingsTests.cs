@@ -146,14 +146,19 @@ public class RingAndDirectSettingsTests
     [Fact]
     public void BuildsRingsFromIds()
     {
+        // 不认识的 ID 跳过，按设置的格子数用默认的功能补齐
         var ring = RingItems.Build(["copy", "unknown", "calc", "json", "all"]);
-        Assert.Equal(["copy", "calc", "json", "all"], ring.Select(a => a.Id));
-        Assert.Equal(RingItems.DefaultIds, RingItems.Build(["copy"]).Select(a => a.Id));
+        Assert.Equal(["copy", "calc", "json", "all", "search"], ring.Select(a => a.Id));
+        Assert.Equal(["copy", "search", "translate", "upper"], RingItems.Build(["copy"]).Select(a => a.Id));
+        // 停用的功能不上圆盘，「全部功能」一直在
+        var enabled = RingItems.Build(RingItems.DefaultIds, id => id is not ("search" or "all" or "upper"));
+        Assert.Equal(["copy", "translate", "count", "all", "open", "clipboard"], enabled.Select(a => a.Id));
         Assert.Contains(RingItems.Choices, a => a.Id == "all");
 
         var link = ContentClassifier.Classify("https://example.com");
         Assert.Contains(RingItems.For(ring, link), a => a.Id == "copy");
         var withSearch = RingItems.Build(["copy", "search", "open", "all"]);
+        Assert.Equal(4, withSearch.Count);
         // 圆盘上已经有「打开」时，「搜索」不换
         Assert.Equal(withSearch, RingItems.For(withSearch, link));
     }
@@ -164,5 +169,58 @@ public class RingAndDirectSettingsTests
         var number = ContentClassifier.Classify("0xFF");
         Assert.Null(DirectResults.For(number));
         Assert.Equal("数字", DirectResults.For(number, AppSettings.FromJson("""{"directKinds":["number"]}""").DirectKindFlags)?.Title);
+    }
+}
+
+public class FeatureSwitchTests
+{
+    [Fact]
+    public void DisabledActionsAreHiddenAndStopDirectResults()
+    {
+        var s = AppSettings.FromJson("""{"disabledActions":["calc","hash"],"translationEngine":"azure","translateTarget":"ja","azureTranslatorRegion":" eastasia "}""");
+        Assert.False(s.IsEnabled("calc"));
+        Assert.False(s.IsEnabled("HASH"));
+        Assert.True(s.IsEnabled("copy"));
+        Assert.Equal(TranslationEngine.Azure, s.TranslationEngine);
+        Assert.Equal("ja", s.TranslateTarget);
+        Assert.Equal("eastasia", s.AzureTranslatorRegion);
+        // 计算停用了，算式不再直接出结果
+        Assert.Equal(ContentKind.None, s.DirectKindFlags & ContentKind.Math);
+        Assert.NotEqual(ContentKind.None, s.DirectKindFlags & ContentKind.Measurement);
+
+        var content = ContentClassifier.Classify("hello");
+        var list = Actions.Filter("", content, s.IsEnabled);
+        Assert.DoesNotContain(list, a => a.Id is "calc" or "hash");
+        Assert.Contains(list, a => a.Id == "copy");
+
+        var round = AppSettings.FromJson(s.ToJson());
+        Assert.Equal(["calc", "hash"], round.DisabledActions);
+        Assert.Equal(TranslationEngine.Azure, round.TranslationEngine);
+        Assert.Contains("\"translationEngine\": \"Azure\"", s.ToJson());
+    }
+
+    [Fact]
+    public void ForeignTextTranslatesDirectlyByDefault()
+    {
+        var s = new AppSettings();
+        var foreign = ContentClassifier.Classify("How are you doing today?");
+        Assert.True(DirectResults.TranslatesDirectly(foreign, s.DirectKindFlags));
+        Assert.False(DirectResults.TranslatesDirectly(ContentClassifier.Classify("你好世界"), s.DirectKindFlags));
+        s.DisabledActions.Add("translate");
+        Assert.False(DirectResults.TranslatesDirectly(foreign, s.DirectKindFlags));
+        Assert.Equal(new TranslationEngine(), TranslationEngine.Bing);
+    }
+
+    [Fact]
+    public void EveryActionHasIconCategoryAndSummary()
+    {
+        foreach (var action in Actions.List.Append(Actions.All))
+        {
+            Assert.False(string.IsNullOrWhiteSpace(action.Glyph), action.Id);
+            Assert.Contains(action.Category, Actions.Categories);
+            Assert.False(string.IsNullOrWhiteSpace(action.Summary), action.Id);
+        }
+        Assert.False(Actions.CanDisable(Actions.All));
+        Assert.True(Actions.CanDisable(Actions.Copy));
     }
 }

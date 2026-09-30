@@ -78,6 +78,7 @@ internal sealed class Coordinator : IDisposable
         };
         hook.KeyFilter = FilterKey;
         card.CopyRequested += text => clipboard.SetText(text, temporary: false);
+        card.LinkRequested += Open;
         card.ReplaceRequested += async text => await Replace(text);
         card.Dismissed += () => cardOpen = false;
         actionList.Chosen += async action =>
@@ -113,6 +114,13 @@ internal sealed class Coordinator : IDisposable
         if (selection.IsCompleted)
         {
             var content = ContentClassifier.Classify(selection.Result.Text);
+            if (DirectResults.TranslatesDirectly(content, settings().DirectKindFlags))
+            {
+                s.Finished = true;
+                Log.Info("直达结果：翻译");
+                _ = TranslateAsync(content.Text, x, y);
+                return;
+            }
             if (DirectCard(content) is { } direct)
             {
                 s.Finished = true;
@@ -138,7 +146,7 @@ internal sealed class Coordinator : IDisposable
     private CardContent? DirectCard(ClassifiedContent content) =>
         DirectResults.For(content, settings().DirectKindFlags);
 
-    private IReadOnlyList<PopAction> Ring => RingItems.Build(settings().RingSlots);
+    private IReadOnlyList<PopAction> Ring => RingItems.Build(settings().RingSlots, settings().IsEnabled);
 
     private void ShowRing(Session s, ClassifiedContent? content)
     {
@@ -313,7 +321,7 @@ internal sealed class Coordinator : IDisposable
     {
         lastList = (content, x, y);
         CloseCard();
-        actionList.ShowFor(content, x, y);
+        actionList.ShowFor(content, x, y, settings().IsEnabled);
         listOpen = true;
     }
 
@@ -448,7 +456,7 @@ internal sealed class Coordinator : IDisposable
             if (vk is >= 0x31 and <= 0x39)
             {
                 var index = vk - 0x31;
-                dispatcher.BeginInvoke(() => historyWindow.ChooseAt(index));
+                dispatcher.BeginInvoke(() => historyWindow.ChooseNth(index));
                 return true;
             }
             if (vk == 0x50) // P
@@ -526,7 +534,8 @@ internal sealed class Coordinator : IDisposable
                     ShowToast(x, y, "选中的内容用不了这个功能");
                     break;
                 case ActionEffect.Card when result.Card is { } resultCard:
-                    ShowResult(x, y, resultCard);
+                    // 卡片没有自己的图标时用这个功能的图标
+                    ShowResult(x, y, resultCard.Icon is null && resultCard.Swatch is null ? resultCard with { Icon = action.Glyph } : resultCard);
                     break;
                 case ActionEffect.Replace when result.Text is { } replacement:
                     await Replace(replacement);
@@ -534,6 +543,9 @@ internal sealed class Coordinator : IDisposable
                 case ActionEffect.Copy when result.Text is { } copied:
                     clipboard.SetText(copied, temporary: false);
                     ShowToast(x, y, "已复制");
+                    break;
+                case ActionEffect.Translate when result.Text is { } source:
+                    await TranslateAsync(source, x, y);
                     break;
                 case ActionEffect.Open when result.Text is { } target:
                     Open(target);
@@ -560,6 +572,47 @@ internal sealed class Coordinator : IDisposable
             Log.Error($"执行 {action.Id} 失败", e);
             ShowToast(x, y, "出错了，详情见日志");
         }
+    }
+
+    private readonly System.Net.Http.HttpClient http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private Translator? translator;
+    private int translation;
+
+    /// 在卡片里翻译：先显示「正在翻译」，结果回来后原地换成译文
+    private async Task TranslateAsync(string text, int x, int y)
+    {
+        var s = settings();
+        var to = Languages.TargetFor(text, s.TranslateTarget);
+        if (s.TranslationEngine == TranslationEngine.Browser)
+        {
+            Open(Translator.BrowserUrl(text, to));
+            return;
+        }
+        var id = ++translation;
+        ShowResult(x, y, TranslationCards.Loading(text, to));
+        translator ??= new Translator(http);
+        var watch = Stopwatch.StartNew();
+        CardContent result;
+        try
+        {
+            var translated = await translator.TranslateAsync(text, to, s.TranslationEngine,
+                SecretStore.Get(SecretStore.AzureTranslatorKey), s.AzureTranslatorRegion);
+            Log.Info($"翻译完成：{translated.Provider}（{translated.Via}），{translated.From} → {translated.To}，{translated.Text.Length} 个字符，用时 {watch.ElapsedMilliseconds} ms{(LogSelection ? $"，译文「{Abbreviate(translated.Text)}」" : "")}");
+            result = TranslationCards.Result(text, translated);
+        }
+        catch (TranslationException e)
+        {
+            Log.Info($"翻译失败：{e.Message}{(e.InnerException is { } inner ? $"（{inner.GetType().Name}: {inner.Message}）" : "")}");
+            result = TranslationCards.Failed(text, to, e.Message);
+        }
+        catch (TaskCanceledException)
+        {
+            Log.Info("翻译失败：超时");
+            result = TranslationCards.Failed(text, to, "翻译服务没有响应，请稍后再试");
+        }
+        // 用户已经关掉了卡片或者又开始了别的操作
+        if (id != translation || !card.IsOpen) return;
+        ShowResult(x, y, result);
     }
 
     private void ShowResult(int x, int y, CardContent content)

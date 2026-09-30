@@ -12,6 +12,14 @@ $notepadFile = Join-Path $env:RUNNER_TEMP 'pop-gesture.txt'
 $pop = $null
 $notepad = $null
 
+# 选中外文默认直接翻译，不弹圆盘；这里的步骤大多要对英文用圆盘，所以测试时关掉外文直接翻译
+function Set-PopSettings([string]$Json) {
+    $dir = Join-Path $env:APPDATA 'Pop'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    Set-Content -Path (Join-Path $dir 'settings.json') -Value $Json -Encoding UTF8
+}
+$testSettings = '{ "directKinds": ["math", "measurement", "color", "timestamp"] }'
+
 function Start-Pop([hashtable]$ExtraEnv = @{}) {
     $marker = Join-Path $env:RUNNER_TEMP "pop-gesture-$([guid]::NewGuid().ToString('N')).txt"
     $env:POP_SMOKE_MARKER = $marker
@@ -78,6 +86,7 @@ function Invoke-LongPress([int]$Dx, [int]$Dy, [string]$Shot, [switch]$BackToCent
 
 try {
     Set-Content -Path $notepadFile -Value $sample -NoNewline -Encoding UTF8
+    Set-PopSettings $testSettings
     $pop = Start-Pop
     $notepad = Start-Process notepad.exe -ArgumentList "`"$notepadFile`"" -PassThru
     $notepad.WaitForInputIdle(10000) | Out-Null
@@ -160,6 +169,42 @@ try {
     Save-Screenshot (Join-Path $OutDir 'direct-color-card.png')
     Invoke-Key 0x1B
     Write-Host '✓ 带单位的数值、颜色直接出结果'
+
+    # 5a. 翻译：往右下方划（第 2 格「翻译」），卡片里先显示「正在翻译」，译文回来后原地换掉。
+    # 翻译服务在外网上，偶尔连不上时只提示，不算失败
+    Set-NotepadText 'Good morning, how are you today?'
+    Invoke-LongPress 95 55 'translate'
+    Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '执行 translate' 10 | Out-Null
+    $log = Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '翻译(完成|失败)' 20
+    Start-Sleep -Milliseconds 400
+    Save-Screenshot (Join-Path $OutDir 'translate-card.png')
+    if ($log -match '翻译完成：[^，]+，en → zh-Hans') {
+        Write-Host '✓ 翻译：译文显示在卡片里'
+    } else {
+        $line = ($log -split "`n" | Select-String '翻译失败' | Select-Object -Last 1)
+        Write-Host "::warning::翻译服务没有返回译文：$line"
+        # 看看必应翻译两条路在这台 runner 上的情况（Edge 的令牌接口、必应翻译网页的接口）
+        $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0'
+        $edgeStatus = & curl.exe -s -o NUL -m 15 -w '%{http_code}' -A $ua 'https://edge.microsoft.com/translate/auth'
+        Write-Host "Edge 翻译令牌接口：${edgeStatus}"
+        $old = & curl.exe -s -m 15 -X POST -A $ua -H 'Content-Type: application/json' -d '["Good morning"]' -w ' %{http_code}' 'https://edge.microsoft.com/translate/translatetext?from=&to=zh-Hans&isEnterpriseClient=false'
+        Write-Host "Edge 旧的翻译接口：${old}"
+        try {
+            $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            $page = Invoke-WebRequest -Uri 'https://www.bing.com/translator' -UserAgent $ua -WebSession $session -TimeoutSec 15
+            $ig = [regex]::Match($page.Content, 'IG:"([0-9A-Za-z]+)"').Groups[1].Value
+            $iid = [regex]::Match($page.Content, 'data-iid="([^"]+)"').Groups[1].Value
+            $abuse = [regex]::Match($page.Content, 'params_AbusePreventionHelper\s*=\s*\[\s*(\d+)\s*,\s*"([^"]+)"')
+            $bingHost = $page.BaseResponse.RequestMessage.RequestUri.Host
+            $form = @{ fromLang = 'auto-detect'; to = 'zh-Hans'; text = 'Good morning'; token = $abuse.Groups[2].Value; key = $abuse.Groups[1].Value }
+            $reply = Invoke-WebRequest -Uri "https://${bingHost}/ttranslatev3?isVertical=1&IG=${ig}&IID=${iid}.1" -Method Post -Body $form -UserAgent $ua -WebSession $session -Headers @{ Referer = "https://${bingHost}/translator" } -SkipHttpErrorCheck -TimeoutSec 15
+            $content = [string]$reply.Content
+            Write-Host "必应翻译网页接口（${bingHost}，IG=${ig}，IID=${iid}）：$($reply.StatusCode) $($content.Substring(0, [Math]::Min(200, $content.Length)))"
+        } catch {
+            Write-Host "必应翻译网页接口：$_"
+        }
+    }
+    Invoke-Key 0x1B
 
     # 5b. 全部功能：往左上方划（第 5 格），列表里搜「base64」，回车执行；卡片上回车复制编码结果
     Set-NotepadText 'hello pop world'
@@ -260,9 +305,10 @@ try {
         $exePath = $browser.Paths | Where-Object { Test-Path $_ } | Select-Object -First 1
         if (-not $exePath) { throw "这台 runner 上没有 $name" }
         $browserProfile = Join-Path $env:RUNNER_TEMP "pop-$name-profile"
-        Start-Process $exePath -ArgumentList '--no-first-run', '--no-default-browser-check', "--user-data-dir=`"$browserProfile`"", '--new-window', '--window-position=120,60', '--window-size=900,700', "`"$page`""
+        # runner 的虚拟显卡上浏览器偶尔画不出页面，用软件渲染
+        Start-Process $exePath -ArgumentList '--no-first-run', '--no-default-browser-check', '--disable-gpu', "--user-data-dir=`"$browserProfile`"", '--new-window', '--window-position=120,60', '--window-size=900,700', "`"$page`""
         $browserWindow = [IntPtr]::Zero
-        for ($i = 0; $i -lt 60 -and $browserWindow -eq [IntPtr]::Zero; $i++) {
+        for ($i = 0; $i -lt 120 -and $browserWindow -eq [IntPtr]::Zero; $i++) {
             Start-Sleep -Milliseconds 500
             $w = Get-Process $name -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like 'PopBrowserTest*' } | Select-Object -First 1
             if ($w) { $browserWindow = $w.MainWindowHandle }
