@@ -196,6 +196,8 @@ internal sealed class RingWindow : OverlayWindow
             labels.Add((glyph, title));
         }
 
+        // 上一次显示时 status 放在旧的容器里，要先拿出来才能放进新的
+        if (status.Parent is Panel oldParent) oldParent.Children.Remove(status);
         status.Text = "读取中…";
         status.FontFamily = Theme.TextFont;
         status.FontSize = 11;

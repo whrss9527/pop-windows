@@ -64,12 +64,20 @@ function Invoke-Key([byte]$vk, [switch]$Ctrl) {
     Start-Sleep -Milliseconds 80
 }
 
-# 一小步一小步移动指针，钩子能收到连续的移动事件
+# 一小步一小步移动指针，钩子能收到连续的移动事件。
+# SetCursorPos 只挪光标、不产生输入事件，钩子收不到，所以用 mouse_event 发绝对坐标的移动
 function Move-Pointer([int]$FromX, [int]$FromY, [int]$ToX, [int]$ToY, [int]$Steps = 12) {
+    $vx = [PopCi.Native]::GetSystemMetrics(76)
+    $vy = [PopCi.Native]::GetSystemMetrics(77)
+    $vw = [PopCi.Native]::GetSystemMetrics(78)
+    $vh = [PopCi.Native]::GetSystemMetrics(79)
     for ($i = 1; $i -le $Steps; $i++) {
-        $x = [int]($FromX + ($ToX - $FromX) * $i / $Steps)
-        $y = [int]($FromY + ($ToY - $FromY) * $i / $Steps)
-        [PopCi.Native]::SetCursorPos($x, $y) | Out-Null
+        $x = $FromX + ($ToX - $FromX) * $i / $Steps
+        $y = $FromY + ($ToY - $FromY) * $i / $Steps
+        $nx = [int][math]::Round(($x - $vx) * 65535 / ($vw - 1))
+        $ny = [int][math]::Round(($y - $vy) * 65535 / ($vh - 1))
+        # MOUSEEVENTF_MOVE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_ABSOLUTE
+        [PopCi.Native]::mouse_event(0xC001, $nx, $ny, 0, [UIntPtr]::Zero)
         Start-Sleep -Milliseconds 15
     }
 }

@@ -118,6 +118,11 @@ try {
     Select-AllInNotepad
     Invoke-LongPress 110 (-64) 'dark' -BackToCenter
     Write-Host '✓ 深色外观截图'
+
+    # 整个过程 Pop 不能出错
+    $errors = (Get-PopLog) -split "`n" | Where-Object { $_ -match '\[ERROR\]' }
+    if ($errors) { throw "Pop 的日志里有错误：`n$($errors -join "`n")" }
+    Write-Host '✓ 日志里没有错误'
 }
 finally {
     $log = Get-PopLog

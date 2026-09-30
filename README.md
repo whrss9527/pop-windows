@@ -86,6 +86,6 @@ dotnet publish src/Pop -c Release -o out   # 打包成单个 Pop.exe
 
 ## CI 和发版
 
-每次推送，GitHub Actions 会在 Windows 上：跑单元测试、编译 Release 版 Pop.exe；在 Windows Server 2022 和 2025 上真正启动一次，再用模拟的鼠标在记事本里走一遍长按右键（替换原文、结果卡片、圆心关闭、短按弹出系统右键菜单），截图作为构建产物上传；最后用本机的假发布把一键更新完整走一遍（校验和不对要拒绝、正常版本要替换并重新启动、已是最新时不更新）。
+每次推送，GitHub Actions 会在 Windows 上：跑单元测试、编译 Release 版 Pop.exe；在 Windows Server 2022 和 2025 上真正启动一次，再用模拟的鼠标在记事本里走一遍长按右键（替换原文、结果卡片、圆心关闭、短按弹出系统右键菜单），截图和 Pop 的日志推到 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 两个分支（每次覆盖，`git fetch origin ci-screenshots/windows-2022` 就能看到）；最后用本机的假发布把一键更新完整走一遍（校验和不对要拒绝、正常版本要替换并重新启动、已是最新时不更新）。
 
 发版：在 `CHANGELOG.md` 最上面加一节新版本，`Directory.Build.props` 里的 `Version` 跟着改，合并进 main、CI 通过后会自动打标签并发布，已安装的 Pop 会提示更新。
