@@ -109,17 +109,21 @@ function Assert-HashCard([string]$ShotName) {
     Wait-Window 'Pop 结果' $false
 }
 
-function Select-WordWithMouse {
-    Reset-Selection
-    $root = [System.Windows.Automation.AutomationElement]::FromHandle($script:notepad.MainWindowHandle)
-    $edit = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit))
-    if ($null -eq $edit) { throw '没有找到记事本编辑区' }
-    $pattern = $edit.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+function Get-NotepadSelectionBounds {
+    # 记事本的原生 Edit 在 UIA 中可以暴露为 Document，不能按 ControlType.Edit 查找。
+    $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+    if ($null -eq $focused -or $focused.Current.ProcessId -ne $script:notepad.Id) { throw '当前输入焦点不在记事本' }
+    $pattern = $focused.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
     $ranges = @($pattern.GetSelection())
     if ($ranges.Count -eq 0) { throw '记事本没有提供选区' }
     $bounds = @($ranges[0].GetBoundingRectangles())
     if ($bounds.Count -eq 0) { throw '记事本没有提供选区位置' }
+    return $bounds
+}
+
+function Select-WordWithMouse {
+    Reset-Selection
+    $bounds = @(Get-NotepadSelectionBounds)
     $script:wordX = [int]($bounds[0].Left + 15)
     $script:wordY = [int]($bounds[0].Top + $bounds[0].Height / 2)
     Set-Clipboard -Value 'toolbar must not copy automatically'
@@ -227,12 +231,7 @@ try {
     Passed 'selection-toolbar-escape'
 
     Reset-Selection
-    $root = [System.Windows.Automation.AutomationElement]::FromHandle($notepad.MainWindowHandle)
-    $edit = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit))
-    $pattern = $edit.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
-    $ranges = @($pattern.GetSelection())
-    $bounds = @($ranges[0].GetBoundingRectangles())
+    $bounds = @(Get-NotepadSelectionBounds)
     $wordX = [int]$bounds[0].Left + 1; $wordY = [int]($bounds[0].Top + $bounds[0].Height / 2)
     Set-Clipboard -Value 'before drag copy'
     Invoke-LeftDrag $wordX $wordY ([int]$bounds[0].Right + 3) $wordY
