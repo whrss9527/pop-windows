@@ -265,8 +265,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         AddRingScope(page);
         var ring = CurrentRing(s);
         page.Children.Add(Note("长按右键后往某一格的方向划、松开执行；数字键 1–9、0 直选前十格，方向键选择、回车执行，Esc 关闭。选中链接、邮箱或路径时，「搜索」会换成「打开」。"));
-        page.Children.Add(Card(Symbol.Cursor24, "松开后点击选择", "在圆心松开后保持打开，划向功能松开仍立即执行；右键或 Esc 关闭",
-            Toggle(s.KeepRingOpen, v => Update(x => x.KeepRingOpen = v))));
+
 
         var count = new ComboBox { MinWidth = 140 };
         for (var n = RingItems.MinSlots; n <= RingItems.MaxSlots; n++) count.Items.Add($"{n} 格");

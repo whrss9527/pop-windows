@@ -273,6 +273,7 @@ internal sealed class RingWindow : OverlayWindow
         status.VerticalAlignment = VerticalAlignment.Center;
         if (status.Parent is Panel old) old.Children.Remove(status);
         var statusBox = new Grid { Width = InnerRadius * 2, Height = InnerRadius * 2 };
+        statusBox.Visibility = Layout.IsArc ? Visibility.Hidden : Visibility.Visible;
         statusBox.Children.Add(status);
         Place(statusBox, Center - InnerRadius, Center - InnerRadius);
 

@@ -41,7 +41,8 @@ internal sealed partial class SettingsWindow
             ringApplication = scope.SelectedIndex == 0 ? null : names[scope.SelectedIndex];
             ShowPage(false);
         };
-        page.Children.Add(Card(Symbol.Apps24, "正在编辑", "未单独配置的应用使用默认圆盘；配置不会切换到其他应用", scope));
+        page.Children.Add(Card(Symbol.Apps24, "正在编辑", "唤起时自动使用当前应用的布局；其他应用继承默认圆盘", scope));
+        var management = new StackPanel();
         var appName = new TextBox { Width = 140, ToolTip = "程序名，例如 Code.exe", VerticalContentAlignment = VerticalAlignment.Center };
         var message = Label("", Theme.Caption, "TextFillColorSecondaryBrush");
         void Add(string input)
@@ -62,17 +63,19 @@ internal sealed partial class SettingsWindow
         browse.Margin = new Thickness(6, 0, 0, 0);
         var addContent = new StackPanel { Margin = new Thickness(16) };
         addContent.Children.Add(Label("为应用添加圆盘", Theme.Body, "TextFillColorPrimaryBrush"));
+        addContent.Children.Add(Label("程序名，例如 Code.exe", Theme.Caption, "TextFillColorSecondaryBrush"));
         var addRow = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
         addRow.Children.Add(appName); addRow.Children.Add(add); addRow.Children.Add(browse);
         addContent.Children.Add(addRow);
-        page.Children.Add(CardBorder(addContent));
-        page.Children.Add(message);
+        management.Children.Add(CardBorder(addContent));
+        management.Children.Add(message);
         if (ringApplication is not null)
-            page.Children.Add(Card(Symbol.ArrowReset24, "改用默认圆盘", "删除当前应用的独立布局，其他应用不受影响",
+            management.Children.Add(Card(Symbol.ArrowReset24, "改用默认圆盘", "删除当前应用的独立布局，其他应用不受影响",
                 ActionButton("使用默认", null, () =>
                 {
                     var name = ringApplication; Update(s => s.AppRings.Remove(name)); ringApplication = null; ShowPage(false);
                 })));
+        page.Children.Add(new Expander { Header = "管理应用圆盘", Content = management, Margin = new Thickness(0, 4, 0, 12) });
     }
 
     private void GeneralPage(StackPanel page)

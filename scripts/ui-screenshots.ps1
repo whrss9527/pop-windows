@@ -15,6 +15,7 @@ try {
     Write-Host "打开透明效果失败：$_"
 }
 
+$failures = [Collections.Generic.List[string]]::new()
 foreach ($appearance in 'light', 'dark') {
     $marker = Join-Path $env:RUNNER_TEMP "pop-demo-$appearance.txt"
     Remove-Item $marker -ErrorAction SilentlyContinue
@@ -26,14 +27,21 @@ foreach ($appearance in 'light', 'dark') {
             $p.Kill()
             throw "演示模式（${appearance}）四分钟内没有结束"
         }
+    } catch {
+        $failures.Add("${appearance}: $_")
     } finally {
         Remove-Item Env:POP_SMOKE_MARKER, Env:POP_APPEARANCE -ErrorAction SilentlyContinue
     }
+    if (Test-Path $marker) { Copy-Item $marker (Join-Path $OutDir "$appearance-demo.txt") }
+    $popLog = Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log'
+    if (Test-Path $popLog) { Copy-Item $popLog (Join-Path $OutDir "$appearance-pop.log") }
     $lines = @(Get-Content $marker -ErrorAction SilentlyContinue)
     Write-Host ($lines -join "`n")
-    if (-not ($lines -match 'demo-done')) { throw "演示模式（${appearance}）没有跑完，退出码 $($p.ExitCode)" }
+    if (-not ($lines -match 'demo-done')) { $failures.Add("演示模式（${appearance}）没有跑完") }
     $errors = @($lines | Where-Object { $_ -match 'demo-error|crash=' })
-    if ($errors.Count -gt 0) { throw "演示模式（${appearance}）出错：`n$($errors -join "`n")" }
+    if ($errors.Count -gt 0) { $failures.Add("演示模式（${appearance}）出错：`n$($errors -join "`n")") }
 }
 $shots = @(Get-ChildItem $OutDir -Filter '*.png')
 Write-Host "一共 $($shots.Count) 张截图"
+
+if ($failures.Count -gt 0) { throw ($failures -join "`n") }
