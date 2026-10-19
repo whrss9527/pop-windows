@@ -116,7 +116,9 @@ function Select-WordWithMouse {
         [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit))
     if ($null -eq $edit) { throw '没有找到记事本编辑区' }
     $pattern = $edit.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
-    $bounds = @($pattern.GetSelection())[0].GetBoundingRectangles()
+    $ranges = @($pattern.GetSelection())
+    if ($ranges.Count -eq 0) { throw '记事本没有提供选区' }
+    $bounds = @($ranges[0].GetBoundingRectangles())
     if ($bounds.Count -eq 0) { throw '记事本没有提供选区位置' }
     $script:wordX = [int]($bounds[0].Left + 15)
     $script:wordY = [int]($bounds[0].Top + $bounds[0].Height / 2)
@@ -229,7 +231,8 @@ try {
     $edit = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
         [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit))
     $pattern = $edit.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
-    $bounds = @($pattern.GetSelection())[0].GetBoundingRectangles()
+    $ranges = @($pattern.GetSelection())
+    $bounds = @($ranges[0].GetBoundingRectangles())
     $wordX = [int]$bounds[0].Left + 1; $wordY = [int]($bounds[0].Top + $bounds[0].Height / 2)
     Set-Clipboard -Value 'before drag copy'
     Invoke-LeftDrag $wordX $wordY ([int]$bounds[0].Right + 3) $wordY
@@ -279,6 +282,7 @@ try {
     Invoke-Key 0x1B; Wait-Window 'Pop 圆盘' $false
 }
 catch {
+    ($_ | Format-List * -Force | Out-String) | Set-Content (Join-Path $OutDir 'error.txt') -Encoding UTF8
     Save-Screenshot (Join-Path $OutDir 'failure.png')
     throw
 }
