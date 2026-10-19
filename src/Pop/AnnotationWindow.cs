@@ -34,8 +34,14 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
         Width = Math.Clamp(image.PixelWidth + 40, 760, 1200);
         Height = Math.Clamp(image.PixelHeight + 190, 460, 850);
         MinWidth = 640; MinHeight = 400;
+        SettingsUi.FitToWorkArea(this);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        // WPF-UI 的 Mica 必须配合扩展标题栏，否则创建窗口时会抛异常。
+        ExtendsContentIntoTitleBar = true;
+        WindowCornerPreference = Wpf.Ui.Controls.WindowCornerPreference.Round;
+        Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/Pop.ico"));
         FontFamily = Theme.TextFont;
+        FontSize = Theme.Body;
         WindowBackdropType = Wpf.Ui.Controls.WindowBackdropType.Mica;
         var theme = Theme.Current();
         Background = theme.Brush(theme.Tint);
@@ -84,7 +90,14 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
         surface = new Surface(image, document) { Width = image.PixelWidth, Height = image.PixelHeight, Background = Brushes.Transparent, Cursor = Cursors.Cross, ClipToBounds = true };
         var view = new Viewbox { Stretch = Stretch.Uniform, Child = surface, Margin = new Thickness(14), StretchDirection = StretchDirection.DownOnly };
         root.Children.Add(new Border { Background = theme.Brush(theme.CenterFill), Child = view, Margin = new Thickness(10, 0, 10, 10), CornerRadius = new CornerRadius(8) });
-        Content = root;
+        var shell = new DockPanel();
+        var titleBar = new Wpf.Ui.Controls.TitleBar
+        {
+            Title = Title,
+            Icon = new Wpf.Ui.Controls.ImageIcon { Source = Icons.AppIcon(16).Source, Width = 16, Height = 16 },
+        };
+        DockPanel.SetDock(titleBar, Dock.Top); shell.Children.Add(titleBar); shell.Children.Add(root);
+        Content = shell;
         surface.MouseLeftButtonDown += (_, e) =>
         {
             CommitText();
