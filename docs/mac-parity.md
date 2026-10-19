@@ -25,7 +25,7 @@
 
 ## 验证
 
-Linux 验证：Release 核心测试 338 项通过、3 项跳过（PowerShell/cmd 平台运行器未加入测试路径）；Release 编译和 win-x64 单文件发布无警告、无错误。Windows 的真实手势、新窗口和导出验证由 Windows Server 2022、2025 两套 CI 执行，必须检查对应提交的结果。本地编译成功不能代替实际操作；混合 DPI、多显示器及复杂第三方 App 仍需要人工体验检查。
+Linux 验证：Release 核心测试 342 项通过、3 项跳过（PowerShell/cmd 平台运行器未加入测试路径）；Release 编译和 win-x64 单文件发布无警告、无错误。Windows 的真实手势、新窗口和导出验证由 Windows Server 2022、2025 两套 CI 执行，必须检查对应提交的结果。本地编译成功不能代替实际操作；混合 DPI、多显示器及复杂第三方 App 仍需要人工体验检查。
 
 `scripts/interaction-e2e.ps1` 已接入 Windows CI，覆盖独立圆盘、功能快捷键替换、Ctrl/Alt/Win 右键、中键直达、圆心保持与划选执行、角落更多及返回，以及工具条选词替换、更多保持原选区、Esc、拖选复制、输入收起和应用排除，共十五项功能检查。工具条检查同时断言原应用焦点和剪贴板未被自动读取改动，点击后处理真实记事本选区。PowerShell 脚本在 Linux 使用 PowerShell 7 检查语法，实际执行状态单独报告。
 

@@ -40,6 +40,8 @@ public enum ContentKind
 /// 分类后的内容
 public sealed record ClassifiedContent(ContentKind Kinds, string Text, string? Url = null, string? Path = null)
 {
+    /// 识别使用整理后的 Text，复制、大小写替换保留真正选中的边界空白。
+    public string OriginalText { get; init; } = Text;
     public static readonly ClassifiedContent Empty = new(ContentKind.None, "");
 
     public bool IsEmpty => Kinds == ContentKind.None;
@@ -106,7 +108,7 @@ public static partial class ContentClassifier
             else if (profile.HasLetters) kinds |= ContentKind.ForeignText;
             if (profile.HasLetters && IsSingleWord(text)) kinds |= ContentKind.Word;
         }
-        return new ClassifiedContent(kinds, text, url, path);
+        return new ClassifiedContent(kinds, text, url, path) { OriginalText = raw ?? text };
     }
 
     public static bool IsJson(string text)

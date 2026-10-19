@@ -98,7 +98,7 @@ public static partial class Actions
     public static readonly IReadOnlyList<string> Categories = [Common, TextCategory, Convert, Developer, Screen, PluginCategory];
 
     public static readonly PopAction Copy = new("copy", "复制", "Copy24", "fz fuzhi copy", ContentKind.Text,
-        c => ActionResult.Copy(c.Text), Category: Common, Summary: "复制选中的文字");
+        c => ActionResult.Copy(c.OriginalText), Category: Common, Summary: "复制选中的文字");
 
     public static readonly PopAction Search = new("search", "搜索", "Search24", "ss sousuo search bing", ContentKind.Text,
         c => ActionResult.Open(TextActions.SearchUrl(c.Text)), Category: Common, Summary: "用必应搜索选中的文字");
@@ -111,10 +111,10 @@ public static partial class Actions
         c => new ActionResult(ActionEffect.Translate, c.Text), Category: Common, Summary: "在卡片里显示译文，可以复制或替换原文");
 
     public static readonly PopAction Upper = new("upper", "大写", "TextCaseUppercase24", "dx daxie upper uppercase", ContentKind.Text,
-        c => ActionResult.Replace(TextActions.ToUpper(c.Text)), Category: TextCategory, Summary: "转成大写并替换原文");
+        c => ActionResult.Replace(TextActions.ToUpper(c.OriginalText)), Category: TextCategory, Summary: "转成大写并替换原文");
 
     public static readonly PopAction Lower = new("lower", "小写", "TextCaseLowercase24", "xx xiaoxie lower lowercase", ContentKind.Text,
-        c => ActionResult.Replace(TextActions.ToLower(c.Text)), Category: TextCategory, Summary: "转成小写并替换原文");
+        c => ActionResult.Replace(TextActions.ToLower(c.OriginalText)), Category: TextCategory, Summary: "转成小写并替换原文");
 
     public static readonly PopAction Count = new("count", "字数", "TextWordCount24", "zs zishu tj tongji count words", ContentKind.Text,
         c => ActionResult.ShowCard(new CardContent("字数统计", TextActions.Lines(TextActions.Count(c.Text)))),

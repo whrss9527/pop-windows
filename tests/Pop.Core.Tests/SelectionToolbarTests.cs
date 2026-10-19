@@ -4,6 +4,28 @@ namespace Pop.Core.Tests;
 
 public class SelectionToolbarTests
 {
+    [Theory]
+    [InlineData("hello ")]
+    [InlineData("  Hello\r\n")]
+    [InlineData("\t你好 Pop\n\n")]
+    public void CopyAndCaseReplacementKeepTheWholeSelection(string original)
+    {
+        var content = ContentClassifier.Classify(original);
+        Assert.Equal(original.Trim(), content.Text);
+        Assert.Equal(original, content.OriginalText);
+        Assert.Equal(original, Actions.Copy.Run(content)!.Text);
+        Assert.Equal(original.ToUpperInvariant(), Actions.Upper.Run(content)!.Text);
+        Assert.Equal(original.ToLowerInvariant(), Actions.Lower.Run(content)!.Text);
+    }
+
+    [Fact]
+    public void ConstructedContentUsesItsTextAsTheOriginalSelection()
+    {
+        var content = new ClassifiedContent(ContentKind.Text, "manual input ");
+        Assert.Equal(content.Text, content.OriginalText);
+        Assert.Equal(content.Text, Actions.Copy.Run(content)!.Text);
+    }
+
     [Fact]
     public void SingleClicksDoNotReadButDragDoubleAndTripleClicksDo()
     {
