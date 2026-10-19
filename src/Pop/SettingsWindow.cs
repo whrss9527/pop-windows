@@ -764,15 +764,20 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         };
         page.Children.Add(Card(Symbol.LocalLanguage24, "译成", "选中的文字本来就是这种语言时，中文和英语互译", target));
 
-        var foreign = Toggle(s.DirectKinds.Contains("foreign", StringComparer.OrdinalIgnoreCase), v => Update(x =>
+        var rules = s.EffectiveRules.ToList();
+        var foreignIndex = rules.FindIndex(r => r.Kind == "foreign");
+        var foreignRule = rules[foreignIndex];
+        var foreign = Toggle(foreignRule.Enabled && foreignRule.ActionId == Actions.Translate.Id, v =>
         {
-            x.DirectKinds.RemoveAll(k => string.Equals(k, "foreign", StringComparison.OrdinalIgnoreCase));
-            if (v) x.DirectKinds.Add("foreign");
-        }));
+            EditRule(foreignIndex, rule => rule with { Enabled = v, ActionId = Actions.Translate.Id });
+            Dispatcher.BeginInvoke(() => ShowPage(false));
+        });
         foreign.IsEnabled = s.DirectResults && s.IsEnabled(Actions.Translate.Id);
         var foreignNote = !s.IsEnabled(Actions.Translate.Id) ? "「翻译」功能已关闭，可以在「功能」里打开"
-            : !s.DirectResults ? "要先打开「通用」里的「直接出结果」"
-            : "长按时不弹圆盘，直接显示译文。想对外文用圆盘上的其他功能时关掉它";
+            : !s.DirectResults ? "要先打开「直达规则」里的「直接出结果」"
+            : foreignRule.Enabled && foreignRule.ActionId != Actions.Translate.Id
+                ? $"外文当前直达「{Actions.Find(foreignRule.ActionId)?.Title ?? foreignRule.ActionId}」，打开此开关会改用翻译"
+                : "唤起时直接显示译文；与「直达规则」中的外文规则同步";
         page.Children.Add(Card(Symbol.Flash24, "选中外文时直接翻译", foreignNote, foreign));
 
         page.Children.Add(Section("试一试"));
