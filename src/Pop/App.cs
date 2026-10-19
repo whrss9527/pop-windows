@@ -231,6 +231,7 @@ internal sealed class App : Application
     public bool SetShortcut(string id, KeyboardShortcut? shortcut, out string? error)
     {
         error = null;
+        if (shortcut is { Modifiers: 2, Key: 0x43 or 0x56 }) { error = "Ctrl+C / Ctrl+V 用于复制粘贴，请选择其他组合"; return false; }
         if (shortcut is not null && !shortcut.IsValid) { error = "请使用 Ctrl、Alt 或 Win 加字母、数字、空格或功能键"; return false; }
         var candidate = new Dictionary<string, KeyboardShortcut?>(Settings.ActionShortcuts, StringComparer.OrdinalIgnoreCase) { [id] = shortcut };
         if (shortcut is not null && KeyboardShortcut.Effective(candidate).Any(p => p.Key != id && p.Value == shortcut))

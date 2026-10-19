@@ -21,6 +21,7 @@ foreach ($appearance in 'light', 'dark') {
     Remove-Item $marker -ErrorAction SilentlyContinue
     $env:POP_SMOKE_MARKER = $marker
     $env:POP_APPEARANCE = $appearance
+    $p = $null
     try {
         $p = Start-Process -FilePath $Exe -ArgumentList '--demo-shots', "`"$OutDir`"" -PassThru
         if (-not $p.WaitForExit(240000)) {
@@ -37,7 +38,9 @@ foreach ($appearance in 'light', 'dark') {
     if (Test-Path $popLog) { Copy-Item $popLog (Join-Path $OutDir "$appearance-pop.log") }
     $lines = @(Get-Content $marker -ErrorAction SilentlyContinue)
     Write-Host ($lines -join "`n")
+    if ($null -ne $p -and $p.HasExited -and $p.ExitCode -ne 0) { $failures.Add("演示模式（${appearance}）退出码 $($p.ExitCode)") }
     if (-not ($lines -match 'demo-done')) { $failures.Add("演示模式（${appearance}）没有跑完") }
+    if (-not ($lines -match 'annotation-render=ok')) { $failures.Add("演示模式（${appearance}）标注导出验证没有完成") }
     $errors = @($lines | Where-Object { $_ -match 'demo-error|crash=' })
     if ($errors.Count -gt 0) { $failures.Add("演示模式（${appearance}）出错：`n$($errors -join "`n")") }
 }

@@ -22,7 +22,7 @@
 
 ## 验证
 
-本次 Linux 验证：Release 核心测试 312 项通过、3 项跳过（PowerShell/cmd 平台运行器未加入测试路径）；Release 编译和 win-x64 单文件发布成功，编译无警告、无错误。Windows 的真实手势、混合 DPI、多显示器、取色像素、复制/保存/贴图及新窗口的外观必须通过 Windows CI 和人工体验检查；本地编译成功不能代替这些验证。两套 Windows 系统均完成了九项交互检查。标注窗口已修正 WPF-UI Mica 所要求的扩展标题栏配置，窗口显示和 PNG 导出需以修复后的 CI 结果为准。
+本次 Linux 验证：Release 核心测试 314 项通过、3 项跳过（PowerShell/cmd 平台运行器未加入测试路径）；Release 编译和 win-x64 单文件发布成功，编译无警告、无错误。Windows 的真实手势、混合 DPI、多显示器、取色像素、复制/保存/贴图及新窗口的外观必须通过 Windows CI 和人工体验检查；本地编译成功不能代替这些验证。两套 Windows 系统均完成了九项交互检查。标注窗口已修正 WPF-UI Mica 所要求的扩展标题栏配置，窗口显示和 PNG 导出需以修复后的 CI 结果为准。
 
 新增 `scripts/interaction-e2e.ps1` 已接入 Windows CI，覆盖独立圆盘、功能快捷键替换、Ctrl/Alt/Win 右键、中键直达、圆心保持与划选执行、角落更多及返回，共九项功能检查。脚本在 Linux 仅通过语法解析，Windows 实际执行状态单独报告。
 

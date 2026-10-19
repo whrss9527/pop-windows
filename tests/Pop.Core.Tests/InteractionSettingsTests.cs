@@ -173,6 +173,8 @@ public class KeyboardShortcutTests
     [InlineData(16u, 65u, false)]
     [InlineData(2u, 0x10u, false)]
     [InlineData(2u, 65u, true)]
+    [InlineData(2u, 0x43u, false)]
+    [InlineData(2u, 0x56u, false)]
     [InlineData(9u, 0x20u, true)]
     [InlineData(3u, 0x87u, true)]
     public void OnlyValidCombinationsCanBeRegistered(uint modifiers, uint key, bool valid) =>

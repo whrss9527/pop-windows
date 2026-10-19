@@ -9,6 +9,8 @@ public sealed record KeyboardShortcut(uint Modifiers, uint Key)
     // Shift 单独使用会拦截正常输入；必须同时包含 Ctrl、Alt 或 Win。
     [JsonIgnore]
     public bool IsValid => Modifiers > 0 && (Modifiers & ~15u) == 0 && (Modifiers & 11u) != 0
+        // Pop 读取和替换选择时也会使用复制粘贴，不能把这两个键再注册成全局功能而递归唤起。
+        && !(Modifiers == 2 && Key is 0x43 or 0x56)
         && (Key is >= 0x30 and <= 0x39 or >= 0x41 and <= 0x5A or >= 0x70 and <= 0x87 or 0x20 or 0xC0);
     [JsonIgnore]
     public string Display => string.Join("+", new[]
