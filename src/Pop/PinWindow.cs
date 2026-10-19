@@ -109,6 +109,7 @@ internal sealed class PinWindow : Window
         {
             if (e.Key == Key.Escape) Close();
             else if (e.Key == Key.C && Keyboard.Modifiers == ModifierKeys.Control) CopyImage();
+            else if (e.Key == Key.S && Keyboard.Modifiers == ModifierKeys.Control) Save();
         };
         Loaded += (_, _) =>
         {
@@ -166,6 +167,11 @@ internal sealed class PinWindow : Window
             RecognizeRequested?.Invoke(png, p.X, p.Y);
         });
         Add("存到「下载」", WpfUi.SymbolRegular.ArrowDownload24, Save);
+        Add("标注", WpfUi.SymbolRegular.Edit24, () =>
+        {
+            Native.GetCursorPos(out var p);
+            new AnnotationWindow(png, p.X, p.Y).Show();
+        });
         Add("原始大小", WpfUi.SymbolRegular.ZoomFit24, () => Zoom(1 / zoom));
         menu.Items.Add(new Separator());
         Add("关闭", WpfUi.SymbolRegular.Dismiss24, Close, "Esc");

@@ -10,6 +10,12 @@ internal sealed class ActionListWindow : SearchOverlay<PopAction>
 {
     private ClassifiedContent content = ClassifiedContent.Empty;
     private Func<string, bool> enabled = _ => true;
+    private bool canReturn;
+    private IReadOnlyList<PopAction>? originalRing;
+    public bool CanReturnToRing => canReturn && SearchText.Length == 0;
+    public event Action? BackRequested;
+    private static readonly PopAction Back = new("backToRing", "返回圆盘", "ArrowLeft24", "fh fanhui back", ContentKind.None, _ => null,
+        Summary: "返回刚才的菜单 · ← 或 Backspace");
 
     /// 选了一个功能（回车或者鼠标点）
     public event Action<PopAction>? Chosen;
@@ -23,8 +29,11 @@ internal sealed class ActionListWindow : SearchOverlay<PopAction>
     protected override string Placeholder => "搜索功能：拼音首字母或英文";
     protected override IReadOnlyList<(string Keys, string Action)> Hints => [("↑↓", "选择"), ("Enter", "执行"), ("Esc", "关闭")];
 
-    public void ShowFor(ClassifiedContent selectedContent, int x, int y, Func<string, bool> isEnabled)
+    public void ShowFor(ClassifiedContent selectedContent, int x, int y, Func<string, bool> isEnabled,
+        bool canReturnToRing = false, IReadOnlyList<PopAction>? ringActions = null)
     {
+        canReturn = canReturnToRing;
+        originalRing = ringActions;
         content = selectedContent;
         enabled = isEnabled;
         Open(x, y);
@@ -34,6 +43,8 @@ internal sealed class ActionListWindow : SearchOverlay<PopAction>
     protected override IEnumerable<Entry> Query(string text)
     {
         var actions = Actions.Filter(text, content, enabled);
+        if (originalRing is { } original) actions = original.Where(a => a.Matches(text)).ToList();
+        if (canReturn && text.Length == 0) yield return new Entry(null, Back);
         if (text.Length > 0)
         {
             foreach (var action in actions) yield return new Entry(null, action, action.IsAvailable(content));
@@ -89,6 +100,7 @@ internal sealed class ActionListWindow : SearchOverlay<PopAction>
 
     protected override void OnChosen(PopAction action)
     {
+        if (action == Back) { BackRequested?.Invoke(); return; }
         Log.Info($"全部功能列表：选中 {action.Id}，搜索「{SearchText}」");
         Chosen?.Invoke(action);
     }

@@ -19,6 +19,13 @@ internal static class InputInjector
 
     public static void RightClick() => Send(Mouse(MOUSEEVENTF_RIGHTDOWN), Mouse(MOUSEEVENTF_RIGHTUP));
 
+    /// 鼠标唤起消费了 Alt/Win 组合后，松开修饰键不能再激活原 App 菜单或开始菜单。
+    public static bool MaskModifierRelease(ushort modifier)
+    {
+        if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0) return Send(Key(modifier, up: true));
+        return Send(Key(VK_CONTROL, up: false), Key(modifier, up: true), Key(VK_CONTROL, up: true));
+    }
+
     /// Ctrl + 某个键。用户按着的 Shift、Alt、Win 先临时松开，不然会变成别的快捷键
     public static void CtrlChord(ushort key)
     {
@@ -46,9 +53,10 @@ internal static class InputInjector
         u = new InputUnion { ki = new KEYBDINPUT { wVk = vk, dwFlags = up ? KEYEVENTF_KEYUP : 0, dwExtraInfo = Marker } },
     };
 
-    private static void Send(params INPUT[] inputs)
+    private static bool Send(params INPUT[] inputs)
     {
         var sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
         if (sent != inputs.Length) Log.Error($"SendInput 只发出了 {sent}/{inputs.Length} 个事件，错误码 {Marshal.GetLastWin32Error()}");
+        return sent == inputs.Length;
     }
 }

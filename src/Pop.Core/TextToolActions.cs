@@ -2,6 +2,21 @@ namespace Pop.Core;
 
 public static partial class Actions
 {
+    public static readonly PopAction Statistics = new("numberStats", "数字统计", "Calculator24", "sztj shuzi tongji sum average median statistics",
+        ContentKind.Text,
+        c => NumberStats.Parse(c.Text) is { } stats
+            ? ActionResult.ShowCard(new CardContent("数字统计", stats.Rows, Caption: $"共 {stats.Count} 个数")) : null,
+        c => NumberStats.Parse(c.Text) is not null,
+        Category: Convert, Summary: "一列或一串数字的合计、平均、中位数、最大、最小和个数");
+
+    public static readonly PopAction TableConvert = new("tableConvert", "表格转换", "Table24", "bgzh biaoge zhuanhuan table csv tsv markdown json",
+        ContentKind.Text,
+        c => TableConverter.Parse(c.Text) is { } table
+            ? ActionResult.ShowCard(new CardContent("表格转换", TableConverter.Conversions(table), Monospace: true,
+                Caption: $"{table.Rows.Count} 行 × {table.Rows[0].Count} 列（第一行当作表头）")) : null,
+        c => TableConverter.Parse(c.Text) is not null,
+        Category: Convert, Summary: "CSV、制表符和 Markdown 表格互相转换，也能转成 JSON");
+
     public static readonly PopAction CaseStyles = new("case", "大小写写法", "TextCaseTitle24", "dxx daxiaoxie camel snake kebab pascal case",
         ContentKind.Text,
         c => Lines("大小写写法", CaseConverter.Conversions(c.Text)),
@@ -49,7 +64,7 @@ public static partial class Actions
         Category: Developer, Summary: "格式化或压缩 JSON，保持键的顺序");
 
     /// 文字工具，接在列表后面
-    private static IEnumerable<PopAction> TextTools() => [Json, CaseStyles, Codec, Cleanup, LineTool, Extract, Hash, Random];
+    private static IEnumerable<PopAction> TextTools() => [Statistics, TableConvert, Json, CaseStyles, Codec, Cleanup, LineTool, Extract, Hash, Random];
 
     private static ActionResult? Lines(string title, IReadOnlyList<ResultLine> lines, bool monospace = false) =>
         lines.Count == 0 ? null : ActionResult.ShowCard(new CardContent(title, lines, Monospace: monospace));

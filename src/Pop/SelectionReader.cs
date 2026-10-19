@@ -33,6 +33,7 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         // 读取前先记一笔：如果在读取过程中闪退，日志的最后一行能看出是在哪个窗口
         Log.Info($"读取选中内容：窗口 {windowClass}（{process}）");
         var (supported, text) = await ReadWithAutomationAsync();
+        if (GetForegroundWindow() != foreground) return new Selection("", "focus-changed", windowClass, process);
         if (!string.IsNullOrEmpty(text)) return new Selection(text, "uia", windowClass, process);
 
         // 支持文字接口、明确说没有选中内容的，就信它；浏览器和 Electron 的接口不一定准，还是再试一次复制
@@ -46,7 +47,7 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         }
 
         var timeout = windowClass.StartsWith("Chrome_WidgetWin", StringComparison.Ordinal) ? ChromiumCopyTimeout : CopyTimeout;
-        return new Selection(await ReadWithCopyAsync(timeout) ?? "", "copy", windowClass, process);
+        return new Selection(await ReadWithCopyAsync(timeout, foreground) ?? "", "copy", windowClass, process);
     }
 
     /// 在单独的线程上读，目标 App 卡住时不拖累 Pop。
@@ -79,9 +80,10 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         return (false, null);
     }
 
-    private async Task<string?> ReadWithCopyAsync(TimeSpan timeout)
+    private async Task<string?> ReadWithCopyAsync(TimeSpan timeout, IntPtr target)
     {
         var snapshot = clipboard.Save();
+        if (GetForegroundWindow() != target) return null;
         var before = ClipboardAccess.SequenceNumber;
         CopyStarting?.Invoke();
         InputInjector.CtrlChord(0x43); // C

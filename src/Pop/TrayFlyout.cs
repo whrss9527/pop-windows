@@ -196,6 +196,9 @@ internal sealed class TrayFlyout : Window
         body.Children.Add(Row(WpfUi.SymbolRegular.ClipboardTextLtr24, "剪贴板历史", app.HistoryHotKey, () => Then(app.ShowClipboardHistory)));
         body.Children.Add(Row(WpfUi.SymbolRegular.ScanText24, "截图识字", app.OcrHotKey, () => Then(app.CaptureText)));
         body.Children.Add(Row(WpfUi.SymbolRegular.Pin24, "截图贴图", app.PinHotKey, () => Then(app.CapturePin)));
+        body.Children.Add(Row(WpfUi.SymbolRegular.Edit24, "截图标注", app.AnnotateHotKey, () => Then(app.CaptureAnnotate)));
+        body.Children.Add(Row(WpfUi.SymbolRegular.Color24, "屏幕取色", app.ColorHotKey, () => Then(app.PickColor)));
+        body.Children.Add(Row(WpfUi.SymbolRegular.Ruler24, "屏幕标尺", null, () => Then(app.MeasureScreen)));
         if (PinWindow.Count > 0)
             body.Children.Add(Row(WpfUi.SymbolRegular.PinOff24, $"关闭所有贴图（{PinWindow.Count}）", null, () => Then(PinWindow.CloseAll)));
         body.Children.Add(Divider());
@@ -250,8 +253,13 @@ internal sealed class TrayFlyout : Window
     {
         var version = $"版本 {Updater.CurrentVersion}";
         if (app.Updater.Status is { } status) return $"{version} · {status}";
-        if (!app.Settings.Enabled) return $"{version} · 长按唤起已关闭";
-        return $"{version} · 选中文字后长按右键";
+        if (!app.Settings.Enabled || app.Settings.TriggerMode == TriggerMode.Disabled) return $"{version} · 鼠标唤起已关闭";
+        return app.Settings.TriggerMode switch
+        {
+            TriggerMode.MiddleClick => $"{version} · 点击中键唤起",
+            TriggerMode.ModifierRightClick => $"{version} · 按修饰键并点击右键唤起",
+            _ => $"{version} · 选中文字后长按右键",
+        };
     }
 
     private UIElement? UpdateBanner()
@@ -299,7 +307,12 @@ internal sealed class TrayFlyout : Window
     private UIElement Tiles()
     {
         var grid = new UniformGrid { Columns = 3, Margin = new Thickness(-4, 0, -4, 10) };
-        grid.Children.Add(Tile(WpfUi.SymbolRegular.CursorClick24, "长按唤起", app.Settings.Enabled, () => app.UpdateSettings(s => s.Enabled = !s.Enabled)));
+        var mouseOn = app.Settings.Enabled && app.Settings.TriggerMode != TriggerMode.Disabled;
+        grid.Children.Add(Tile(WpfUi.SymbolRegular.CursorClick24, "鼠标唤起", mouseOn, () => app.UpdateSettings(s =>
+        {
+            s.Enabled = !mouseOn;
+            if (!mouseOn && s.TriggerMode == TriggerMode.Disabled) s.TriggerMode = TriggerMode.LongPressRight;
+        })));
         grid.Children.Add(Tile(WpfUi.SymbolRegular.Flash24, "直接出结果", app.Settings.DirectResults, () => app.UpdateSettings(s => s.DirectResults = !s.DirectResults)));
         grid.Children.Add(Tile(WpfUi.SymbolRegular.History24, "剪贴板记录", app.Settings.ClipboardHistory, () => app.UpdateSettings(s => s.ClipboardHistory = !s.ClipboardHistory)));
         return grid;

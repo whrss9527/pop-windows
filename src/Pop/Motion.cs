@@ -9,5 +9,5 @@ internal static class Motion
     public static readonly double Scale =
         double.TryParse(Environment.GetEnvironmentVariable("POP_ANIMATION_SCALE"), NumberStyles.Float, CultureInfo.InvariantCulture, out var s) && s > 0 ? s : 1;
 
-    public static Duration Ms(double milliseconds) => new(TimeSpan.FromMilliseconds(milliseconds * Scale));
+    public static Duration Ms(double milliseconds) => new(TimeSpan.FromMilliseconds(SystemParameters.ClientAreaAnimation ? milliseconds * Scale : 0));
 }

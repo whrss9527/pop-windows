@@ -16,6 +16,13 @@ public static class DirectResults
         ("timestamp", ContentKind.Timestamp, "Unix 时间戳"),
         ("datetime", ContentKind.DateTime, "日期时间"),
         ("number", ContentKind.Number, "数字（进制、人民币大写）"),
+        ("word", ContentKind.Word, "单词"),
+        ("chinese", ContentKind.ChineseText, "中文"),
+        ("url", ContentKind.Url, "链接"),
+        ("email", ContentKind.Email, "邮箱"),
+        ("json", ContentKind.Json, "JSON"),
+        ("files", ContentKind.Files, "本机路径"),
+        ("text", ContentKind.Text, "任意文字"),
     ];
 
     public static readonly IReadOnlyList<string> DefaultKindNames = ["foreign", "math", "measurement", "color", "timestamp"];
@@ -23,7 +30,9 @@ public static class DirectResults
     /// 每类内容直接出结果时用的功能；这个功能停用了就不直接出结果
     public static string ActionFor(ContentKind kind) => kind switch
     {
-        ContentKind.ForeignText => "translate",
+        ContentKind.ForeignText or ContentKind.ChineseText or ContentKind.Word or ContentKind.Text => "translate",
+        ContentKind.Url or ContentKind.Email or ContentKind.Files => "open",
+        ContentKind.Json => "json",
         ContentKind.Math => "calc",
         ContentKind.Measurement => "unit",
         ContentKind.Color => "color",

@@ -35,6 +35,7 @@ internal sealed class RingWindow : OverlayWindow
     private int? highlighted;
     private double highlightAngle;
     private Theme theme = Theme.Current();
+    public RingLayout Layout { get; private set; } = new(0, 360);
 
     public RingWindow() : base(clickThrough: true)
     {
@@ -44,23 +45,44 @@ internal sealed class RingWindow : OverlayWindow
         root.RenderTransform = scale;
         root.Children.Add(canvas);
         Content = root;
+        MouseMove += (_, e) => Highlight(PointerIndex(e));
+        MouseLeftButtonUp += (_, e) => Clicked?.Invoke(PointerIndex(e));
+        MouseRightButtonUp += (_, _) => Clicked?.Invoke(null);
     }
 
     public IReadOnlyList<PopAction> Items => items;
+    public event Action<int?>? Clicked;
+    public int? Highlighted => highlighted;
+
+    /// 松开后允许鼠标点选，仍然不激活窗口。
+    public void SetClickable(bool clickable)
+    {
+        var style = Native.GetWindowLongPtr(Handle, Native.GWL_EXSTYLE).ToInt64();
+        Native.SetWindowLongPtr(Handle, Native.GWL_EXSTYLE, new IntPtr(clickable
+            ? style & ~Native.WS_EX_TRANSPARENT : style | Native.WS_EX_TRANSPARENT));
+    }
+
+    private int? PointerIndex(System.Windows.Input.MouseEventArgs e)
+    {
+        var p = e.GetPosition(canvas);
+        return Layout.HitTest(p.X - Center, p.Y - Center, items.Count, DeadRadius);
+    }
 
     /// 物理像素下的缩放比例（显示时所在显示器）
     public double Scale { get; private set; } = 1;
 
     public void ShowAt(int x, int y, IReadOnlyList<PopAction> ringItems)
     {
-        items = ringItems;
+        SetClickable(false);
         content = null;
         highlighted = null;
         theme = Theme.Current();
 
         var (work, monitorScale) = Native.MonitorAt(x, y);
         Scale = monitorScale;
-        var (cx, cy) = RingGeometry.ClampCenter(work, x, y, OuterRadius * Scale);
+        Layout = RingLayout.At(work, x, y, OuterRadius * Scale);
+        items = VisibleItems(ringItems);
+        var (cx, cy) = ((double)x, (double)y);
         var side = (int)Math.Round(Size * Scale);
         var left = (int)Math.Round(cx - side / 2.0);
         var top = (int)Math.Round(cy - side / 2.0);
@@ -100,7 +122,7 @@ internal sealed class RingWindow : OverlayWindow
         content = selected;
         if (!ReferenceEquals(ringItems, items) && !ringItems.SequenceEqual(items))
         {
-            items = ringItems;
+            items = VisibleItems(ringItems);
             var keep = highlighted;
             highlighted = null;
             RebuildLabels();
@@ -110,6 +132,10 @@ internal sealed class RingWindow : OverlayWindow
         status.Foreground = theme.Brush(selected.IsEmpty ? theme.TertiaryText : theme.SecondaryText);
         RefreshLabels();
     }
+
+    private IReadOnlyList<PopAction> VisibleItems(IReadOnlyList<PopAction> original) =>
+        !Layout.IsArc || original.Count <= Layout.VisibleLimit ? original
+            : [.. original.Where(a => a.Id != Actions.All.Id).Take(Layout.VisibleLimit - 1), Actions.All with { Title = "更多" }];
 
     /// 普通文字显示开头一段，链接、算式这些显示类型
     private static string CenterText(ClassifiedContent content) =>
@@ -127,7 +153,11 @@ internal sealed class RingWindow : OverlayWindow
             var fill = theme.Brush(available ? theme.Accent : theme.DisabledText);
             highlight.Fill = fill;
             highlight.Stroke = fill;
-            var target = RingGeometry.NextHighlightAngle(highlightAngle, i, items.Count);
+            var angle = Layout.Angle(i, items.Count);
+            var delta = (angle - highlightAngle) % 360;
+            if (delta > 180) delta -= 360;
+            if (delta < -180) delta += 360;
+            var target = highlightAngle + delta;
             if (highlight.Opacity < 0.01)
             {
                 // 从圆心出来时直接出现在那一格，不从上一次的位置滑过来
@@ -158,10 +188,24 @@ internal sealed class RingWindow : OverlayWindow
     private void Build(Frost.Shot? shot, int discLeft, int discTop)
     {
         canvas.Children.Clear();
+        Geometry Disc(double radius)
+        {
+            if (!Layout.IsArc) return new EllipseGeometry(new Point(OuterRadius, OuterRadius), radius, radius);
+            Point P(double angle)
+            {
+                var rad = angle * Math.PI / 180;
+                return new Point(OuterRadius + radius * Math.Sin(rad), OuterRadius - radius * Math.Cos(rad));
+            }
+            var figure = new PathFigure { StartPoint = new Point(OuterRadius, OuterRadius), IsClosed = true };
+            figure.Segments.Add(new LineSegment(P(Layout.StartAngle), true));
+            figure.Segments.Add(new ArcSegment(P(Layout.StartAngle + Layout.Span), new Size(radius, radius), 0, Layout.Span > 180, SweepDirection.Clockwise, true));
+            return new PathGeometry([figure]);
+        }
 
         // 阴影：画在一个不透明的圆上
-        var shadow = new Ellipse
+        var shadow = new Path
         {
+            Data = Disc(OuterRadius),
             Width = Diameter,
             Height = Diameter,
             Fill = theme.Brush(theme.Tint),
@@ -170,14 +214,15 @@ internal sealed class RingWindow : OverlayWindow
         Place(shadow, Pad, Pad);
 
         // 毛玻璃底
-        var disc = new EllipseGeometry(new Point(OuterRadius, OuterRadius), OuterRadius, OuterRadius);
+        var disc = Disc(OuterRadius);
         disc.Freeze();
         Place(Frost.Layer(shot, discLeft, discTop, Diameter, Diameter, disc, theme), Pad, Pad);
 
         // 外描边和内侧高光
-        Place(new Ellipse { Width = Diameter, Height = Diameter, Stroke = theme.Brush(theme.Stroke), StrokeThickness = 1 }, Pad, Pad);
-        Place(new Ellipse
+        Place(new Path { Data = Disc(OuterRadius), Width = Diameter, Height = Diameter, Stroke = theme.Brush(theme.Stroke), StrokeThickness = 1 }, Pad, Pad);
+        Place(new Path
         {
+            Data = Disc(OuterRadius - 1),
             Width = Diameter - 2,
             Height = Diameter - 2,
             Stroke = new LinearGradientBrush(theme.InnerStroke, Colors.Transparent, 90),
@@ -186,10 +231,11 @@ internal sealed class RingWindow : OverlayWindow
 
         // 格子之间的分隔线
         var count = Math.Max(items.Count, 1);
-        var step = 360.0 / count;
+        var step = Layout.Span / count;
         for (var i = 0; i < count; i++)
         {
-            var angle = (i + 0.5) * step;
+            if (Layout.IsArc && i == count - 1) continue;
+            var angle = Layout.IsArc ? Layout.StartAngle + (i + 1) * step : (i + 0.5) * step;
             var (x1, y1) = At(angle, InnerRadius + 10);
             var (x2, y2) = At(angle, OuterRadius - 16);
             canvas.Children.Add(new Line { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, Stroke = theme.Brush(theme.Divider), StrokeThickness = 1 });
@@ -251,14 +297,14 @@ internal sealed class RingWindow : OverlayWindow
                 Margin = new Thickness(0, 5, 0, 0),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxWidth = 76,
+                MaxWidth = Layout.IsArc ? 42 : count > 8 ? 50 : 76,
             };
-            var panel = new StackPanel { Width = 80, VerticalAlignment = VerticalAlignment.Center };
+            var panel = new StackPanel { Width = Layout.IsArc ? 46 : count > 8 ? 54 : 80, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
             panel.Children.Add(icon);
             panel.Children.Add(title);
             var box = new Grid { Width = 80, Height = 56 };
             box.Children.Add(panel);
-            var (x, y) = At(RingGeometry.SectorAngle(i, count), LabelRadius);
+            var (x, y) = At(Layout.Angle(i, count), LabelRadius);
             Place(box, x - 40, y - 28);
             labels.Add((box, icon, title));
         }

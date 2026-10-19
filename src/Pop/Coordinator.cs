@@ -9,8 +9,6 @@ internal sealed class Coordinator : IDisposable
 {
     private const int VK_RETURN = 0x0D;
     private const int VK_ESCAPE = 0x1B;
-    private const int VK_1 = 0x31;
-    private const int VK_NUMPAD1 = 0x61;
 
     /// 选中的文字默认不写进日志；自动化测试时用 POP_LOG_SELECTION=1 打开
     private static readonly bool LogSelection = Environment.GetEnvironmentVariable("POP_LOG_SELECTION") == "1";
@@ -26,6 +24,8 @@ internal sealed class Coordinator : IDisposable
     private readonly ClipboardHistoryWindow historyWindow = new();
     private readonly ClipboardHistory history;
     private readonly RegionSelector selector = new();
+    private readonly ColorPicker colorPicker = new();
+    private bool screenToolBusy;
     private readonly Func<AppSettings> settings;
     private Session? session;
 
@@ -39,16 +39,20 @@ internal sealed class Coordinator : IDisposable
     /// 长按成立后最多等这么久读取选中内容：选中的是算式、单位、颜色这些时直接出结果，不用先弹圆盘再换成卡片
     private static readonly TimeSpan DirectWait = TimeSpan.FromMilliseconds(250);
 
-    private sealed class Session(int x, int y, Task<Selection> selection)
+    private sealed class Session(int x, int y, Task<Selection> selection, string application = "")
     {
         public int X { get; } = x;
         public int Y { get; } = y;
         public Task<Selection> Selection { get; } = selection;
+        public string Application { get; } = application;
         public IReadOnlyList<PopAction> Items { get; set; } = [];
         public bool RingShown { get; set; }
         /// 圆盘还没弹出来右键就松开了
         public bool ReleasedEarly { get; set; }
         public bool Finished { get; set; }
+        public bool WaitingForClick { get; set; }
+        public int? KeyboardIndex { get; set; }
+        public IReadOnlyList<PopAction> OriginalItems { get; set; } = [];
     }
 
     private readonly Func<PluginStore> plugins;
@@ -76,15 +80,25 @@ internal sealed class Coordinator : IDisposable
         paster = new Paster();
 
         hook.Triggered += (x, y) => dispatcher.BeginInvoke(() => OnTriggered(x, y));
+        hook.ClickTriggered += (x, y) => dispatcher.BeginInvoke(async () => await OpenFromClickAsync(x, y));
         hook.Moved += (x, y) => dispatcher.BeginInvoke(() => OnMoved(x, y));
         hook.Released += (x, y) => dispatcher.BeginInvoke(() => OnReleased(x, y));
         hook.OtherButtonDown += (x, y) =>
         {
+            if (ringOpen) dispatcher.BeginInvoke(async () =>
+            {
+                if (session is { Finished: false, WaitingForClick: true } s && !ring.ContainsPhysical(x, y)) await Finish(s, null);
+            });
             if (cardOpen) dispatcher.BeginInvoke(() => { if (!card.ContainsPhysical(x, y)) CloseCard(); });
             if (listOpen) dispatcher.BeginInvoke(() => { if (!actionList.ContainsPhysical(x, y)) CloseList(); });
             if (historyOpen) dispatcher.BeginInvoke(() => { if (!historyWindow.ContainsPhysical(x, y)) CloseHistory(); });
         };
         hook.KeyFilter = FilterKey;
+        actionList.BackRequested += ReturnToRing;
+        ring.Clicked += async index =>
+        {
+            if (session is { Finished: false, WaitingForClick: true } s) await Finish(s, index);
+        };
         card.CopyRequested += text => clipboard.SetText(text, temporary: false);
         card.LinkRequested += Open;
         card.ReplaceRequested += async text => await Replace(text);
@@ -112,6 +126,8 @@ internal sealed class Coordinator : IDisposable
 
     public void Dispose()
     {
+        selector.Cancel();
+        colorPicker.Cancel();
         ring.Close();
         card.Close();
         actionList.Close();
@@ -122,12 +138,13 @@ internal sealed class Coordinator : IDisposable
 
     private async void OnTriggered(int x, int y)
     {
+        if (session is { Finished: false } previous) await Finish(previous, null);
         CloseCard();
         CloseList();
         CloseHistory();
         Log.Info($"长按 ({x}, {y})");
         var selection = ReadSelectionAsync();
-        var s = new Session(x, y, selection);
+        var s = new Session(x, y, selection, Native.ProcessNameOf(Native.GetForegroundWindow()));
         session = s;
 
         await Task.WhenAny(selection, Task.Delay(DirectWait));
@@ -136,18 +153,11 @@ internal sealed class Coordinator : IDisposable
         if (selection.IsCompleted)
         {
             content = ContentClassifier.Classify(selection.Result.Text);
-            if (DirectResults.TranslatesDirectly(content, settings().DirectKindFlags))
-            {
-                s.Finished = true;
-                Log.Info("直达结果：翻译");
-                _ = TranslateAsync(content.Text, x, y);
-                return;
-            }
-            if (DirectCard(content) is { } direct)
+            if (settings().DirectActionFor(content) is { } direct)
             {
                 s.Finished = true;
                 Log.Info($"直达结果：{direct.Title}");
-                ShowResult(x, y, direct);
+                await Run(direct, content, x, y);
                 return;
             }
         }
@@ -165,28 +175,103 @@ internal sealed class Coordinator : IDisposable
         if (session == s && !s.Finished) UpdateRing(s, ContentClassifier.Classify(result.Text));
     }
 
-    private CardContent? DirectCard(ClassifiedContent content) =>
-        DirectResults.For(content, settings().DirectKindFlags);
+    private IReadOnlyList<PopAction> RingFor(Session s) => RingItems.Build(settings().SlotsFor(s.Application), settings().IsEnabled);
 
-    private IReadOnlyList<PopAction> Ring => RingItems.Build(settings().RingSlots, settings().IsEnabled);
+    /// 快捷键唤起时没有右键按压，直接进入点击选择模式。
+    public async void ShowRingFromShortcut()
+    {
+        if (screenToolBusy || selector.IsOpen || colorPicker.IsOpen) return;
+        if (session is { Finished: false } previous) { await Finish(previous, null); return; }
+        CloseCard(); CloseList(); CloseHistory();
+        Native.GetCursorPos(out var cursor);
+        var target = Native.GetForegroundWindow();
+        // 组合键还按着时不能模拟 Ctrl+C，否则 Alt/Win 会把按键变成别的快捷键。
+        if (!await WaitForModifiersAsync() || Native.GetForegroundWindow() != target) return;
+        var s = new Session(cursor.X, cursor.Y, ReadSelectionAsync(), Native.ProcessNameOf(target)) { WaitingForClick = true };
+        session = s;
+        ShowRing(s, null);
+        ring.SetClickable(true);
+        var selection = await s.Selection;
+        if (!s.Finished) UpdateRing(s, ContentClassifier.Classify(selection.Text));
+    }
 
-    private void ShowRing(Session s, ClassifiedContent? content)
+    private async Task OpenFromClickAsync(int x, int y)
+    {
+        if (screenToolBusy || selector.IsOpen || colorPicker.IsOpen) return;
+        var target = Native.GetForegroundWindow();
+        if (!await WaitForModifiersAsync() || Native.GetForegroundWindow() != target) return;
+        if (session is { Finished: false } previous) { await Finish(previous, null); return; }
+        CloseCard(); CloseList(); CloseHistory();
+        var s = new Session(x, y, ReadSelectionAsync(), Native.ProcessNameOf(target)) { WaitingForClick = true };
+        session = s;
+        await Task.WhenAny(s.Selection, Task.Delay(DirectWait));
+        if (session != s || s.Finished) return;
+        if (!s.Selection.IsCompleted)
+        {
+            ShowRing(s, null); ring.SetClickable(true);
+            var late = await s.Selection;
+            if (session == s && !s.Finished) UpdateRing(s, ContentClassifier.Classify(late.Text));
+            return;
+        }
+        var selection = await s.Selection;
+        if (session != s || s.Finished) return;
+        var content = ContentClassifier.Classify(selection.Text);
+        if (settings().DirectActionFor(content) is { } direct)
+        {
+            s.Finished = true;
+            await Run(direct, content, x, y);
+            return;
+        }
+        ShowRing(s, content); ring.SetClickable(true);
+    }
+
+    private static async Task<bool> WaitForModifiersAsync()
+    {
+        for (var n = 0; n < 100; n++)
+        {
+            if (new[] { 0x10, 0x11, 0x12, 0x5B, 0x5C }.All(key => (Native.GetAsyncKeyState(key) & 0x8000) == 0)) return true;
+            await Task.Delay(15);
+        }
+        return false;
+    }
+
+    public async void RunActionFromShortcut(string id)
+    {
+        if (screenToolBusy || selector.IsOpen || colorPicker.IsOpen || !settings().IsEnabled(id) || Actions.Find(id) is not { } action) return;
+        var target = Native.GetForegroundWindow();
+        if (!await WaitForModifiersAsync() || Native.GetForegroundWindow() != target) return;
+        if (session is { Finished: false } s) await Finish(s, null);
+        CloseCard(); CloseList(); CloseHistory();
+        Native.GetCursorPos(out var cursor);
+        var needsSelection = action.Requires != ContentKind.None || action.Id == Actions.All.Id || action.Category == Actions.PluginCategory;
+        var content = needsSelection ? ContentClassifier.Classify((await ReadSelectionAsync()).Text) : ClassifiedContent.Empty;
+        if (Native.GetForegroundWindow() != target) return;
+        if (action.Id == Actions.All.Id) ShowList(content, cursor.X, cursor.Y);
+        else await Execute(action, content, cursor.X, cursor.Y);
+    }
+
+    private void ShowRing(Session s, ClassifiedContent? content, IReadOnlyList<PopAction>? originalItems = null)
     {
         var watch = Stopwatch.StartNew();
-        s.Items = content is null ? Ring : RingItems.For(Ring, content);
+        s.Items = originalItems ?? (content is null ? RingFor(s) : RingItems.For(RingFor(s), content));
+        s.OriginalItems = s.Items;
         s.RingShown = true;
         ringCount = s.Items.Count;
         ringOpen = true;
         ring.ShowAt(s.X, s.Y, s.Items);
-        if (content is not null) ring.SetContent(content, s.Items);
+        if (content is not null) ring.SetContent(content, s.OriginalItems);
+        s.Items = ring.Items;
+        ringCount = s.Items.Count;
         LogIfSlow("弹出圆盘", watch);
     }
 
     private void UpdateRing(Session s, ClassifiedContent content)
     {
-        s.Items = RingItems.For(Ring, content);
-        ringCount = s.Items.Count;
+        s.Items = RingItems.For(RingFor(s), content);
+        s.OriginalItems = s.Items;
         ring.SetContent(content, s.Items);
+        s.Items = ring.Items;
+        ringCount = s.Items.Count;
     }
 
     private async Task<Selection> ReadSelectionAsync()
@@ -208,6 +293,7 @@ internal sealed class Coordinator : IDisposable
     private void OnMoved(int x, int y)
     {
         if (session is not { Finished: false } s) return;
+        s.KeyboardIndex = null;
         ring.Highlight(HitTest(s, x, y));
     }
 
@@ -219,16 +305,28 @@ internal sealed class Coordinator : IDisposable
             s.ReleasedEarly = true;
             return;
         }
-        var index = HitTest(s, x, y);
+        var index = s.KeyboardIndex ?? HitTest(s, x, y);
+        if (RingNavigation.KeepAfterRelease(s.WaitingForClick, settings().KeepRingOpen, index))
+        {
+            s.WaitingForClick = true;
+            ring.SetClickable(true);
+            return;
+        }
         await Finish(s, index);
     }
 
     private int? HitTest(Session s, int x, int y) =>
-        RingGeometry.HitTest(x - s.X, y - s.Y, s.Items.Count, RingWindow.DeadRadius * ring.Scale);
+        ring.Layout.HitTest(x - s.X, y - s.Y, s.Items.Count, RingWindow.DeadRadius * ring.Scale);
 
     /// 钩子线程上调用，只看状态、立刻返回，真正的事交给界面线程
     private bool FilterKey(int vk)
     {
+        if (colorPicker.IsOpen)
+        {
+            if (vk != VK_ESCAPE) return false;
+            dispatcher.BeginInvoke(colorPicker.Cancel);
+            return true;
+        }
         if (selector.IsOpen)
         {
             if (vk != VK_ESCAPE) return false;
@@ -239,14 +337,37 @@ internal sealed class Coordinator : IDisposable
         if (historyOpen) return FilterHistoryKey(vk);
         if (ringOpen)
         {
+            static bool Down(int key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
+            if (Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C))
+            {
+                if (vk is 0x11 or 0x12 or 0x5B or 0x5C or 0xA2 or 0xA3 or 0xA4 or 0xA5) return false;
+                hook.DiscardCurrentPress();
+                dispatcher.BeginInvoke(async () => { if (session is { Finished: false } s) await Finish(s, null); });
+                return false;
+            }
             if (vk == VK_ESCAPE)
             {
                 hook.DiscardCurrentPress();
                 dispatcher.BeginInvoke(async () => { if (session is { Finished: false } s) await Finish(s, null); });
                 return true;
             }
-            var index = vk is >= VK_1 and <= VK_1 + 8 ? vk - VK_1 : vk is >= VK_NUMPAD1 and <= VK_NUMPAD1 + 8 ? vk - VK_NUMPAD1 : -1;
-            if (index >= 0 && index < ringCount)
+            if (vk is 0x25 or 0x26 or 0x27 or 0x28)
+            {
+                dispatcher.BeginInvoke(() =>
+                {
+                    if (session is not { Finished: false } s) return;
+                    s.KeyboardIndex = RingNavigation.Move(s.KeyboardIndex ?? ring.Highlighted, vk is 0x25 or 0x26 ? -1 : 1, s.Items.Count);
+                    ring.Highlight(s.KeyboardIndex);
+                });
+                return true;
+            }
+            if (vk == VK_RETURN)
+            {
+                hook.DiscardCurrentPress();
+                dispatcher.BeginInvoke(async () => { if (session is { Finished: false } s) await Finish(s, s.KeyboardIndex ?? ring.Highlighted); });
+                return true;
+            }
+            if (RingNavigation.NumberIndex(vk, ringCount) is { } index)
             {
                 hook.DiscardCurrentPress();
                 dispatcher.BeginInvoke(async () => { if (session is { Finished: false } s) await Finish(s, index); });
@@ -304,7 +425,10 @@ internal sealed class Coordinator : IDisposable
                 dispatcher.BeginInvoke(() => actionList.Move(1));
                 return true;
             case VK_BACK:
-                dispatcher.BeginInvoke(actionList.Backspace);
+                dispatcher.BeginInvoke(() => { if (actionList.CanReturnToRing) ReturnToRing(); else actionList.Backspace(); });
+                return true;
+            case 0x25:
+                dispatcher.BeginInvoke(() => { if (actionList.CanReturnToRing) ReturnToRing(); });
                 return true;
         }
         if (typed is { } c)
@@ -318,9 +442,11 @@ internal sealed class Coordinator : IDisposable
 
     private async Task Finish(Session s, int? index)
     {
+        if (s.Finished) return;
         s.Finished = true;
         ringOpen = false;
         ring.Dismiss();
+        ring.SetClickable(false);
         if (index is not { } i)
         {
             Log.Info("在圆心松开，关闭");
@@ -340,18 +466,29 @@ internal sealed class Coordinator : IDisposable
         if (action.Id == Actions.All.Id)
         {
             Log.Info("打开全部功能");
-            ShowList(content, x, y);
+            ShowList(content, x, y, true);
             return;
         }
         await Run(action, content, x, y);
     }
 
-    private void ShowList(ClassifiedContent content, int x, int y)
+    private void ShowList(ClassifiedContent content, int x, int y, bool fromRing = false)
     {
         lastList = (content, x, y);
         CloseCard();
-        actionList.ShowFor(content, x, y, settings().IsEnabled);
+        actionList.ShowFor(content, x, y, settings().IsEnabled, fromRing,
+            fromRing && ring.Layout.IsArc ? session?.OriginalItems : null);
         listOpen = true;
+    }
+
+    private void ReturnToRing()
+    {
+        if (lastList is not { } last || session is not { } previous) return;
+        CloseList();
+        var s = new Session(previous.X, previous.Y, previous.Selection, previous.Application) { WaitingForClick = true };
+        session = s;
+        ShowRing(s, last.Content, previous.OriginalItems);
+        ring.SetClickable(true);
     }
 
     /// 框选一块屏幕区域，截下来（物理像素）；取消时返回 null
@@ -381,11 +518,11 @@ internal sealed class Coordinator : IDisposable
     }
 
     /// 截图识字：框选区域，识别文字，结果显示在卡片上
-    public async Task CaptureTextAsync()
+    public Task CaptureTextAsync() => ScreenToolAsync(async () =>
     {
         if (await SelectRegionAsync() is not { } region) return;
         await RecognizeAsync(region.Png, region.Area.Left + region.Area.Width / 2, region.Area.Top + region.Area.Height / 2);
-    }
+    });
 
     private async Task RecognizeAsync(byte[] png, int x, int y)
     {
@@ -410,12 +547,54 @@ internal sealed class Coordinator : IDisposable
     }
 
     /// 截图贴图：框选区域，贴在所有窗口最前面（放在原来的位置）
-    public async Task CapturePinAsync()
+    public Task CapturePinAsync() => ScreenToolAsync(async () =>
     {
         if (await SelectRegionAsync() is not { } region) return;
         var scale = Native.MonitorAt(region.Area.Left, region.Area.Top).Scale;
         new PinWindow(region.Png, region.Area.Left, region.Area.Top, scale).Show();
         Log.Info($"贴图：{region.Area.Width}×{region.Area.Height}，现在有 {PinWindow.Count} 张");
+    });
+
+    public Task CaptureAnnotateAsync() => ScreenToolAsync(async () =>
+    {
+        if (await SelectRegionAsync() is not { } region) return;
+        new AnnotationWindow(region.Png, region.Area.Left, region.Area.Top).Show();
+    });
+
+    public Task PickColorAsync() => ScreenToolAsync(async () =>
+    {
+        CloseCard(); CloseList(); CloseHistory();
+        await Task.Delay(150);
+        if (await colorPicker.PickAsync() is not { } picked) return;
+        ShowResult(picked.X, picked.Y, new CardContent("屏幕取色", picked.Color.Rows(), Swatch: picked.Color.HexString,
+            Monospace: true, Caption: "来自屏幕原始像素 · 点击一行复制，回车复制 HEX"));
+    });
+
+    public Task MeasureScreenAsync() => ScreenToolAsync(async () =>
+    {
+        if (await SelectRegionAsync() is not { } region) return;
+        var area = region.Area;
+        ShowResult(area.Left, area.Top, new CardContent("屏幕标尺",
+        [
+            new("尺寸", $"{area.Width} × {area.Height} px"),
+            new("宽度", $"{area.Width} px"), new("高度", $"{area.Height} px"),
+            new("对角线", $"{Math.Sqrt((double)area.Width * area.Width + (double)area.Height * area.Height):0.##} px"),
+        ], Caption: "物理像素，不受 Windows 显示缩放影响", Icon: "Ruler24"));
+    });
+
+    private async Task ScreenToolAsync(Func<Task> operation)
+    {
+        if (screenToolBusy || selector.IsOpen || colorPicker.IsOpen) return;
+        screenToolBusy = true;
+        hook.Enabled = false;
+        try { await operation(); }
+        catch (Exception e)
+        {
+            Log.Error("屏幕工具失败", e);
+            Native.GetCursorPos(out var cursor);
+            ShowToast(cursor.X, cursor.Y, "屏幕工具无法启动，详情见日志");
+        }
+        finally { screenToolBusy = false; hook.Enabled = settings().Enabled; }
     }
 
     /// 打开剪贴板历史；不给位置时放在指针旁边
@@ -620,6 +799,18 @@ internal sealed class Coordinator : IDisposable
                 break;
             case ActionEffect.CapturePin:
                 await CapturePinAsync();
+                break;
+            case ActionEffect.CaptureAnnotate:
+                await CaptureAnnotateAsync();
+                break;
+            case ActionEffect.PickColor:
+                await PickColorAsync();
+                break;
+            case ActionEffect.MeasureScreen:
+                await MeasureScreenAsync();
+                break;
+            case ActionEffect.ShowSettings:
+                ((App)System.Windows.Application.Current).ShowSettings();
                 break;
             case ActionEffect.RunPlugin when result.PluginId is { } pluginId:
                 await RunPluginAsync(pluginId, action, content, x, y);

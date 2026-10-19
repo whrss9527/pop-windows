@@ -19,11 +19,14 @@ namespace Pop;
 
 /// 设置窗口：左边分页，右边是一张张设置卡片。改动立刻生效并保存。
 /// Windows 11 上窗口底是 Mica，Windows 10 上是纯色
-internal sealed class SettingsWindow : WpfUi.FluentWindow
+internal sealed partial class SettingsWindow : WpfUi.FluentWindow
 {
     public static readonly IReadOnlyList<(string Id, string Title, Symbol Icon)> Pages =
     [
         ("general", "通用", Symbol.Settings24),
+        ("triggers", "唤起", Symbol.CursorClick24),
+        ("rules", "直达规则", Symbol.Flash24),
+        ("shortcuts", "快捷键", Symbol.Keyboard24),
         ("ring", "圆盘", Symbol.DataPie24),
         ("actions", "功能", Symbol.Apps24),
         ("translate", "翻译", Symbol.Translate24),
@@ -74,7 +77,7 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
         });
 
         var body = new Grid();
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(272) });
+        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(224) });
         body.ColumnDefinitions.Add(new ColumnDefinition());
         Grid.SetRow(body, 1);
         root.Children.Add(body);
@@ -85,7 +88,7 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
 
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Escape && !(e.OriginalSource is ComboBoxItem or ComboBox { IsDropDownOpen: true })) Close();
+            if (!shortcutRecording && e.Key == Key.Escape && !(e.OriginalSource is ComboBoxItem or ComboBox { IsDropDownOpen: true })) Close();
         };
         app.SettingsChanged += OnSettingsChanged;
         app.Updater.Changed += OnUpdaterChanged;
@@ -96,6 +99,7 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
             app.Updater.Changed -= OnUpdaterChanged;
             app.PluginsChanged -= OnPluginsChanged;
             http?.Dispose();
+            if (shortcutRecording) app.SuspendShortcuts(false);
         };
         Navigate(page ?? "general");
     }
@@ -124,7 +128,7 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
     /// 插件增加、删除或者改了：功能页和圆盘页要重画
     private void OnPluginsChanged()
     {
-        if (current is "actions" or "ring") Dispatcher.BeginInvoke(() => ShowPage(animate: false));
+        if (current is "actions" or "ring" or "rules" or "shortcuts") Dispatcher.BeginInvoke(() => ShowPage(animate: false));
     }
 
     private void OnUpdaterChanged()
@@ -186,7 +190,7 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
             nav[id] = (button, pill, glyph);
             panel.Children.Add(button);
         }
-        return panel;
+        return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
     }
 
     /// 打开某一页（Pages 里的 ID）
@@ -215,6 +219,9 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
         page.Children.Add(title);
         switch (current)
         {
+            case "triggers": TriggersPage(page); break;
+            case "rules": RulesPage(page); break;
+            case "shortcuts": ShortcutsPage(page); break;
             case "ring": RingPage(page); break;
             case "actions": ActionsPage(page); break;
             case "translate": TranslatePage(page); break;
@@ -234,91 +241,6 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
     }
 
     // ── 通用 ────────────────────────────────────────────
-
-    private void GeneralPage(StackPanel page)
-    {
-        var s = Settings;
-        page.Children.Add(Section("唤起", first: true));
-        page.Children.Add(Card(Symbol.CursorClick24, "长按鼠标右键唤起 Pop", "在任意 App 里选中文字，按住右键不放，圆盘就会出现",
-            Toggle(s.Enabled, v => Update(x => x.Enabled = v))));
-
-        var holdValue = Label($"{s.HoldMilliseconds} 毫秒", Theme.Body, "TextFillColorSecondaryBrush");
-        holdValue.MinWidth = 64;
-        holdValue.TextAlignment = TextAlignment.Right;
-        holdValue.VerticalAlignment = VerticalAlignment.Center;
-        holdValue.Margin = new Thickness(0, 0, 12, 0);
-        var hold = new Slider
-        {
-            Minimum = AppSettings.MinHold,
-            Maximum = AppSettings.MaxHold,
-            TickFrequency = 50,
-            IsSnapToTickEnabled = true,
-            Value = s.HoldMilliseconds,
-            Width = 200,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        hold.ValueChanged += (_, e) =>
-        {
-            var ms = (int)e.NewValue;
-            holdValue.Text = $"{ms} 毫秒";
-            Update(x => x.HoldMilliseconds = ms);
-        };
-        page.Children.Add(Card(Symbol.Timer24, "按住多久算长按", "比这个时间短的右键点击照常弹出系统的右键菜单", Horizontal(holdValue, hold)));
-
-        bool autoStart;
-        try
-        {
-            autoStart = AutoStart.IsEnabled;
-        }
-        catch (System.Security.SecurityException)
-        {
-            autoStart = false;
-        }
-        page.Children.Add(Card(Symbol.Rocket24, "开机时启动", "登录 Windows 后在后台运行，任务栏右下角有 Pop 的图标",
-            Toggle(autoStart, v =>
-            {
-                try
-                {
-                    AutoStart.Set(v);
-                }
-                catch (Exception e) when (e is UnauthorizedAccessException or System.Security.SecurityException or IOException)
-                {
-                    Log.Error("设置开机启动失败", e);
-                }
-            })));
-
-        page.Children.Add(Section("直接出结果"));
-        var kindToggles = new List<(WpfUi.ToggleSwitch Toggle, bool Available)>();
-        var master = Toggle(s.DirectResults, v =>
-        {
-            Update(x => x.DirectResults = v);
-            foreach (var (toggle, available) in kindToggles) toggle.IsEnabled = v && available;
-        });
-        var rows = new List<UIElement>();
-        foreach (var (name, kind, title) in DirectResults.Kinds)
-        {
-            var actionId = DirectResults.ActionFor(kind);
-            var available = s.IsEnabled(actionId);
-            var toggle = Toggle(s.DirectKinds.Contains(name, StringComparer.OrdinalIgnoreCase), v => Update(x =>
-            {
-                x.DirectKinds.RemoveAll(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
-                if (v) x.DirectKinds.Add(name);
-            }));
-            toggle.IsEnabled = s.DirectResults && available;
-            kindToggles.Add((toggle, available));
-            var description = available ? KindExample(name) : $"「{Actions.Find(actionId)?.Title}」功能已关闭，可以在「功能」里打开";
-            rows.Add(Row(null, title, description, toggle, indent: 38));
-        }
-        page.Children.Add(Group(Row(Symbol.Flash24, "选中这些内容时直接出结果", "跳过圆盘，直接弹出结果卡片；没打开的照常弹出圆盘", master), rows));
-
-        page.Children.Add(Section("快捷键"));
-        page.Children.Add(Group(null,
-        [
-            ShortcutRow(Symbol.ClipboardTextLtr24, "剪贴板历史", app.HistoryHotKey),
-            ShortcutRow(Symbol.ScanText24, "截图识字", app.OcrHotKey),
-            ShortcutRow(Symbol.Pin24, "截图贴图", app.PinHotKey),
-        ]));
-    }
 
     private static string KindExample(string name) => name switch
     {
@@ -340,8 +262,11 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
     private void RingPage(StackPanel page)
     {
         var s = Settings;
-        var ring = RingItems.Build(s.RingSlots, s.IsEnabled);
-        page.Children.Add(Note("长按右键后往某一格的方向划、松开就执行这一格的功能；按住右键时也可以按数字键直接选。选中链接、邮箱或路径时，「搜索」会换成「打开」。"));
+        AddRingScope(page);
+        var ring = CurrentRing(s);
+        page.Children.Add(Note("长按右键后往某一格的方向划、松开执行；数字键 1–9、0 直选前十格，方向键选择、回车执行，Esc 关闭。选中链接、邮箱或路径时，「搜索」会换成「打开」。"));
+        page.Children.Add(Card(Symbol.Cursor24, "松开后点击选择", "在圆心松开后保持打开，划向功能松开仍立即执行；右键或 Esc 关闭",
+            Toggle(s.KeepRingOpen, v => Update(x => x.KeepRingOpen = v))));
 
         var count = new ComboBox { MinWidth = 140 };
         for (var n = RingItems.MinSlots; n <= RingItems.MaxSlots; n++) count.Items.Add($"{n} 格");
@@ -351,23 +276,23 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
             var n = count.SelectedIndex + RingItems.MinSlots;
             Update(x =>
             {
-                var slots = RingItems.Build(x.RingSlots, x.IsEnabled).Select(a => a.Id).Take(n).ToList();
+                var slots = CurrentRing(x).Select(a => a.Id).Take(n).ToList();
                 // 多出来的格子从默认的里面挑还没用上的
                 foreach (var id in RingItems.DefaultIds.Concat(Actions.List.Select(a => a.Id)))
                 {
                     if (slots.Count >= n) break;
                     if (!slots.Contains(id) && x.IsEnabled(id)) slots.Add(id);
                 }
-                x.RingSlots = slots;
+                SetCurrentRing(x, slots);
             });
             Dispatcher.BeginInvoke(() => ShowPage(animate: false));
         };
-        page.Children.Add(Card(Symbol.DataPie24, "格子数", "4 到 8 格。格子越少，每一格越大，越容易划中", count));
+        page.Children.Add(Card(Symbol.DataPie24, "格子数", "4 到 12 格。格子越少，每一格越大，越容易划中", count));
 
         page.Children.Add(Section("每一格的功能"));
         var preview = new Canvas { Width = PreviewSize, Height = PreviewSize };
         int? highlighted = null;
-        void Draw() => DrawPreview(preview, RingItems.Build(Settings.RingSlots, Settings.IsEnabled), highlighted);
+        void Draw() => DrawPreview(preview, CurrentRing(Settings), highlighted);
         Draw();
 
         var choices = RingItems.Choices.Where(a => s.IsEnabled(a.Id)).ToList();
@@ -398,12 +323,12 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
                 var id = choices[box.SelectedIndex].Id;
                 Update(x =>
                 {
-                    var slots = RingItems.Build(x.RingSlots, x.IsEnabled).Select(a => a.Id).ToList();
+                    var slots = CurrentRing(x).Select(a => a.Id).ToList();
                     // 选了别的格子已经有的功能：两格互换
                     var other = slots.IndexOf(id);
                     if (other >= 0 && other != index) slots[other] = slots[index];
                     slots[index] = id;
-                    x.RingSlots = slots;
+                    SetCurrentRing(x, slots);
                 });
                 Dispatcher.BeginInvoke(() => ShowPage(animate: false));
             };
@@ -423,19 +348,16 @@ internal sealed class SettingsWindow : WpfUi.FluentWindow
             list.Children.Add(row);
         }
 
-        var layout = new Grid { Margin = new Thickness(20) };
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        layout.ColumnDefinitions.Add(new ColumnDefinition());
-        preview.Margin = new Thickness(0, 0, 36, 0);
+        var layout = new WrapPanel { Margin = new Thickness(16) };
+        preview.Margin = new Thickness(0, 0, 24, 16);
         preview.VerticalAlignment = VerticalAlignment.Center;
         layout.Children.Add(preview);
-        Grid.SetColumn(list, 1);
         layout.Children.Add(list);
         page.Children.Add(CardBorder(layout));
 
         var reset = ActionButton("恢复默认", Symbol.ArrowReset24, () =>
         {
-            Update(x => x.RingSlots = [.. RingItems.DefaultIds]);
+            Update(x => SetCurrentRing(x, [.. RingItems.DefaultIds]));
             ShowPage(animate: false);
         });
         reset.Margin = new Thickness(0, 12, 0, 0);

@@ -23,6 +23,14 @@ public enum ActionEffect
     CaptureText,
     /// 框选屏幕区域贴到最前面
     CapturePin,
+    /// 截图后打开标注编辑器
+    CaptureAnnotate,
+    /// 定格屏幕后取色
+    PickColor,
+    /// 框选测量像素尺寸
+    MeasureScreen,
+    /// 打开设置窗口
+    ShowSettings,
     /// 翻译 Text，结果显示在卡片上（要联网，由界面异步完成）
     Translate,
     /// 在后台运行自定义插件（Text 是插件 ID）：调用 PluginRunner.RunAsync 得到真正要做的事
@@ -124,6 +132,15 @@ public static partial class Actions
     public static readonly PopAction ScreenPin = new("pin", "截图贴图", "Pin24", "jttt jietu tietu pin screenshot jt", ContentKind.None,
         _ => new ActionResult(ActionEffect.CapturePin), Category: Screen, Summary: "框选的区域贴在所有窗口最前面");
 
+    public static readonly PopAction Annotate = new("annotate", "截图标注", "Edit24", "jtbz jietu biaozhu annotate screenshot arrow mosaic", ContentKind.None,
+        _ => new ActionResult(ActionEffect.CaptureAnnotate), Category: Screen, Summary: "框选截图，加箭头、方框、文字、马赛克和序号，复制、保存或贴图");
+    public static readonly PopAction ColorPicker = new("colorPicker", "屏幕取色", "Color24", "pmqs pingmu quse color picker eyedropper", ContentKind.None,
+        _ => new ActionResult(ActionEffect.PickColor), Category: Screen, Summary: "定格屏幕，放大指针处像素，点击查看 HEX、RGB、HSL");
+    public static readonly PopAction Ruler = new("ruler", "屏幕标尺", "Ruler24", "pmbc pingmu biaochi ruler measure size", ContentKind.None,
+        _ => new ActionResult(ActionEffect.MeasureScreen), Category: Screen, Summary: "框选区域，测量物理像素宽高和对角线");
+    public static readonly PopAction Settings = new("settings", "设置", "Settings24", "sz shezhi settings preferences", ContentKind.None,
+        _ => new ActionResult(ActionEffect.ShowSettings), Category: Common, Summary: "打开 Pop 设置");
+
     public static readonly PopAction Calculate = new("calc", "计算", "Calculator24", "js jisuan calc math", ContentKind.Math,
         c => CardFor(c, ContentKind.Math), Category: Convert, Summary: "算出算式的结果，可以替换原文");
 
@@ -163,7 +180,7 @@ public static partial class Actions
 
     private static IReadOnlyList<PopAction> BuildList()
     {
-        var list = new List<PopAction> { Copy, Search, Open, Translate, ClipboardHistory, ScreenText, ScreenPin, Calculate, Units, Color, Time, Number, Count, Upper, Lower };
+        var list = new List<PopAction> { Copy, Search, Open, Translate, ClipboardHistory, Settings, ScreenText, Annotate, ScreenPin, ColorPicker, Ruler, Calculate, Units, Color, Time, Number, Count, Upper, Lower };
         list.AddRange(TextTools());
         return list;
     }
@@ -189,7 +206,7 @@ public static partial class Actions
 public static class RingItems
 {
     public const int MinSlots = 4;
-    public const int MaxSlots = 8;
+    public const int MaxSlots = 12;
 
     /// 默认的圆盘：正上方开始顺时针
     public static readonly IReadOnlyList<string> DefaultIds = ["copy", "search", "translate", "upper", "count", "all"];
