@@ -31,6 +31,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         ("actions", "功能", Symbol.Apps24),
         ("translate", "翻译", Symbol.Translate24),
         ("clipboard", "剪贴板", Symbol.ClipboardTextLtr24),
+        ("backup", "备份与迁移", Symbol.Save24),
         ("about", "关于", Symbol.Info24),
     ];
 
@@ -226,6 +227,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             case "actions": ActionsPage(page); break;
             case "translate": TranslatePage(page); break;
             case "clipboard": ClipboardPage(page); break;
+            case "backup": BackupPage(page); break;
             case "about": AboutPage(page); break;
             default: GeneralPage(page); break;
         }

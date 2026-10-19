@@ -51,6 +51,14 @@ internal static class Demo
 
         var text = ContentClassifier.Classify("Pop makes selected text useful");
 
+        if (Want("toolbar"))
+            await Scene("toolbar", async () =>
+            {
+                var toolbar = new SelectionToolbar();
+                toolbar.ShowAt(x, y, SelectionToolbarLogic.Items(RingItems.Default, text), new Pop.Core.Rect(x - 140, y - 16, x + 140, y + 4));
+                await Wait(500); Shot("selection-toolbar"); toolbar.Dismiss(); toolbar.Close(); await Wait(200);
+            });
+
         if (Want("ring"))
             await Scene("ring", async () =>
             {
@@ -193,6 +201,8 @@ internal static class Demo
                     s.TriggerMode = TriggerMode.ModifierRightClick;
                     s.TriggerModifier = TriggerModifier.Control;
                     s.ActionShortcuts["upper"] = new(6, 0x55);
+                    s.SelectionToolbar = true;
+                    s.TriggerExcludedApps = ["Code", "mstsc"];
                 });
                 if (window is not null)
                 {
@@ -200,7 +210,7 @@ internal static class Demo
                     window.EditApplicationRing("notepad"); await Wait(600); Shot("settings-ring-application");
                     window.Navigate("shortcuts"); await Wait(600); Shot("settings-shortcuts-configured");
                 }
-                app.UpdateSettings(s => { s.AppRings.Clear(); s.ActionShortcuts.Clear(); s.TriggerMode = TriggerMode.LongPressRight; s.TriggerModifier = TriggerModifier.Alt; });
+                app.UpdateSettings(s => { s.AppRings.Clear(); s.ActionShortcuts.Clear(); s.TriggerMode = TriggerMode.LongPressRight; s.TriggerModifier = TriggerModifier.Alt; s.SelectionToolbar = false; s.TriggerExcludedApps.Clear(); });
                 // 插件编辑器：一个脚本插件、一个网址插件，脚本插件先试运行一下
                 if (window is not null)
                     foreach (var manifest in app.Plugins.Manifests.OrderBy(m => m.Action.Type == PluginActionType.Url ? 1 : 0).Take(2))

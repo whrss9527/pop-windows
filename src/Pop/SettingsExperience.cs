@@ -139,6 +139,17 @@ internal sealed partial class SettingsWindow
             page.Children.Add(Card(Symbol.Cursor24, "在圆心松开后保持圆盘", "划向功能再松开仍然执行；在圆心松开后，可以改用点击选择",
                 Toggle(s.KeepRingOpen, v => Update(x => x.KeepRingOpen = v))));
         }
+        page.Children.Add(Section("选择工具条"));
+        page.Children.Add(Card(Symbol.Cursor24, "选中文字后显示工具条", "拖选、双击选词后显示常用功能；只读取辅助功能选区，不改动剪贴板。不支持的 App 仍可手动唤起",
+            Toggle(s.SelectionToolbar, v => Update(x => x.SelectionToolbar = v))));
+        page.Children.Add(Section("应用排除"));
+        var excluded = new TextBox { Text = string.Join(", ", s.TriggerExcludedApps), MinHeight = 36,
+            TextWrapping = TextWrapping.Wrap, AcceptsReturn = true, Padding = new Thickness(10), ToolTip = "程序名，以逗号或换行分隔，例如 Code.exe, notepad.exe" };
+        System.Windows.Automation.AutomationProperties.SetName(excluded, "排除鼠标唤起的应用");
+        excluded.LostKeyboardFocus += (_, _) => Update(x => x.TriggerExcludedApps = excluded.Text.Split([',', '，', ';', '；', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(AppSettings.ApplicationName).Where(n => n.Length > 0).Distinct().ToList());
+        page.Children.Add(Note("这些程序不响应鼠标唤起，也不自动显示选择工具条；全局快捷键仍可使用。输入程序名，以逗号或换行分隔，移开焦点保存。"));
+        page.Children.Add(excluded);
         page.Children.Add(Section("键盘唤起"));
         page.Children.Add(Card(Symbol.Keyboard24, "打开圆盘", "不会抢走原 App 的焦点，继续使用当前选中的内容",
             ShortcutEditor(KeyboardShortcut.RingTarget)));

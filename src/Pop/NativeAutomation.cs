@@ -9,7 +9,7 @@ internal static class NativeAutomation
     private const int TextPatternId = 10014;
 
     /// 当前有键盘焦点的元素支持文字接口时返回 (true, 选中的文字)，不支持返回 (false, null)
-    public static (bool Supported, string? Text) ReadFocusedSelection()
+    public static (bool Supported, string? Text, Pop.Core.Rect? Bounds) ReadFocusedSelection(bool withBounds = false)
     {
         var automation = Create();
         IUIAutomationElement? element = null;
@@ -18,12 +18,13 @@ internal static class NativeAutomation
         try
         {
             element = automation.GetFocusedElement();
-            if (element is null) return (false, null);
+            if (element is null || element.CurrentIsPassword != 0) return (false, null, null);
             pattern = element.GetCurrentPattern(TextPatternId) as IUIAutomationTextPattern;
-            if (pattern is null) return (false, null);
+            if (pattern is null) return (false, null, null);
             ranges = pattern.GetSelection();
-            if (ranges is null) return (true, "");
+            if (ranges is null) return (true, "", null);
             var parts = new List<string>();
+            Pop.Core.Rect? bounds = null;
             for (var i = 0; i < ranges.Length; i++)
             {
                 var range = ranges.GetElement(i);
@@ -31,13 +32,22 @@ internal static class NativeAutomation
                 {
                     var text = range.GetText(-1);
                     if (!string.IsNullOrEmpty(text)) parts.Add(text);
+                    if (withBounds && !string.IsNullOrEmpty(text) && range.GetBoundingRectangles() is double[] rectangles)
+                        for (var n = 0; n + 3 < rectangles.Length; n += 4)
+                        {
+                            var x = rectangles[n]; var y = rectangles[n + 1];
+                            var w = rectangles[n + 2]; var h = rectangles[n + 3];
+                            if (!double.IsFinite(x + y + w + h) || w <= 0 || h <= 0) continue;
+                            var r = new Pop.Core.Rect(x, y, x + w, y + h);
+                            bounds = bounds is { } b ? new(Math.Min(b.Left, r.Left), Math.Min(b.Top, r.Top), Math.Max(b.Right, r.Right), Math.Max(b.Bottom, r.Bottom)) : r;
+                        }
                 }
                 finally
                 {
                     Release(range);
                 }
             }
-            return (true, string.Join("\n", parts));
+            return (true, string.Join("\n", parts), bounds);
         }
         finally
         {

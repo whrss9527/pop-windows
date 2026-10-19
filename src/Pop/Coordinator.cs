@@ -5,7 +5,7 @@ using Pop.Core;
 namespace Pop;
 
 /// 把各部分串起来：长按 → 弹出圆盘并读取选中内容 → 指针划向一格 → 松开执行
-internal sealed class Coordinator : IDisposable
+internal sealed partial class Coordinator : IDisposable
 {
     private const int VK_RETURN = 0x0D;
     private const int VK_ESCAPE = 0x1B;
@@ -94,6 +94,7 @@ internal sealed class Coordinator : IDisposable
             if (historyOpen) dispatcher.BeginInvoke(() => { if (!historyWindow.ContainsPhysical(x, y)) CloseHistory(); });
         };
         hook.KeyFilter = FilterKey;
+        SetUpSelectionToolbar();
         actionList.BackRequested += ReturnToRing;
         ring.Clicked += async index =>
         {
@@ -126,6 +127,7 @@ internal sealed class Coordinator : IDisposable
 
     public void Dispose()
     {
+        toolbar.Close();
         selector.Cancel();
         colorPicker.Cancel();
         ring.Close();
@@ -138,6 +140,8 @@ internal sealed class Coordinator : IDisposable
 
     private async void OnTriggered(int x, int y)
     {
+        if (!hook.AllowsMouseTrigger) { hook.DiscardCurrentPress(); return; }
+        toolbar.Dismiss();
         if (session is { Finished: false } previous) await Finish(previous, null);
         CloseCard();
         CloseList();
@@ -180,6 +184,7 @@ internal sealed class Coordinator : IDisposable
     /// 快捷键唤起时没有右键按压，直接进入点击选择模式。
     public async void ShowRingFromShortcut()
     {
+        toolbar.Dismiss();
         if (screenToolBusy || selector.IsOpen || colorPicker.IsOpen) return;
         if (session is { Finished: false } previous) { await Finish(previous, null); return; }
         CloseCard(); CloseList(); CloseHistory();
@@ -197,6 +202,8 @@ internal sealed class Coordinator : IDisposable
 
     private async Task OpenFromClickAsync(int x, int y)
     {
+        toolbar.Dismiss();
+        if (!hook.AllowsMouseTrigger) return;
         if (screenToolBusy || selector.IsOpen || colorPicker.IsOpen) return;
         var target = Native.GetForegroundWindow();
         if (!await WaitForModifiersAsync() || Native.GetForegroundWindow() != target) return;
@@ -237,6 +244,7 @@ internal sealed class Coordinator : IDisposable
 
     public async void RunActionFromShortcut(string id)
     {
+        toolbar.Dismiss();
         if (screenToolBusy || selector.IsOpen || colorPicker.IsOpen || !settings().IsEnabled(id) || Actions.Find(id) is not { } action) return;
         var target = Native.GetForegroundWindow();
         if (!await WaitForModifiersAsync() || Native.GetForegroundWindow() != target) return;
@@ -321,6 +329,11 @@ internal sealed class Coordinator : IDisposable
     /// 钩子线程上调用，只看状态、立刻返回，真正的事交给界面线程
     private bool FilterKey(int vk)
     {
+        if (toolbar.IsOpen)
+        {
+            dispatcher.BeginInvoke(toolbar.Dismiss);
+            if (vk == VK_ESCAPE) return true;
+        }
         if (colorPicker.IsOpen)
         {
             if (vk != VK_ESCAPE) return false;
@@ -584,6 +597,7 @@ internal sealed class Coordinator : IDisposable
 
     private async Task ScreenToolAsync(Func<Task> operation)
     {
+        toolbar.Dismiss(); toolbarVersion++;
         if (screenToolBusy || selector.IsOpen || colorPicker.IsOpen) return;
         screenToolBusy = true;
         hook.Enabled = false;
@@ -600,6 +614,7 @@ internal sealed class Coordinator : IDisposable
     /// 打开剪贴板历史；不给位置时放在指针旁边
     public void ShowHistory(int? x = null, int? y = null)
     {
+        toolbar.Dismiss(); toolbarVersion++;
         if (x is null || y is null)
         {
             Native.GetCursorPos(out var cursor);

@@ -137,4 +137,14 @@ public sealed class PressTracker
             token++;
         }
     }
+
+    /// 暂停唤起时保留已经接管的按键对，之后的松开不能泄漏给目标 App。
+    public void Cancel()
+    {
+        lock (gate)
+        {
+            if (Phase is PressPhase.Pending or PressPhase.Owned) Phase = PressPhase.Discarding;
+            token++;
+        }
+    }
 }

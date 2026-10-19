@@ -11,6 +11,28 @@ internal sealed class InputHook : IDisposable
 {
     private readonly PressTracker tracker = new();
     private readonly ClickTriggerTracker clicks = new();
+    private readonly SelectionGestureTracker selectionGesture = new();
+    private readonly MouseApplicationFilter applications = new();
+    private IntPtr leftTarget, triggerTarget;
+    private readonly int doubleClickTime = System.Windows.Forms.SystemInformation.DoubleClickTime;
+    private readonly double doubleClickTolerance = System.Windows.Forms.SystemInformation.DoubleClickSize.Width / 2d;
+    private double selectionScale = 1;
+    private long activityVersion;
+    private volatile bool selectionToolbar;
+    public bool SelectionToolbar { get => selectionToolbar; set => selectionToolbar = value; }
+    public long ActivityVersion => Interlocked.Read(ref activityVersion);
+    public void ExcludeApplications(IEnumerable<string> names) => applications.Update(names);
+    public bool AllowsMouseTrigger
+    {
+        get
+        {
+            var foreground = GetForegroundWindow();
+            GetWindowThreadProcessId(foreground, out var process);
+            return enabled && applications.Allows(foreground, process);
+        }
+    }
+    public event Action<int, int, IntPtr, long>? SelectionRequested;
+    public event Action<int, int, bool>? PointerActivity;
     private readonly LowLevelProc mouseProc;
     private readonly LowLevelProc keyboardProc;
     private Thread? thread;
@@ -55,7 +77,7 @@ internal sealed class InputHook : IDisposable
         set
         {
             enabled = value;
-            if (!value) tracker.Reset();
+            if (!value) tracker.Cancel();
         }
     }
 
@@ -104,6 +126,7 @@ internal sealed class InputHook : IDisposable
 
     public void Dispose()
     {
+        applications.Dispose();
         holdTimer?.Dispose();
         if (threadId != 0) PostThreadMessage(threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
         thread?.Join(TimeSpan.FromSeconds(2));
@@ -122,9 +145,33 @@ internal sealed class InputHook : IDisposable
         try
         {
             var message = (int)wParam;
+            if (message is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN or WM_MOUSEWHEEL or WM_MOUSEHWHEEL)
+            {
+                Interlocked.Increment(ref activityVersion);
+                PointerActivity?.Invoke(x, y, message is WM_MOUSEWHEEL or WM_MOUSEHWHEEL);
+            }
+            if (message == WM_LBUTTONDOWN)
+            {
+                var foreground = GetForegroundWindow();
+                GetWindowThreadProcessId(foreground, out var process);
+                if (selectionToolbar && enabled && applications.Allows(foreground, process))
+                {
+                    if (leftTarget != foreground) selectionGesture.Reset();
+                    leftTarget = foreground;
+                    selectionScale = Math.Max(1, GetDpiForWindow(foreground) / 96d);
+                    selectionGesture.Down(x, y, Environment.TickCount64, doubleClickTime, doubleClickTolerance);
+                }
+                else selectionGesture.Reset();
+            }
+            if (message == WM_LBUTTONUP)
+            {
+                // 只记录手势，UIA 读取在界面调度后进行。
+                if (selectionGesture.Up(x, y, selectionScale) && selectionToolbar && enabled && GetForegroundWindow() == leftTarget)
+                    SelectionRequested?.Invoke(x, y, leftTarget, ActivityVersion);
+            }
             if (message is WM_RBUTTONUP or WM_MBUTTONUP)
             {
-                var click = clicks.Up(message == WM_RBUTTONUP ? TriggerButton.Right : TriggerButton.Middle, enabled);
+                var click = clicks.Up(message == WM_RBUTTONUP ? TriggerButton.Right : TriggerButton.Middle, AllowsMouseTrigger && GetForegroundWindow() == triggerTarget);
                 if (click.Swallow)
                 {
                     if (click.Activate) ClickTriggered?.Invoke(x, y);
@@ -133,8 +180,9 @@ internal sealed class InputHook : IDisposable
             }
             if (message is WM_RBUTTONDOWN or WM_MBUTTONDOWN)
             {
-                GetWindowThreadProcessId(GetForegroundWindow(), out var foregroundProcess);
-                var external = foregroundProcess != Environment.ProcessId;
+                var foreground = GetForegroundWindow();
+                GetWindowThreadProcessId(foreground, out var foregroundProcess);
+                var external = applications.Allows(foreground, foregroundProcess);
                 var modifierKey = triggerModifier switch { TriggerModifier.Control => 0x11, TriggerModifier.Shift => 0x10, TriggerModifier.Windows => 0x5B, _ => 0x12 };
                 var modifierDown = (GetAsyncKeyState(modifierKey) & 0x8000) != 0
                     || triggerModifier == TriggerModifier.Windows && (GetAsyncKeyState(0x5C) & 0x8000) != 0;
@@ -142,12 +190,14 @@ internal sealed class InputHook : IDisposable
                     triggerMode, modifierDown, enabled && external);
                 if (click.Swallow)
                 {
+                    triggerTarget = foreground;
                     if (triggerMode == TriggerMode.ModifierRightClick && triggerModifier is TriggerModifier.Alt or TriggerModifier.Windows)
                         maskModifierRelease = triggerModifier;
                     return new IntPtr(1);
                 }
                 if (message == WM_RBUTTONDOWN && (!external || !enabled || triggerMode != TriggerMode.LongPressRight))
                     return CallNextHookEx(mouseHook, nCode, wParam, lParam);
+                if (message == WM_RBUTTONDOWN) triggerTarget = foreground;
             }
             switch ((int)wParam)
             {
@@ -205,6 +255,7 @@ internal sealed class InputHook : IDisposable
         holdTimer = new Timer(_ =>
         {
             if (!tracker.OnTimer(token)) return;
+            if (!AllowsMouseTrigger || GetForegroundWindow() != triggerTarget) { tracker.Discard(); return; }
             try
             {
                 Triggered?.Invoke(x, y);
@@ -233,6 +284,7 @@ internal sealed class InputHook : IDisposable
             var info = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
             if (info.dwExtraInfo != InputInjector.Marker)
             {
+                Interlocked.Increment(ref activityVersion);
                 try
                 {
                     if (filter((int)info.vkCode)) return new IntPtr(1);

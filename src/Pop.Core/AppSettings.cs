@@ -13,6 +13,10 @@ public sealed class AppSettings
     public int HoldMilliseconds { get; set; } = 250;
     public TriggerMode TriggerMode { get; set; } = TriggerMode.LongPressRight;
     public TriggerModifier TriggerModifier { get; set; } = TriggerModifier.Alt;
+    /// 拖选或双击选词后显示工具条；不支持辅助功能的 App 不会尝试模拟复制。
+    public bool SelectionToolbar { get; set; }
+    /// 这些程序保留原来的鼠标操作，快捷键仍然可用。
+    public List<string> TriggerExcludedApps { get; set; } = [];
 
     /// 程序名（不带 .exe）到独立圆盘的映射，未配置的应用继承默认圆盘。
     public Dictionary<string, List<string>> AppRings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -106,6 +110,12 @@ public sealed class AppSettings
             {
                 switch (p.Name.ToLowerInvariant())
                 {
+                    case "selectiontoolbar" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False:
+                        settings.SelectionToolbar = p.Value.GetBoolean();
+                        break;
+                    case "triggerexcludedapps" when p.Value.ValueKind == JsonValueKind.Array:
+                        settings.TriggerExcludedApps = Strings(p.Value).Select(ApplicationName).Where(n => n.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                        break;
                     case "enabled" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False:
                         settings.Enabled = p.Value.GetBoolean();
                         break;

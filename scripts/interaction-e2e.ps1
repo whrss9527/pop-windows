@@ -66,16 +66,19 @@ function Assert-Uppercase {
     throw '功能没有把选中内容替换为大写'
 }
 
-function Start-Scenario([string]$Mode, [string]$Modifier = 'Control', [switch]$HashDirect) {
+function Start-Scenario([string]$Mode, [string]$Modifier = 'Control', [switch]$HashDirect, [switch]$Toolbar, [switch]$ExcludeNotepad) {
     if ($null -ne $script:pop -and !$script:pop.HasExited) { $script:pop.Kill(); $script:pop.WaitForExit() }
     $rules = @()
     if ($HashDirect) { $rules = @(@{ kind = 'foreign'; actionId = 'hash'; enabled = $true }) }
     $settings = @{
         triggerMode = $Mode; triggerModifier = $Modifier; keepRingOpen = $true
         rules = $rules; checkForUpdates = $false
+        selectionToolbar = [bool]$Toolbar
+        triggerExcludedApps = @()
         appRings = @{ notepad = @('count', 'upper', 'copy', 'all') }
         actionShortcuts = @{ '$ring' = @{ modifiers = 3; key = 75 }; upper = @{ modifiers = 3; key = 85 } }
     }
+    if ($ExcludeNotepad) { $settings.triggerExcludedApps = @('Notepad.EXE') }
     New-Item -ItemType Directory -Force (Split-Path $settingsPath) | Out-Null
     [IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json -Depth 8))
     $marker = Join-Path $env:RUNNER_TEMP "pop-interaction-$([guid]::NewGuid().ToString('N')).marker"
@@ -104,6 +107,35 @@ function Assert-HashCard([string]$ShotName) {
     Start-Sleep -Milliseconds 250
     if ((Get-Clipboard -Raw).Trim() -cne $expected) { throw '直达规则没有执行哈希，或者复制了错误结果' }
     Wait-Window 'Pop 结果' $false
+}
+
+function Select-WordWithMouse {
+    Reset-Selection
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($script:notepad.MainWindowHandle)
+    $edit = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit))
+    if ($null -eq $edit) { throw '没有找到记事本编辑区' }
+    $pattern = $edit.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+    $bounds = @($pattern.GetSelection())[0].GetBoundingRectangles()
+    if ($bounds.Count -eq 0) { throw '记事本没有提供选区位置' }
+    $script:wordX = [int]($bounds[0].Left + 15)
+    $script:wordY = [int]($bounds[0].Top + $bounds[0].Height / 2)
+    Set-Clipboard -Value 'toolbar must not copy automatically'
+    Move-Pointer $cx $cy $wordX $wordY
+    Invoke-LeftDown; Invoke-LeftUp
+    Start-Sleep -Milliseconds 90
+    Invoke-LeftDown; Invoke-LeftUp
+}
+
+function Click-ToolbarButton([string]$Id) {
+    $hwnd = [PopCi.Native]::FindWindow([NullString]::Value, 'Pop 选择工具条')
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+    $button = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "toolbar-$Id"))
+    if ($null -eq $button) { throw "工具条缺少按钮：$Id" }
+    $r = $button.Current.BoundingRectangle
+    Move-Pointer $wordX $wordY ([int]($r.Left + $r.Width / 2)) ([int]($r.Top + $r.Height / 2))
+    Invoke-LeftDown; Invoke-LeftUp
 }
 
 try {
@@ -161,7 +193,74 @@ try {
     Passed 'release-center-keeps-menu'
     Invoke-Key 0x1B; Wait-Window 'Pop 圆盘' $false
 
+    Start-Scenario 'LongPressRight' -Toolbar
+    Select-WordWithMouse
+    Wait-Window 'Pop 选择工具条' $true
+    if ([PopCi.Native]::GetForegroundWindow() -ne $notepad.MainWindowHandle) { throw '工具条抢走了原 App 焦点' }
+    if ((Get-Clipboard -Raw).Trim() -cne 'toolbar must not copy automatically') { throw '自动工具条改动了剪贴板' }
+    Save-Screenshot (Join-Path $OutDir 'selection-toolbar.png')
+    Click-ToolbarButton 'upper'
+    Wait-Window 'Pop 选择工具条' $false
+    $deadline = (Get-Date).AddSeconds(12)
+    while ([PopCi.Native]::ReadEditText($notepad.MainWindowHandle).Trim() -cne 'HELLO pop world') {
+        if ((Get-Date) -gt $deadline) { throw '工具条没有替换双击选中的词，或替换了错误选区' }
+        Start-Sleep -Milliseconds 100
+    }
+    Passed 'selection-toolbar-replaces-original-word'
+
+    Select-WordWithMouse
+    Wait-Window 'Pop 选择工具条' $true
+    Click-ToolbarButton 'more'
+    Wait-Window 'Pop 圆盘' $true
+    Invoke-Key 0x31 # 沿用缓存的词选区，第一项「字数」
+    Wait-Window 'Pop 结果' $true
+    Invoke-Key 0x0D; Start-Sleep -Milliseconds 250
+    if ((Get-Clipboard -Raw).Trim() -cne '5') { throw '工具条更多没有沿用原来的选词' }
+    Passed 'selection-toolbar-more-keeps-selection'
+
+    Select-WordWithMouse
+    Wait-Window 'Pop 选择工具条' $true
+    Invoke-Key 0x1B
+    Wait-Window 'Pop 选择工具条' $false
+    Passed 'selection-toolbar-escape'
+
     Reset-Selection
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($notepad.MainWindowHandle)
+    $edit = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit))
+    $pattern = $edit.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+    $bounds = @($pattern.GetSelection())[0].GetBoundingRectangles()
+    $wordX = [int]$bounds[0].Left + 1; $wordY = [int]($bounds[0].Top + $bounds[0].Height / 2)
+    Set-Clipboard -Value 'before drag copy'
+    Invoke-LeftDrag $wordX $wordY ([int]$bounds[0].Right + 3) $wordY
+    Wait-Window 'Pop 选择工具条' $true
+    Click-ToolbarButton 'copy'
+    Start-Sleep -Milliseconds 250
+    if ((Get-Clipboard -Raw).Trim() -cne $sample) { throw '拖选工具条没有复制完整的原选区' }
+    Passed 'selection-toolbar-drag-copy'
+
+    Select-WordWithMouse
+    Wait-Window 'Pop 选择工具条' $true
+    Invoke-Key 0x58
+    Wait-Window 'Pop 选择工具条' $false
+    Passed 'selection-toolbar-typing-dismisses'
+
+    Start-Scenario 'LongPressRight' -Toolbar -ExcludeNotepad
+    Select-WordWithMouse
+    Start-Sleep -Milliseconds 900
+    Wait-Window 'Pop 选择工具条' $false
+    Invoke-RightDown; Start-Sleep -Milliseconds 500; Invoke-RightUp
+    Start-Sleep -Milliseconds 300
+    Wait-Window 'Pop 圆盘' $false
+    $menu = [PopCi.Native]::FindWindow('#32768', [NullString]::Value)
+    if ($menu -eq [IntPtr]::Zero -or ![PopCi.Native]::IsWindowVisible($menu)) { throw '排除应用的长按右键没有保留系统菜单' }
+    Invoke-Key 0x1B
+    Invoke-CtrlAlt 0x4B
+    Wait-Window 'Pop 圆盘' $true
+    Invoke-Key 0x1B
+    Passed 'excluded-app-keeps-mouse-and-shortcuts'
+
+    Start-Scenario 'LongPressRight'
     Invoke-RightDown; Wait-Window 'Pop 圆盘' $true
     Move-Pointer $cx $cy ($cx + 110) $cy
     Invoke-RightUp

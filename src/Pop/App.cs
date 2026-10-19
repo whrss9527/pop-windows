@@ -79,7 +79,8 @@ internal sealed class App : Application
 
         SetUpPlugins(Paths.Plugins);
         hook = new InputHook { Enabled = Settings.Enabled, HoldMilliseconds = Settings.HoldMilliseconds,
-            TriggerMode = Settings.TriggerMode, TriggerModifier = Settings.TriggerModifier };
+            TriggerMode = Settings.TriggerMode, TriggerModifier = Settings.TriggerModifier, SelectionToolbar = Settings.SelectionToolbar };
+        hook.ExcludeApplications(Settings.TriggerExcludedApps);
         hook.Start();
         NativeAutomation.WarmUp();
         history = new ClipboardHistory(() => Settings);
@@ -110,19 +111,39 @@ internal sealed class App : Application
     {
         change(Settings);
         SaveSettings();
+        ApplySettings();
+    }
+
+    private void ApplySettings()
+    {
         if (hook is not null)
         {
             hook.Enabled = Settings.Enabled;
             hook.HoldMilliseconds = Settings.HoldMilliseconds;
             hook.TriggerMode = Settings.TriggerMode;
             hook.TriggerModifier = Settings.TriggerModifier;
+            hook.SelectionToolbar = Settings.SelectionToolbar;
+            hook.ExcludeApplications(Settings.TriggerExcludedApps);
         }
+        coordinator?.SettingsUpdated();
         history?.Cleanup();
         ConfigureHotKeys();
         SettingsChanged?.Invoke();
     }
 
     public bool IsDemo => options.DemoShots is not null;
+
+    public string ImportBackup(SettingsBackup backup)
+    {
+        var directory = Path.Combine(Paths.RoamingData, "Backups");
+        Directory.CreateDirectory(directory);
+        var recovery = Path.Combine(directory, $"导入前-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..6]}.json");
+        File.WriteAllText(recovery, new SettingsBackup(Settings, Plugins.Manifests, Updater.CurrentVersion.ToString()).ToJson());
+        backup.Restore(Paths.Settings, Plugins);
+        Settings = AppSettings.FromJson(backup.Settings.ToJson());
+        ApplySettings();
+        return recovery;
+    }
 
     // ── 插件 ──────────────────────────────────────────
 

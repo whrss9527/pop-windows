@@ -4,7 +4,7 @@ using static Pop.Native;
 
 namespace Pop;
 
-internal sealed record Selection(string Text, string Source, string WindowClass, string Process);
+internal sealed record Selection(string Text, string Source, string WindowClass, string Process, Rect? Bounds = null);
 
 /// 读取当前 App 里选中的文字：先问 UI Automation，读不到再模拟 Ctrl+C（会备份并还原剪贴板）。
 /// 在界面线程上调用。
@@ -32,7 +32,7 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
 
         // 读取前先记一笔：如果在读取过程中闪退，日志的最后一行能看出是在哪个窗口
         Log.Info($"读取选中内容：窗口 {windowClass}（{process}）");
-        var (supported, text) = await ReadWithAutomationAsync();
+        var (supported, text, _) = await ReadWithAutomationAsync();
         if (GetForegroundWindow() != foreground) return new Selection("", "focus-changed", windowClass, process);
         if (!string.IsNullOrEmpty(text)) return new Selection(text, "uia", windowClass, process);
 
@@ -53,20 +53,36 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
     /// 在单独的线程上读，目标 App 卡住时不拖累 Pop。
     /// 用 Windows 原生的 UI Automation（UIAutomationCore 的 COM 接口）：.NET 自带的 System.Windows.Automation
     /// 是旧的客户端实现，读 Chrome 时会在原生代码里崩溃，整个进程直接退出，try/catch 也接不住。
-    private static async Task<(bool Supported, string? Text)> ReadWithAutomationAsync()
+    private static int automationBusy;
+
+    /// 自动工具条只询问辅助功能，不模拟 Ctrl+C，也不接触剪贴板。
+    public async Task<Selection> ReadPassiveAsync(IntPtr foreground)
     {
-        var source = new TaskCompletionSource<(bool, string?)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (GetForegroundWindow() != foreground) return new("", "focus-changed", "", "");
+        var process = ProcessNameOf(foreground);
+        var windowClass = WindowClass(foreground);
+        var (_, text, bounds) = await ReadWithAutomationAsync(withBounds: true);
+        return GetForegroundWindow() == foreground
+            ? new(text ?? "", "uia-passive", windowClass, process, bounds) : new("", "focus-changed", windowClass, process);
+    }
+
+    private static async Task<(bool Supported, string? Text, Rect? Bounds)> ReadWithAutomationAsync(bool withBounds = false)
+    {
+        // 某个 UIA 提供程序一直不返回时，不为每次拖选继续创建挂起的线程。
+        if (Interlocked.CompareExchange(ref automationBusy, 1, 0) != 0) return (false, null, null);
+        var source = new TaskCompletionSource<(bool, string?, Rect?)>(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
         {
             try
             {
-                source.TrySetResult(NativeAutomation.ReadFocusedSelection());
+                source.TrySetResult(NativeAutomation.ReadFocusedSelection(withBounds));
             }
             catch (Exception e)
             {
                 Log.Info($"UI Automation 读取失败：{e.GetType().Name} {e.Message}");
-                source.TrySetResult((false, null));
+                source.TrySetResult((false, null, null));
             }
+            finally { Volatile.Write(ref automationBusy, 0); }
         })
         {
             IsBackground = true,
@@ -76,8 +92,8 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         thread.Start();
         var done = await Task.WhenAny(source.Task, Task.Delay(AutomationTimeout));
         if (done == source.Task) return source.Task.Result;
-        Log.Info($"UI Automation 读取超时（{AutomationTimeout.TotalMilliseconds} ms），改用复制");
-        return (false, null);
+        Log.Info($"UI Automation 读取超时（{AutomationTimeout.TotalMilliseconds} ms）");
+        return (false, null, null);
     }
 
     private async Task<string?> ReadWithCopyAsync(TimeSpan timeout, IntPtr target)
