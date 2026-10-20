@@ -20,6 +20,7 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
     private readonly StackPanel rows = new();
     private readonly ScrollViewer scroller = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Focusable = false };
     private readonly List<(Entry Entry, FrameworkElement Element, int Number)> painted = [];
+    private readonly List<int> selectable = [];
     private List<Entry> entries = [];
     private int selected = -1;
 
@@ -36,7 +37,7 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
         {
             if (IsVisible) return;
             // 浮窗长期复用；隐藏时拆开视觉树，释放上一批文本、图片和毛玻璃屏幕快照。
-            rows.Children.Clear(); painted.Clear(); entries.Clear(); selected = -1;
+            rows.Children.Clear(); painted.Clear(); entries.Clear(); selectable.Clear(); selected = -1;
             root.Children.Clear(); query.Text = ""; SearchText = "";
             if (query.Parent is Panel queryParent) queryParent.Children.Remove(query);
             if (scroller.Parent is Panel scrollerParent) scrollerParent.Children.Remove(scroller);
@@ -126,10 +127,14 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
 
     public void Move(int delta)
     {
-        var selectable = Enumerable.Range(0, entries.Count).Where(i => entries[i].Item is not null && entries[i].Enabled).ToList();
         if (selectable.Count == 0) return;
-        var position = selectable.IndexOf(selected);
-        position = position < 0 ? 0 : (position + delta + selectable.Count) % selectable.Count;
+        var position = selectable.BinarySearch(selected);
+        if (position < 0) position = 0;
+        else
+        {
+            var next = (position + (long)delta) % selectable.Count;
+            position = (int)(next < 0 ? next + selectable.Count : next);
+        }
         Select(selectable[position]);
     }
 
@@ -147,10 +152,10 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
     /// 第 n 个可以选的（Ctrl+数字）
     public void ChooseNth(int n)
     {
-        var items = entries.Where(e => e.Item is not null && e.Enabled).ToList();
-        if (n < 0 || n >= items.Count) return;
+        if (n < 0 || n >= selectable.Count) return;
+        var item = entries[selectable[n]].Item!;
         Dismiss();
-        OnChosen(items[n].Item!);
+        OnChosen(item);
     }
 
     /// 内容变了（删除、固定），保持选中同一项
@@ -226,7 +231,10 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
         query.Text = SearchText.Length == 0 ? Placeholder : SearchText + "▏";
         query.Foreground = theme.Brush(SearchText.Length == 0 ? theme.TertiaryText : theme.Text);
         entries = Query(SearchText).ToList();
-        selected = entries.FindIndex(e => e.Item is not null && e.Enabled);
+        selectable.Clear();
+        for (var i = 0; i < entries.Count; i++)
+            if (entries[i].Item is not null && entries[i].Enabled) selectable.Add(i);
+        selected = selectable.Count > 0 ? selectable[0] : -1;
         Paint();
     }
 

@@ -54,6 +54,35 @@ internal static class PerformanceChecks
         lines.Add("text-preview=ok");
         lines.Add(string.Create(CultureInfo.InvariantCulture,
             $"performance: preview-chars={sample.Length} split-ms={split.Milliseconds:0.###} prefix-ms={prefix.Milliseconds:0.###} split-managed-bytes={split.Bytes} prefix-managed-bytes={prefix.Bytes}"));
+        var files = string.Join('\n', Enumerable.Range(0, 10_000).Select(i => $@"C:\文档\文件-{i}.txt"));
+        int OldFiles()
+        {
+            if (files.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == 1) return 1;
+            var count = files.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+            var preview = files.Split('\n', StringSplitOptions.RemoveEmptyEntries).Take(3).ToArray();
+            GC.KeepAlive(preview); return count;
+        }
+        var summary = FileListSummary.Parse(files);
+        if (summary.Count != OldFiles() || !summary.FirstPaths.SequenceEqual(files.Split('\n').Take(3)))
+            throw new InvalidOperationException("文件预览改变了计数或顺序");
+        var oldFiles = Measure(OldFiles); var newFiles = Measure(() => FileListSummary.Parse(files));
+        lines.Add(string.Create(CultureInfo.InvariantCulture,
+            $"performance: file-count={summary.Count} split-ms={oldFiles.Milliseconds:0.###} summary-ms={newFiles.Milliseconds:0.###} split-managed-bytes={oldFiles.Bytes} summary-managed-bytes={newFiles.Bytes}"));
+        var snippet = new Snippet("performance", "", string.Concat(Enumerable.Repeat("标题\r\n正文内容\n", 10_000)));
+        bool OldSearch()
+        {
+            var first = snippet.Text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).First();
+            return (first + "\n" + snippet.Text).Contains("not present", StringComparison.OrdinalIgnoreCase);
+        }
+        if (OldSearch() != snippet.Matches("not present")) throw new InvalidOperationException("短语搜索改变了结果");
+        var concat = Measure(OldSearch); var search = Measure(() => snippet.Matches("not present"));
+        var marked = snippet.Text.Replace("\r", "").Replace("\n", " ↵ ");
+        if (snippet.DisplayPreview != marked[..160] + "…") throw new InvalidOperationException("短语预览改变了换行标记");
+        var replace = Measure(() => snippet.Text.Replace("\r", "").Replace("\n", " ↵ "));
+        var previewPrefix = Measure(() => snippet.DisplayPreview);
+        lines.Add("list-content=ok files=10000 snippets=ok");
+        lines.Add(string.Create(CultureInfo.InvariantCulture,
+            $"performance: snippet-chars={snippet.Text.Length} concat-ms={concat.Milliseconds:0.###} search-ms={search.Milliseconds:0.###} concat-managed-bytes={concat.Bytes} search-managed-bytes={search.Bytes} replace-managed-bytes={replace.Bytes} preview-managed-bytes={previewPrefix.Bytes}"));
         return lines;
     }
 
@@ -78,6 +107,17 @@ internal static class PerformanceChecks
             probe.OpenAt(x, y);
             if (probe.SelectedId != "probe-0" || probe.RowsCreated != initial + 106)
                 throw new InvalidOperationException("隐藏后重新打开列表失败");
+            probe.Paste("1");
+            if (probe.SelectedId != "probe-10") throw new InvalidOperationException("过滤后没有跳过禁用项");
+            probe.Move(-1);
+            if (probe.SelectedId != "probe-19") throw new InvalidOperationException("过滤后环绕选择错误");
+            probe.Move(int.MaxValue); probe.Move(-int.MaxValue);
+            if (probe.SelectedId != "probe-19") throw new InvalidOperationException("大步长选择溢出");
+            probe.ChooseNth(0);
+            if (probe.ChosenId != "probe-10") throw new InvalidOperationException("快捷直选没有使用过滤后的可选项");
+            probe.OpenAt(x, y); probe.Paste("missing");
+            probe.Move(1); probe.ChooseNth(0);
+            if (probe.SelectedId is not null || probe.ChosenId != "probe-10") throw new InvalidOperationException("空列表选择错误");
         }
         finally { probe.Close(); }
     }
@@ -86,6 +126,7 @@ internal static class PerformanceChecks
     {
         public int RowsCreated { get; private set; }
         public string? SelectedId => SelectedItem?.Id;
+        public string? ChosenId { get; private set; }
         public NavigationProbe() : base("Pop 列表性能检查") { }
         public void OpenAt(int x, int y) => Open(x, y);
         protected override double PanelWidth => 380;
@@ -96,12 +137,13 @@ internal static class PerformanceChecks
         {
             yield return new Entry("分组", null);
             for (var i = 0; i < 100; i++)
-                yield return new Entry(null, new PopAction("probe-" + i, "项目 " + i, "", "", ContentKind.None, _ => null), i != 1);
+                if (text.Length == 0 || i.ToString(CultureInfo.InvariantCulture).StartsWith(text, StringComparison.Ordinal))
+                    yield return new Entry(null, new PopAction("probe-" + i, "项目 " + i, "", "", ContentKind.None, _ => null), i != 1);
         }
         protected override FrameworkElement Row(PopAction item, bool selected, bool enabled, int index)
         { RowsCreated++; return new TextBlock { Text = item.Title, Height = 36 }; }
         protected override string EmptyText(string text) => "";
-        protected override void OnChosen(PopAction item) { }
+        protected override void OnChosen(PopAction item) => ChosenId = item.Id;
     }
 
     private static (double Milliseconds, long Bytes) Measure<T>(Func<T> convert)

@@ -54,6 +54,7 @@ internal static class Demo
             {
                 foreach (var line in await Task.Run(PerformanceChecks.Run)) SmokeTest.Report(line);
                 PerformanceChecks.VerifyNavigation(x, y); SmokeTest.Report("list-navigation=ok rows=100 updated=6 moves=3");
+                SmokeTest.Report("list-selection=ok filtered=ok shortcuts=ok empty=ok");
                 SmokeTest.Report("overlay-release=ok reopen=ok");
                 await ClipboardPerformanceChecks.VerifyAsync();
                 SmokeTest.Report("clipboard-thumbnails=ok bounded=256 pixels=96 workers=2 cancellation=ok");
@@ -64,7 +65,8 @@ internal static class Demo
         if (Want("snippets"))
             await Scene("snippets", async () =>
             {
-                var snippets = new SnippetWindow(); snippets.ShowAt(Snippet.Examples, x, y);
+                var snippets = new SnippetWindow();
+                snippets.ShowAt([.. Snippet.Examples, new Snippet("example-long", "多行模板", string.Concat(Enumerable.Repeat("第一段内容\r\n下一段内容与说明\n", 1000)))], x, y);
                 await Wait(400); Shot("snippets"); snippets.Close(); await Wait(150);
             });
         if (Want("utilities"))
@@ -172,7 +174,8 @@ internal static class Demo
                     var now = DateTimeOffset.Now;
                     using (var picture = ScreenCapture.Capture(new Drawing.Rectangle(screen.Left + screen.Width / 4, screen.Top + screen.Height / 5, 320, 200)))
                         store.Add(ClipboardCapture.Image(ScreenCapture.Png(picture), "mspaint"), now.AddMinutes(-50));
-                    store.Add(ClipboardCapture.Files([@"C:\Users\Pop\Documents\季度报告.docx", @"C:\Users\Pop\Pictures\封面.png"], "explorer"), now.AddMinutes(-35));
+                    store.Add(ClipboardCapture.Files(new[] { @"C:\Users\Pop\Documents\季度报告.docx", @"C:\Users\Pop\Pictures\封面.png" }
+                        .Concat(Enumerable.Range(3, 9998).Select(i => $@"C:\文档\附件-{i}.txt")), "explorer"), now.AddMinutes(-35));
                     store.Add(new ClipboardCapture(ClipboardKind.Text, "https://github.com/whrss9527/pop-windows", SourceApp: "chrome"), now.AddMinutes(-20));
                     store.Add(new ClipboardCapture(ClipboardKind.Text, "会议改到周四下午三点，地点不变。", SourceApp: "WeChat"), now.AddMinutes(-9));
                     var pinned = store.Add(new ClipboardCapture(ClipboardKind.Text, "hello@example.com", SourceApp: "Outlook"), now.AddMinutes(-3));

@@ -41,6 +41,8 @@ foreach ($appearance in 'light', 'dark') {
     if ($null -ne $p -and $p.HasExited -and $p.ExitCode -ne 0) { $failures.Add("演示模式（${appearance}）退出码 $($p.ExitCode)") }
     if (-not ($lines -match 'demo-done')) { $failures.Add("演示模式（${appearance}）没有跑完") }
     if (-not ($lines -match 'list-navigation=ok')) { $failures.Add("演示模式（${appearance}）列表增量更新验证没有完成") }
+    if (-not ($lines -match 'list-selection=ok')) { $failures.Add("演示模式（${appearance}）列表搜索与快捷选择验证没有完成") }
+    if (-not ($lines -match 'list-content=ok')) { $failures.Add("演示模式（${appearance}）文件与短语性能验证没有完成") }
     if (-not ($lines -match 'screen-snapshot=ok')) { $failures.Add("演示模式（${appearance}）屏幕快照像素验证没有完成") }
     if (-not ($lines -match 'text-preview=ok')) { $failures.Add("演示模式（${appearance}）文本预览验证没有完成") }
     if (-not ($lines -match 'clipboard-thumbnails=ok')) { $failures.Add("演示模式（${appearance}）缩略图缓存与取消验证没有完成") }

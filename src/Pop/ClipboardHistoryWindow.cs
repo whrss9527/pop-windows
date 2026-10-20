@@ -163,12 +163,18 @@ internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
 
     private static string Preview(ClipboardItem item) => item.Kind switch
     {
-        ClipboardKind.Files => item.FilePaths.Count == 1
-            ? Path.GetFileName(item.FilePaths[0].TrimEnd('\\'))
-            : $"{item.FilePaths.Count} 个文件：{string.Join("、", item.FilePaths.Take(3).Select(p => Path.GetFileName(p.TrimEnd('\\'))))}",
+        ClipboardKind.Files => FilePreview(item.Text),
         ClipboardKind.Image => string.IsNullOrWhiteSpace(item.RecognizedText) ? "图片" : TextPreview.SingleLine(item.RecognizedText, 80),
         _ => TextPreview.SingleLine(item.Text, 120),
     };
+
+    private static string FilePreview(string text)
+    {
+        var summary = FileListSummary.Parse(text);
+        var names = summary.FirstPaths.Select(p => Path.GetFileName(p.TrimEnd('\\')));
+        var preview = summary.Count == 1 ? names.First() : $"{summary.Count} 个文件：{string.Join("、", names)}";
+        return TextPreview.Truncate(preview, 120);
+    }
 
     private static string Meta(ClipboardItem item)
     {

@@ -36,11 +36,46 @@ public static class TextPreview
             }
         }
         if (contentLength <= maximumLength) return prefix.ToString(0, contentLength);
-        var value = prefix.ToString();
+        return TruncatePrefix(prefix.ToString(), maximumLength);
+    }
+
+    /// 保留原始空白，只截取完整文字元素；仅检查截断处需要的前缀。
+    public static string Truncate(ReadOnlySpan<char> text, int maximumLength)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumLength);
+        if (text.Length <= maximumLength) return text.ToString();
+        var value = text[..(int)Math.Min(text.Length, (long)maximumLength + 2)].ToString();
+        return TruncatePrefix(value, maximumLength);
+    }
+
+    private static string TruncatePrefix(string value, int maximumLength)
+    {
+        if (value.Length <= maximumLength) return value;
         // 截断处退回完整文字元素的边界，保留代理对、组合字符和 emoji 序列。
         var boundaries = StringInfo.ParseCombiningCharacters(value);
         var boundary = Array.BinarySearch(boundaries, maximumLength);
         var end = boundary >= 0 ? maximumLength : boundaries[~boundary - 1];
         return value[..end] + "…";
+    }
+
+    /// 短语预览保留换行标记，不为整段正文执行 Replace。
+    public static string WithLineBreaks(string text, int maximumLength)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumLength);
+        var prefix = new StringBuilder((int)Math.Min(text.Length, (long)maximumLength + 4));
+        for (var index = 0; index < text.Length; index++)
+        {
+            var c = text[index];
+            if (c == '\r') continue;
+            if (c == '\n') prefix.Append(" ↵ ");
+            else
+            {
+                prefix.Append(c);
+                if (char.IsHighSurrogate(c) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]))
+                    prefix.Append(text[++index]);
+            }
+            if (prefix.Length > maximumLength) break;
+        }
+        return TruncatePrefix(prefix.ToString(), maximumLength);
     }
 }
