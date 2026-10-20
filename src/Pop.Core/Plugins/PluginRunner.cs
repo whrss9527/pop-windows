@@ -172,7 +172,7 @@ public sealed class PluginRunner
         if (output.TimedOut) return PluginRunResult.Failure("运行超时");
         if (output.ExitCode != 0)
         {
-            var message = output.StandardError.Trim();
+            var message = output.StandardError.AsSpan().Trim();
             return PluginRunResult.Failure(message.Length == 0
                 ? "脚本退出码 " + output.ExitCode.ToString(CultureInfo.InvariantCulture)
                 : Prefix(message, 500));
@@ -212,7 +212,9 @@ public sealed class PluginRunner
                 if (!canReplace) return ActionResult.Toast("没有选中文字，无法替换");
                 return output.Length == 0 ? ActionResult.Toast($"「{name}」没有输出，原文保持不变") : ActionResult.Replace(output);
             case PluginOutput.Toast:
-                var firstLine = output.Split(NewlineCharacters, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+                var firstLine = output.AsSpan().TrimStart(NewlineCharacters);
+                var newline = firstLine.IndexOfAny(NewlineCharacters);
+                if (newline >= 0) firstLine = firstLine[..newline];
                 return ActionResult.Toast(firstLine.Length == 0 ? "已完成" : Prefix(firstLine, 60));
             default:
                 return new ActionResult(ActionEffect.None);
@@ -225,10 +227,12 @@ public sealed class PluginRunner
     public static string TrimTrailingNewlines(string text) => text.TrimEnd(NewlineCharacters);
 
     /// 前 count 个字（按用户看到的字符数）
-    private static string Prefix(string text, int count)
+    private static string Prefix(ReadOnlySpan<char> text, int count)
     {
-        var starts = StringInfo.ParseCombiningCharacters(text);
-        return starts.Length <= count ? text : text[..starts[count]];
+        var end = 0;
+        for (var length = 0; length < count && end < text.Length; length++)
+            end += StringInfo.GetNextTextElementLength(text[end..]);
+        return text[..end].ToString();
     }
 
     /// 最多 count 个 UTF-16 字符，不把一个字（比如表情的代理项对）切开
@@ -236,10 +240,11 @@ public sealed class PluginRunner
     {
         if (text.Length <= count) return text;
         var end = 0;
-        foreach (var start in StringInfo.ParseCombiningCharacters(text))
+        while (end < text.Length && end < count)
         {
-            if (start > count) break;
-            end = start;
+            var length = StringInfo.GetNextTextElementLength(text.AsSpan(end));
+            if (length > count - end) break;
+            end += length;
         }
         return text[..end];
     }

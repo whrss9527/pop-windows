@@ -71,7 +71,7 @@ internal static class Demo
             });
             await Scene("plugin-editor", async () =>
             {
-                await PluginExperienceChecks.VerifyAsync(app); SmokeTest.Report("plugin-editor=ok restart=ok stop=ok copy-full=ok close=ok");
+                await PluginExperienceChecks.VerifyAsync(app); SmokeTest.Report("plugin-editor=ok restart=ok stop=ok copy-full=ok close=ok length=ok pending-numbers=ok");
             });
         }
 
@@ -275,6 +275,13 @@ internal static class Demo
                     }
                 if (window is not null)
                 {
+                    var constrained = new PluginManifest { Name = "长度条件", Match = new() { MinLength = 2, MaxLength = 8 },
+                        Action = new() { Type = PluginActionType.JavaScript, Script = "input" } };
+                    var editor = new PluginEditorWindow(app, constrained, isNew: false) { Owner = window, TestInput = "👩‍💻" };
+                    editor.Show(); await Wait(500); await editor.RunTestAsync(); await Wait(400);
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(editor).Handle, out var e);
+                    Shot("plugin-editor-match", new Drawing.Rectangle(e.Left - 16, e.Top - 16, e.Right - e.Left + 32, e.Bottom - e.Top + 32));
+                    editor.Close(); await Wait(150);
                     var snippetEditor = window.PreviewSnippetEditor(); await Wait(500); Shot("snippet-editor"); snippetEditor.Close();
                 }
                 window?.Close();

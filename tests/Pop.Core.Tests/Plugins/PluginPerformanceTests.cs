@@ -5,6 +5,30 @@ namespace Pop.Core.Tests;
 
 public class PluginPerformanceTests
 {
+    [Fact]
+    public void MismatchReasonsUseTheSameRulesAsAvailability()
+    {
+        var exact = new PluginMatch { Kinds = [], MinLength = 2, MaxLength = 2 };
+        Assert.Equal(PluginMatchFailure.None, PluginMatcher.Check(exact, ContentClassifier.Classify("👩‍💻🇨🇳")));
+        Assert.Equal(PluginMatchFailure.TooShort, PluginMatcher.Check(exact, ContentClassifier.Classify("👩‍💻")));
+        Assert.Equal(PluginMatchFailure.TooLong, PluginMatcher.Check(exact, ContentClassifier.Classify("👩‍💻🇨🇳中")));
+        Assert.Equal(PluginMatchFailure.Empty, PluginMatcher.Check(exact, ClassifiedContent.Empty));
+        Assert.Equal(PluginMatchFailure.Kind, PluginMatcher.Check(new() { Kinds = ["url"] }, ContentClassifier.Classify("hello")));
+        Assert.Equal(PluginMatchFailure.Pattern, PluginMatcher.Check(new() { Pattern = "^yes$" }, ContentClassifier.Classify("no")));
+        Assert.Equal(PluginMatchFailure.InvalidPattern, PluginMatcher.Check(new() { Pattern = "(" }, ContentClassifier.Classify("hello")));
+    }
+
+    [Fact]
+    public void InvalidLengthRangesAreEditableButCannotBeSaved()
+    {
+        var manifest = new PluginManifest { Name = "长度条件", Action = new() { Type = PluginActionType.JavaScript, Script = "input" },
+            Match = new() { MinLength = 5, MaxLength = 2 } };
+        Assert.Equal("最多字符不能少于最少字符", manifest.ValidationError());
+        Assert.Equal(manifest.Match, PluginManifest.FromJson(manifest.ToJson())!.Match);
+        Assert.Null((manifest with { Match = manifest.Match with { MaxLength = 5 } }).ValidationError());
+        Assert.Null((manifest with { Match = manifest.Match with { MaxLength = 0 } }).Normalized().ValidationError());
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("abc")]

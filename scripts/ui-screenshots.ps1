@@ -47,6 +47,8 @@ foreach ($appearance in 'light', 'dark') {
     if (-not ($lines -match 'list-sizing=ok')) { $failures.Add("演示模式（${appearance}）列表尺寸与滚动验证没有完成") }
     if (-not ($lines -match 'plugin-editor=ok')) { $failures.Add("演示模式（${appearance}）插件试运行验证没有完成") }
     if (-not ($lines -match 'plugin-match=ok')) { $failures.Add("演示模式（${appearance}）插件长度匹配性能验证没有完成") }
+    if (-not ($lines -match 'plugin-output=ok')) { $failures.Add("演示模式（${appearance}）插件长输出验证没有完成") }
+    if (-not ($lines -match 'clipboard-hash=ok')) { $failures.Add("演示模式（${appearance}）剪贴板分块去重验证没有完成") }
     if (-not ($lines -match 'screen-snapshot=ok')) { $failures.Add("演示模式（${appearance}）屏幕快照像素验证没有完成") }
     if (-not ($lines -match 'text-preview=ok')) { $failures.Add("演示模式（${appearance}）文本预览验证没有完成") }
     if (-not ($lines -match 'clipboard-thumbnails=ok')) { $failures.Add("演示模式（${appearance}）缩略图缓存与取消验证没有完成") }

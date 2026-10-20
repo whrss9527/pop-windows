@@ -73,6 +73,8 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
 
     private readonly Dictionary<string, CheckBox> kinds = [];
     private readonly WpfUi.TextBox pattern = new() { PlaceholderText = "可选，比如 ^[A-Z]{2,}$", Width = 300 };
+    private readonly WpfUi.NumberBox minimumLength = LengthInput("最少字符");
+    private readonly WpfUi.NumberBox maximumLength = LengthInput("最多字符");
 
     private readonly WpfUi.TextBox testInput = new() { Text = "Hello Pop", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 120 };
     private readonly TextBlock testResult = new() { FontFamily = Theme.MonoFont, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0), Visibility = Visibility.Collapsed };
@@ -90,6 +92,11 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
     internal bool IsTestProgressVisible => testProgress.Visibility == Visibility.Visible;
     internal string TestOutput => testResult.Text;
     internal FrameworkElement TestResultViewport => testResults;
+    internal WpfUi.NumberBox MinimumLengthInput => minimumLength;
+    internal WpfUi.NumberBox MaximumLengthInput => maximumLength;
+    internal string TestInput { get => testInput.Text; set => testInput.Text = value; }
+    internal string TestWarning => testWarning.Visibility == Visibility.Visible ? testWarning.Text : "";
+    internal PluginManifest CurrentManifest => Collect().Normalized();
 
     /// 保存下来的插件；取消时是 null
     public PluginManifest? Saved { get; private set; }
@@ -168,6 +175,9 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         type.SelectionChanged += (_, _) => InvalidateTest();
         shell.SelectionChanged += (_, _) => InvalidateTest();
         timeout.ValueChanged += (_, _) => InvalidateTest();
+        timeout.TextChanged += (_, _) => InvalidateTest();
+        minimumLength.TextChanged += (_, _) => InvalidateTest();
+        maximumLength.TextChanged += (_, _) => InvalidateTest();
         foreach (var box in kinds.Values)
         {
             box.Checked += (_, _) => InvalidateTest(); box.Unchecked += (_, _) => InvalidateTest();
@@ -195,6 +205,8 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         output.SelectedIndex = manifest.Output switch { PluginOutput.Copy => 1, PluginOutput.Replace => 2, PluginOutput.Toast => 3, _ => 0 };
         timeout.Value = PluginAction.ClampTimeout(manifest.Action.Timeout);
         pattern.Text = manifest.Match.Pattern ?? "";
+        minimumLength.Value = manifest.Match.MinLength;
+        maximumLength.Value = manifest.Match.MaxLength;
     }
 
     private UIElement Basics()
@@ -311,7 +323,40 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         stack.Children.Add(grid);
         stack.Children.Add(Divider());
         stack.Children.Add(Row(null, "正则", "选中的文字要能匹配它", pattern));
+        stack.Children.Add(Divider());
+        var separator = Label("—", Theme.Body, "TextFillColorSecondaryBrush");
+        separator.Margin = new Thickness(8, 0, 8, 0);
+        stack.Children.Add(Row(null, "长度范围", "按完整可见字符计算，留空或 0 表示不限", Horizontal(minimumLength, separator, maximumLength)));
         return CardBorder(stack);
+    }
+
+    private static WpfUi.NumberBox LengthInput(string name)
+    {
+        var input = new WpfUi.NumberBox { Width = 120, Minimum = 0, Maximum = int.MaxValue, SmallChange = 1,
+            MaxDecimalPlaces = 0, PlaceholderText = name, SpinButtonPlacementMode = WpfUi.NumberBoxSpinButtonPlacementMode.Hidden };
+        System.Windows.Automation.AutomationProperties.SetName(input, name);
+        return input;
+    }
+
+    // NumberBox 在失去焦点时才更新 Value；键盘运行/保存也应读取尚未离开输入框的新文字。
+    private static double? NumberValue(WpfUi.NumberBox input)
+    {
+        if (string.IsNullOrWhiteSpace(input.Text)) return null;
+        var value = (input.NumberFormatter as WpfUi.INumberParser)?.ParseDouble(input.Text.Trim());
+        return value is { } number && double.IsFinite(number) ? Math.Clamp(number, input.Minimum, input.Maximum) : input.Value;
+    }
+
+    private static int? LengthValue(WpfUi.NumberBox input) => NumberValue(input) is > 0 and var value ? (int)Math.Round(value) : null;
+
+    private void CommitNumberInputs()
+    {
+        foreach (var input in new[] { timeout, minimumLength, maximumLength })
+        {
+            var value = NumberValue(input);
+            input.Value = value is { } number ? Math.Round(number, input.MaxDecimalPlaces) : null;
+            input.Text = input.Value is { } committed
+                ? input.NumberFormatter?.FormatDouble(committed) ?? committed.ToString(System.Globalization.CultureInfo.CurrentCulture) : "";
+        }
     }
 
     private UIElement TestCard()
@@ -387,7 +432,7 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
                 Template = kind == PluginActionType.Url ? url.Text : original.Action.Template,
                 Script = kind is PluginActionType.Shell or PluginActionType.JavaScript ? script.Text : original.Action.Script,
                 Shell = shell.SelectedIndex >= 0 ? (PluginShell)shell.SelectedIndex : original.Action.Shell,
-                Timeout = timeout.Value ?? PluginAction.DefaultTimeout,
+                Timeout = NumberValue(timeout) ?? PluginAction.DefaultTimeout,
             },
             Output = kind == PluginActionType.Url ? PluginOutput.None : output.SelectedIndex switch
             {
@@ -400,12 +445,15 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
             {
                 Kinds = [.. PluginKinds.All.Where(k => kinds.TryGetValue(k, out var box) && box.IsChecked == true)],
                 Pattern = pattern.Text,
+                MinLength = LengthValue(minimumLength),
+                MaxLength = LengthValue(maximumLength),
             },
         };
     }
 
     private void Save()
     {
+        CommitNumberInputs();
         var manifest = Collect().Normalized();
         if (manifest.ValidationError() is { } problem)
         {
@@ -431,7 +479,10 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
     {
         if (closed) return;
         StopTest(showMessage: false);
+        // 先提交数字框，防止 Enter 抬起时 NumberBox 再格式化并取消刚启动的任务。
+        CommitNumberInputs();
         fullTestOutput = null; copyTest.IsEnabled = false;
+        testWarning.Visibility = Visibility.Collapsed;
         var manifest = Collect().Normalized();
         testResult.Visibility = Visibility.Visible;
         if (manifest.ValidationError() is { } problem)
@@ -440,8 +491,18 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
             return;
         }
         var content = ContentClassifier.Classify(testInput.Text);
-        testWarning.Text = "这段内容不满足「什么时候可用」，在圆盘里不会出现";
-        testWarning.Visibility = PluginMatcher.Matches(manifest, content) ? Visibility.Collapsed : Visibility.Visible;
+        var mismatch = PluginMatcher.Check(manifest.Match, content);
+        testWarning.Text = mismatch switch
+        {
+            PluginMatchFailure.Kind => "输入类型不符合勾选的内容类型，在圆盘里不会出现",
+            PluginMatchFailure.Empty => "长度或正则条件需要选中内容，在圆盘里不会出现",
+            PluginMatchFailure.TooShort => $"输入至少需要 {manifest.Match.MinLength} 个可见字符，在圆盘里不会出现",
+            PluginMatchFailure.TooLong => $"输入最多允许 {manifest.Match.MaxLength} 个可见字符，在圆盘里不会出现",
+            PluginMatchFailure.PatternTimeout => "正则匹配超时，请简化表达式",
+            PluginMatchFailure.Pattern or PluginMatchFailure.InvalidPattern => "输入没有匹配正则表达式，在圆盘里不会出现",
+            _ => "",
+        };
+        testWarning.Visibility = mismatch == PluginMatchFailure.None ? Visibility.Collapsed : Visibility.Visible;
         using var run = new CancellationTokenSource();
         testRun = run;
         testProgress.Visibility = Visibility.Visible;
@@ -481,6 +542,7 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
 
     private void InvalidateTest()
     {
+        testWarning.Visibility = Visibility.Collapsed;
         if (testResult.Visibility != Visibility.Visible) return;
         StopTest(showMessage: false); fullTestOutput = null; copyTest.IsEnabled = false;
         testResult.Text = "内容已更改，请重新试运行";

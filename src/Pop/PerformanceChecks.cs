@@ -92,7 +92,51 @@ internal static class PerformanceChecks
         lines.Add("plugin-match=ok graphemes=ok bounded=ok");
         lines.Add(string.Create(CultureInfo.InvariantCulture,
             $"performance: plugin-match-chars={pluginText.Text.Length} whole-ms={whole.Milliseconds:0.###} bounded-ms={bounded.Milliseconds:0.###} whole-managed-bytes={whole.Bytes} bounded-managed-bytes={bounded.Bytes}"));
+        VerifyPluginOutputAndHash(lines);
         return lines;
+    }
+
+    private static void VerifyPluginOutputAndHash(List<string> lines)
+    {
+        var output = string.Concat(Enumerable.Repeat("first line\n", 100_000));
+        var toast = new PluginManifest { Output = PluginOutput.Toast };
+        ActionResult OldToast()
+        {
+            var first = output.Split(['\n', '\r', '\u000B', '\u000C', '\u0085', '\u2028', '\u2029'], StringSplitOptions.RemoveEmptyEntries).First();
+            var elements = StringInfo.ParseCombiningCharacters(first);
+            return ActionResult.Toast(elements.Length <= 60 ? first : first[..elements[60]]);
+        }
+        ActionResult NewToast() => PluginRunner.Present(output, toast, false);
+        var input = PluginInput.Of(new string('a', 2_000_000));
+        IReadOnlyDictionary<string, string> OldEnvironment() => new Dictionary<string, string>
+        {
+            ["POP_TEXT"] = input.Text[..StringInfo.ParseCombiningCharacters(input.Text)[PluginRunner.MaxEnvironmentLength]],
+            ["POP_FILES"] = "", ["POP_KINDS"] = "",
+        };
+        IReadOnlyDictionary<string, string> NewEnvironment() => PluginRunner.Environment(input);
+        var error = new ProcessOutput(1, "", input.Text, false);
+        PluginRunResult OldError() => PluginRunResult.Failure(error.StandardError[..StringInfo.ParseCombiningCharacters(error.StandardError)[500]]);
+        PluginRunResult NewError() => PluginRunner.ScriptOutput(error);
+        if (OldToast() != NewToast() || OldEnvironment()["POP_TEXT"] != NewEnvironment()["POP_TEXT"] || OldError() != NewError())
+            throw new InvalidOperationException("插件轻提示、错误输出或环境变量改变了内容");
+        var oldToast = Measure(OldToast); var newToast = Measure(NewToast);
+        var oldEnvironment = Measure(OldEnvironment); var newEnvironment = Measure(NewEnvironment);
+        var oldError = Measure(OldError); var newError = Measure(NewError);
+        lines.Add("plugin-output=ok toast=ok environment=ok error=ok");
+        lines.Add(string.Create(CultureInfo.InvariantCulture,
+            $"performance: plugin-toast-chars={output.Length} split-managed-bytes={oldToast.Bytes} prefix-managed-bytes={newToast.Bytes}"));
+        lines.Add(string.Create(CultureInfo.InvariantCulture,
+            $"performance: plugin-environment-chars={input.Text.Length} whole-managed-bytes={oldEnvironment.Bytes} bounded-managed-bytes={newEnvironment.Bytes}"));
+        lines.Add(string.Create(CultureInfo.InvariantCulture,
+            $"performance: plugin-error-chars={error.StandardError.Length} whole-managed-bytes={oldError.Bytes} bounded-managed-bytes={newError.Bytes}"));
+        var capture = new ClipboardCapture(ClipboardKind.Text, new string('中', 500_000));
+        string OldHash() => "text:" + Digests.Hex(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(capture.Text)));
+        string NewHash() => capture.Hash;
+        if (OldHash() != NewHash()) throw new InvalidOperationException("剪贴板去重摘要改变了格式");
+        var oldHash = Measure(OldHash); var newHash = Measure(NewHash);
+        lines.Add("clipboard-hash=ok utf8=ok bounded=ok");
+        lines.Add(string.Create(CultureInfo.InvariantCulture,
+            $"performance: clipboard-hash-chars={capture.Text.Length} whole-ms={oldHash.Milliseconds:0.###} chunked-ms={newHash.Milliseconds:0.###} whole-managed-bytes={oldHash.Bytes} chunked-managed-bytes={newHash.Bytes}"));
     }
 
     public static void VerifyNavigation(int x, int y)

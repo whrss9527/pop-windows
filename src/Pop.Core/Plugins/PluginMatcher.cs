@@ -4,6 +4,9 @@ using System.Text.RegularExpressions;
 
 namespace Pop.Core;
 
+/// 插件不适用于当前输入的原因；匹配成功为 None，热路径不构造说明文字。
+public enum PluginMatchFailure { None, Kind, Empty, TooShort, TooLong, InvalidPattern, Pattern, PatternTimeout }
+
 /// 判断选中的内容能不能用某个插件
 public static class PluginMatcher
 {
@@ -17,10 +20,12 @@ public static class PluginMatcher
 
     /// 内容类型满足其一（没写类型表示随时可用），再满足长度和正则的限制。
     /// Windows 版识别不了的类型（图片、图片文件）永远匹配不上
-    public static bool Matches(PluginMatch match, ClassifiedContent content)
+    public static bool Matches(PluginMatch match, ClassifiedContent content) => Check(match, content) == PluginMatchFailure.None;
+
+    public static PluginMatchFailure Check(PluginMatch match, ClassifiedContent content)
     {
-        if (match.Kinds.Count > 0 && (PluginKinds.Flags(match.Kinds) & content.Kinds) == 0) return false;
-        return MatchesConstraints(match, content);
+        if (match.Kinds.Count > 0 && (PluginKinds.Flags(match.Kinds) & content.Kinds) == 0) return PluginMatchFailure.Kind;
+        return CheckConstraints(match, content);
     }
 
     /// 放到 PopAction.Requires 上的内容类型：没写类型又没有别的限制时是 None（随时可用）；
@@ -38,12 +43,12 @@ public static class PluginMatcher
     private static bool HasConstraints(PluginMatch match) =>
         match.MinLength is not null || match.MaxLength is not null || !string.IsNullOrEmpty(match.Pattern);
 
-    private static bool MatchesConstraints(PluginMatch match, ClassifiedContent content)
+    private static PluginMatchFailure CheckConstraints(PluginMatch match, ClassifiedContent content)
     {
-        if (!HasConstraints(match)) return true;
+        if (!HasConstraints(match)) return PluginMatchFailure.None;
         // 选中的文字；选中的是文件路径时 Text 就是路径
         var subject = content.Text.Length > 0 ? content.Text : content.Path ?? "";
-        if (subject.Length == 0) return false;
+        if (subject.Length == 0) return PluginMatchFailure.Empty;
         if (match.MinLength is not null || match.MaxLength is not null)
         {
             var remaining = subject.AsSpan();
@@ -51,25 +56,26 @@ public static class PluginMatcher
             while (!remaining.IsEmpty)
             {
                 length++;
-                if (length > match.MaxLength) return false;
+                if (length > match.MaxLength) return PluginMatchFailure.TooLong;
                 if (match.MaxLength is null && length >= match.MinLength) break;
                 remaining = remaining[StringInfo.GetNextTextElementLength(remaining)..];
             }
-            if (length < match.MinLength || length > match.MaxLength) return false;
+            if (length < match.MinLength) return PluginMatchFailure.TooShort;
+            if (length > match.MaxLength) return PluginMatchFailure.TooLong;
         }
         if (!string.IsNullOrEmpty(match.Pattern))
         {
-            if (Compile(match.Pattern) is not { } regex) return false;
+            if (Compile(match.Pattern) is not { } regex) return PluginMatchFailure.InvalidPattern;
             try
             {
-                if (!regex.IsMatch(subject)) return false;
+                if (!regex.IsMatch(subject)) return PluginMatchFailure.Pattern;
             }
             catch (RegexMatchTimeoutException)
             {
-                return false;
+                return PluginMatchFailure.PatternTimeout;
             }
         }
-        return true;
+        return PluginMatchFailure.None;
     }
 
     private static Regex? Compile(string pattern)
