@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using Pop.Core;
 using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
 using Rect = System.Windows.Rect;
@@ -17,38 +18,56 @@ internal sealed class RegionSelector
 {
     private readonly List<SelectorWindow> windows = [];
     private TaskCompletionSource<Drawing.Rectangle?>? pending;
-    private Drawing.Bitmap? frozen;
 
     public bool IsOpen => pending is not null;
 
     /// 选好的区域（物理像素）和定格的整屏截图；取消时返回 null
     public async Task<(Drawing.Rectangle Area, Drawing.Bitmap Screen, Drawing.Rectangle ScreenBounds)?> SelectAsync()
     {
+        if (await SelectCoreAsync(detectEdges: false, keepScreen: true) is not { Screen: { } screenshot } selected) return null;
+        return (selected.Area, screenshot, selected.ScreenBounds);
+    }
+
+    /// 标尺只需要范围，预览建立后即可释放 GDI 整屏位图。
+    public async Task<Drawing.Rectangle?> MeasureAsync() => (await SelectCoreAsync(detectEdges: true, keepScreen: false))?.Area;
+
+    private async Task<(Drawing.Rectangle Area, Drawing.Bitmap? Screen, Drawing.Rectangle ScreenBounds)?> SelectCoreAsync(bool detectEdges, bool keepScreen)
+    {
         if (pending is not null) return null;
-        var bounds = ScreenCapture.VirtualScreen;
-        frozen = ScreenCapture.Capture(bounds);
-        var png = ScreenCapture.Png(frozen);
-        var source = ScreenCapture.ToBitmapSource(png);
-        pending = new TaskCompletionSource<Drawing.Rectangle?>();
-        foreach (var screen in Forms.Screen.AllScreens)
+        pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Drawing.Bitmap? capture = null;
+        try
         {
-            var window = new SelectorWindow(this, screen.Bounds, bounds, source);
-            windows.Add(window);
-            window.Open();
+            var bounds = ScreenCapture.VirtualScreen;
+            capture = ScreenCapture.Capture(bounds);
+            var source = ScreenCapture.ToBitmapSource(capture);
+            ScreenPixels? pixels = null;
+            if (detectEdges)
+            {
+                var converted = source.Format == PixelFormats.Bgra32 ? source : new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
+                var data = new byte[checked(converted.PixelWidth * converted.PixelHeight * 4)];
+                converted.CopyPixels(data, converted.PixelWidth * 4, 0);
+                pixels = new(converted.PixelWidth, converted.PixelHeight, data);
+            }
+            if (!keepScreen) { capture.Dispose(); capture = null; }
+            foreach (var screen in Forms.Screen.AllScreens)
+            {
+                var window = new SelectorWindow(this, screen.Bounds, bounds, source, pixels);
+                windows.Add(window); window.Open();
+            }
+            Log.Info($"框选区域：{Forms.Screen.AllScreens.Length} 个显示器，自动边缘={detectEdges}");
+            var area = await pending.Task;
+            var minimum = detectEdges ? 1 : 4;
+            if (area is not { } chosen || chosen.Width < minimum || chosen.Height < minimum) return null;
+            var screenshot = capture; capture = null;
+            return (chosen, screenshot, bounds);
         }
-        Log.Info($"框选区域：{Forms.Screen.AllScreens.Length} 个显示器");
-        var area = await pending.Task;
-        foreach (var w in windows) w.Close();
-        windows.Clear();
-        pending = null;
-        var screenshot = frozen;
-        frozen = null;
-        if (area is not { } chosen || chosen.Width < 4 || chosen.Height < 4)
+        finally
         {
-            screenshot.Dispose();
-            return null;
+            pending = null;
+            foreach (var w in windows) w.Close();
+            windows.Clear(); capture?.Dispose();
         }
-        return (chosen, screenshot, bounds);
     }
 
     public void Cancel() => pending?.TrySetResult(null);
@@ -59,12 +78,20 @@ internal sealed class RegionSelector
         foreach (var window in windows) window.Preview(area);
     }
 
+    public void PreviewAuto(int x, int y)
+    {
+        foreach (var window in windows) window.PreviewAuto(x, y);
+    }
+
     private void Finish(Drawing.Rectangle area) => pending?.TrySetResult(area);
 
     private sealed class SelectorWindow : OverlayWindow
     {
         private readonly RegionSelector owner;
         private readonly Drawing.Rectangle monitor;
+        private readonly Drawing.Rectangle virtualScreen;
+        private readonly ScreenPixels? pixels;
+        private Drawing.Rectangle? automaticArea;
         private readonly double scale;
         private readonly Canvas canvas = new();
         private readonly Path shade = new() { Fill = new SolidColorBrush(Color.FromArgb(0x70, 0, 0, 0)) };
@@ -75,12 +102,13 @@ internal sealed class RegionSelector
         private readonly Border hint;
         private Point? start;
 
-        public SelectorWindow(RegionSelector owner, Drawing.Rectangle monitor, Drawing.Rectangle virtualScreen, BitmapSource screen) : base(clickThrough: false)
+        public SelectorWindow(RegionSelector owner, Drawing.Rectangle monitor, Drawing.Rectangle virtualScreen, BitmapSource screen, ScreenPixels? pixels) : base(clickThrough: false)
         {
             this.owner = owner;
             this.monitor = monitor;
+            this.virtualScreen = virtualScreen; this.pixels = pixels;
             scale = Native.MonitorAt(monitor.Left + monitor.Width / 2, monitor.Top + monitor.Height / 2).Scale;
-            Title = "Pop 框选";
+            Title = pixels is null ? "Pop 框选" : "Pop 屏幕标尺";
             Cursor = Cursors.Cross;
             Width = monitor.Width / scale;
             Height = monitor.Height / scale;
@@ -101,7 +129,7 @@ internal sealed class RegionSelector
             hintIcon.Margin = new Thickness(0, 0, 8, 0);
             hintIcon.VerticalAlignment = VerticalAlignment.Center;
             hintText.Children.Add(hintIcon);
-            hintText.Children.Add(new TextBlock { Text = "拖动鼠标框选区域", Foreground = Brushes.White, FontSize = Theme.Body, VerticalAlignment = VerticalAlignment.Center });
+            hintText.Children.Add(new TextBlock { Text = pixels is null ? "拖动鼠标框选区域" : "移动寻找边界，点击确定 · 拖动手动测量", Foreground = Brushes.White, FontSize = Theme.Body, VerticalAlignment = VerticalAlignment.Center });
             hintText.Children.Add(new TextBlock { Text = "右键或 Esc 取消", Foreground = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF)), FontSize = Theme.Caption, Margin = new Thickness(14, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center });
             hint = new Border
             {
@@ -137,6 +165,11 @@ internal sealed class RegionSelector
             MouseMove += (_, e) =>
             {
                 if (start is { } s) Draw(s, e.GetPosition(canvas));
+                else if (pixels is not null)
+                {
+                    var p = e.GetPosition(canvas);
+                    PreviewAuto(monitor.Left + (int)Math.Floor(p.X * scale), monitor.Top + (int)Math.Floor(p.Y * scale));
+                }
             };
             MouseLeftButtonUp += (_, e) =>
             {
@@ -144,6 +177,8 @@ internal sealed class RegionSelector
                 if (start is not { } s) return;
                 start = null;
                 var r = new Rect(s, e.GetPosition(canvas));
+                if (pixels is not null && r.Width * scale < 4 && r.Height * scale < 4 && automaticArea is { } auto)
+                { owner.Finish(auto); return; }
                 owner.Finish(new Drawing.Rectangle(
                     monitor.Left + (int)Math.Round(r.Left * scale),
                     monitor.Top + (int)Math.Round(r.Top * scale),
@@ -158,6 +193,17 @@ internal sealed class RegionSelector
             PlacePhysical(monitor.Left, monitor.Top, monitor.Width, monitor.Height);
             Show();
             Dispatcher.BeginInvoke(() => PlacePhysical(monitor.Left, monitor.Top, monitor.Width, monitor.Height), System.Windows.Threading.DispatcherPriority.Loaded);
+            if (pixels is not null) { Native.GetCursorPos(out var p); PreviewAuto(p.X, p.Y); }
+        }
+
+        public void PreviewAuto(int x, int y)
+        {
+            if (pixels is null || !monitor.Contains(x, y)) return;
+            var clip = new PixelBounds(monitor.Left - virtualScreen.Left, monitor.Top - virtualScreen.Top, monitor.Width, monitor.Height);
+            if (pixels.FindEdges(x - virtualScreen.Left, y - virtualScreen.Top, clip: clip) is not { } span) return;
+            automaticArea = new Drawing.Rectangle(span.Left + virtualScreen.Left, span.Top + virtualScreen.Top, span.Width, span.Height);
+            Preview(automaticArea.Value);
+            hint.Visibility = Visibility.Visible;
         }
 
         /// 演示模式：画出一个选区（物理像素）

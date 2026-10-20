@@ -9,7 +9,14 @@ namespace Pop;
 internal sealed class ActionListWindow : SearchOverlay<PopAction>
 {
     private ClassifiedContent content = ClassifiedContent.Empty;
+    private ActionAvailability availability = new(ClassifiedContent.Empty);
     private Func<string, bool> enabled = _ => true;
+    private bool canReturn;
+    private IReadOnlyList<PopAction>? originalRing;
+    public bool CanReturnToRing => canReturn && SearchText.Length == 0;
+    public event Action? BackRequested;
+    private static readonly PopAction Back = new("backToRing", "返回圆盘", "ArrowLeft24", "fh fanhui back", ContentKind.None, _ => null,
+        Summary: "返回刚才的菜单 · ← 或 Backspace");
 
     /// 选了一个功能（回车或者鼠标点）
     public event Action<PopAction>? Chosen;
@@ -20,12 +27,16 @@ internal sealed class ActionListWindow : SearchOverlay<PopAction>
 
     protected override double PanelWidth => 380;
     protected override double ListHeight => 10 * 38;
-    protected override string Placeholder => "搜索功能：拼音首字母或英文";
+    protected override string Placeholder => "搜索：拼音 / 英文 · Ctrl+V 粘贴中文";
     protected override IReadOnlyList<(string Keys, string Action)> Hints => [("↑↓", "选择"), ("Enter", "执行"), ("Esc", "关闭")];
 
-    public void ShowFor(ClassifiedContent selectedContent, int x, int y, Func<string, bool> isEnabled)
+    public void ShowFor(ClassifiedContent selectedContent, int x, int y, Func<string, bool> isEnabled,
+        bool canReturnToRing = false, IReadOnlyList<PopAction>? ringActions = null)
     {
+        canReturn = canReturnToRing;
+        originalRing = ringActions;
         content = selectedContent;
+        availability = new(selectedContent);
         enabled = isEnabled;
         Open(x, y);
         Log.Info("全部功能列表已显示");
@@ -33,14 +44,17 @@ internal sealed class ActionListWindow : SearchOverlay<PopAction>
 
     protected override IEnumerable<Entry> Query(string text)
     {
-        var actions = Actions.Filter(text, content, enabled);
+        var actions = originalRing is { } original
+            ? original.Where(a => a.Matches(text)).ToList()
+            : Actions.Filter(text, content, enabled, availability.IsAvailable);
+        if (canReturn && text.Length == 0) yield return new Entry(null, Back);
         if (text.Length > 0)
         {
-            foreach (var action in actions) yield return new Entry(null, action, action.IsAvailable(content));
+            foreach (var action in actions) yield return new Entry(null, action, availability.IsAvailable(action));
             yield break;
         }
         // 没有搜索词时：能用的按分组列出，用不了的放在最后
-        var available = actions.Where(a => a.IsAvailable(content)).ToList();
+        var available = actions.Where(a => availability.IsAvailable(a)).ToList();
         foreach (var category in Actions.Categories)
         {
             var group = available.Where(a => a.Category == category).ToList();
@@ -48,7 +62,7 @@ internal sealed class ActionListWindow : SearchOverlay<PopAction>
             yield return new Entry(category, null);
             foreach (var action in group) yield return new Entry(null, action);
         }
-        var unavailable = actions.Where(a => !a.IsAvailable(content)).ToList();
+        var unavailable = actions.Where(a => !availability.IsAvailable(a)).ToList();
         if (unavailable.Count == 0) yield break;
         yield return new Entry("当前内容用不了", null);
         foreach (var action in unavailable) yield return new Entry(null, action, false);
@@ -89,6 +103,7 @@ internal sealed class ActionListWindow : SearchOverlay<PopAction>
 
     protected override void OnChosen(PopAction action)
     {
+        if (action == Back) { BackRequested?.Invoke(); return; }
         Log.Info($"全部功能列表：选中 {action.Id}，搜索「{SearchText}」");
         Chosen?.Invoke(action);
     }

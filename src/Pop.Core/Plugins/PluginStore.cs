@@ -177,6 +177,47 @@ public sealed class PluginStore : IDisposable
 
     // MARK: 修改
 
+    /// 整批导入用于设置恢复。先验证，再写入；最后一步保存设置失败时还原所有受影响的文件。
+    public void ImportBatch(IReadOnlyList<PluginManifest> incoming, Action commitSettings)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var manifest in incoming)
+            if (manifest.ValidationError() is { } || !PluginManifest.IsUsableId(manifest.Id, isReserved) || !ids.Add(manifest.Id))
+                throw new PluginStoreException("插件内容无效或 ID 重复，尚未修改任何文件");
+        lock (gate)
+        {
+            System.IO.Directory.CreateDirectory(Directory);
+            var originals = new Dictionary<string, byte[]?>();
+            var written = new List<string>();
+            try
+            {
+                foreach (var manifest in incoming)
+                {
+                    var path = TargetPath(manifest.Id);
+                    originals[path] = File.Exists(path) ? File.ReadAllBytes(path) : null;
+                    WriteAtomically(path, manifest.Normalized().ToJson());
+                    written.Add(path);
+                }
+                commitSettings();
+            }
+            catch (Exception original)
+            {
+                var failures = new List<Exception>();
+                foreach (var path in written.AsEnumerable().Reverse())
+                    try
+                    {
+                        if (originals[path] is { } bytes) File.WriteAllBytes(path, bytes);
+                        else File.Delete(path);
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException) { failures.Add(e); }
+                if (failures.Count > 0) throw new AggregateException("恢复失败，部分插件无法回滚；可使用导入前的自动备份恢复", failures.Prepend(original));
+                throw;
+            }
+            Apply(ReadAll(Directory, isReserved));
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
     /// 新建或更新插件，返回实际保存的内容（整理过格式、更新了修改时间）。内容有问题时抛出 PluginStoreException
     public PluginManifest Save(PluginManifest manifest)
     {

@@ -11,12 +11,18 @@ internal static unsafe class Native
 
     public const int WM_QUIT = 0x0012;
     public const int WM_KEYDOWN = 0x0100;
+    public const int WM_KEYUP = 0x0101;
     public const int WM_SYSKEYDOWN = 0x0104;
+    public const int WM_SYSKEYUP = 0x0105;
     public const int WM_MOUSEMOVE = 0x0200;
     public const int WM_LBUTTONDOWN = 0x0201;
+    public const int WM_LBUTTONUP = 0x0202;
+    public const int WM_MOUSEWHEEL = 0x020A;
+    public const int WM_MOUSEHWHEEL = 0x020E;
     public const int WM_RBUTTONDOWN = 0x0204;
     public const int WM_RBUTTONUP = 0x0205;
     public const int WM_MBUTTONDOWN = 0x0207;
+    public const int WM_MBUTTONUP = 0x0208;
 
     public const uint INPUT_MOUSE = 0;
     public const uint INPUT_KEYBOARD = 1;
@@ -154,6 +160,9 @@ internal static unsafe class Native
     [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
 
+    [DllImport("user32.dll")]
+    public static extern uint GetDpiForWindow(IntPtr hwnd);
+
 
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -245,6 +254,9 @@ internal static unsafe class Native
 
     [DllImport("user32.dll")]
     public static extern bool GetCursorPos(out POINT point);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetCursorPos(int x, int y);
 
     /// 窗口所属的程序名（不带 .exe）。只查这一个进程；Process.GetProcessById 会枚举所有进程，浏览器开着很多子进程时要好几百毫秒
     public static string ProcessNameOf(IntPtr hwnd)

@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using WpfUi = Wpf.Ui.Controls;
+using Pop.Core;
 
 namespace Pop;
 
@@ -18,7 +19,7 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
     private readonly TextBlock query = new();
     private readonly StackPanel rows = new();
     private readonly ScrollViewer scroller = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Focusable = false };
-    private readonly List<(Entry Entry, FrameworkElement Element)> painted = [];
+    private readonly List<(Entry Entry, FrameworkElement Element, int Number)> painted = [];
     private List<Entry> entries = [];
     private int selected = -1;
 
@@ -102,14 +103,15 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
 
     public void Type(char c)
     {
-        SearchText += c;
-        Refresh();
+        Paste(c.ToString());
     }
+
+    public void Paste(string text) { SearchText = SearchQuery.Append(SearchText, text); Refresh(); }
 
     public void Backspace()
     {
         if (SearchText.Length == 0) return;
-        SearchText = SearchText[..^1];
+        SearchText = SearchQuery.Backspace(SearchText);
         Refresh();
     }
 
@@ -221,8 +223,24 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
 
     private void Select(int index)
     {
-        selected = index;
-        Paint();
+        if (selected == index) return;
+        var previous = selected; selected = index;
+        UpdateRow(previous); UpdateRow(selected); EnsureSelectedVisible();
+    }
+
+    // 方向键只更新旧、新选中的两行，保留其他行、图片和事件处理器。
+    private void UpdateRow(int index)
+    {
+        if (index < 0 || index >= painted.Count) return;
+        var (entry, element, number) = painted[index];
+        if (entry.Item is null || element is not Border { Child: Grid grid } row) return;
+        var active = index == selected;
+        var content = Row(entry.Item, active, entry.Enabled, number);
+        // WPF 的 VisualCollection 不允许直接覆盖仍有视觉父项的槽位。
+        grid.Children.RemoveAt(0); grid.Children.Insert(0, content);
+        grid.Children[1].Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+        row.Background = active ? Palette.Brush(Palette.Selected)
+            : row.IsMouseOver ? Palette.Brush(Palette.Hover) : Brushes.Transparent;
     }
 
     private void Paint()
@@ -247,6 +265,7 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
         {
             var entry = entries[i];
             FrameworkElement element;
+            var rowNumber = -1;
             if (entry.Item is null)
             {
                 element = new TextBlock
@@ -261,7 +280,8 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
             else
             {
                 var isSelected = i == selected;
-                var content = Row(entry.Item, isSelected, entry.Enabled, entry.Enabled ? number++ : -1);
+                rowNumber = entry.Enabled ? number++ : -1;
+                var content = Row(entry.Item, isSelected, entry.Enabled, rowNumber);
                 var grid = new Grid();
                 grid.Children.Add(content);
                 // 选中的那一行：浅底色 + 左边一道主题色竖条
@@ -301,8 +321,13 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
                 element = row;
             }
             rows.Children.Add(element);
-            painted.Add((entry, element));
+            painted.Add((entry, element, rowNumber));
         }
+        EnsureSelectedVisible();
+    }
+
+    private void EnsureSelectedVisible()
+    {
         if (selected >= 0 && selected < painted.Count)
         {
             // 让选中的那一行留在可见范围里

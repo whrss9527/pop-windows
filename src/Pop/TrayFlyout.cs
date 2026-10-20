@@ -25,6 +25,8 @@ internal sealed class TrayFlyout : Window
     private readonly Grid root = new();
     private readonly TranslateTransform slide = new();
     private readonly StackPanel body = new() { Margin = new Thickness(16, 16, 16, 10) };
+    private readonly ScrollViewer viewport = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, CanContentScroll = false };
+    private double maxPanelHeight = 650;
     private bool closing;
 
     /// 截背景时多截的高度（DIP），够放下更新提示
@@ -54,6 +56,7 @@ internal sealed class TrayFlyout : Window
         Theme.ApplyTextOptions(this);
         root.RenderTransform = slide;
         Content = root;
+        viewport.Content = body;
         Native.AddExStyle(new WindowInteropHelper(this).EnsureHandle(), Native.WS_EX_TOOLWINDOW);
 
         Deactivated += (_, _) => CloseAnimated();
@@ -74,8 +77,9 @@ internal sealed class TrayFlyout : Window
     public void ShowNear(int x, int y)
     {
         Fill();
-        var height = Measure();
         var (bounds, work, monitorScale) = Native.MonitorDetailsAt(x, y);
+        maxPanelHeight = Math.Max(120, (work.Bottom - work.Top) / monitorScale - 2 * (Gap + Theme.ShadowPad));
+        var height = Measure();
         scale = monitorScale;
         var w = (int)Math.Ceiling(PanelWidth * scale);
         var h = (int)Math.Ceiling(height * scale);
@@ -131,7 +135,7 @@ internal sealed class TrayFlyout : Window
     private double Measure()
     {
         body.Measure(new Size(PanelWidth, double.PositiveInfinity));
-        return Math.Ceiling(body.DesiredSize.Height);
+        return Math.Min(maxPanelHeight, Math.Ceiling(body.DesiredSize.Height));
     }
 
     /// 按内容的高度摆好毛玻璃面板和窗口
@@ -140,8 +144,9 @@ internal sealed class TrayFlyout : Window
         var w = (int)Math.Ceiling(PanelWidth * scale);
         var h = (int)Math.Ceiling(height * scale);
         var top = growsUp ? edge - h : edge;
-        if (body.Parent is Panel old) old.Children.Remove(body);
-        var panel = Frost.Panel(shot, left, top, PanelWidth, height, Theme.OverlayRadius, theme, body);
+        if (viewport.Parent is Panel old) old.Children.Remove(viewport);
+        viewport.Height = height;
+        var panel = Frost.Panel(shot, left, top, PanelWidth, height, Theme.OverlayRadius, theme, viewport);
         panel.Margin = new Thickness(Theme.ShadowPad);
         root.Children.Clear();
         root.Children.Add(panel);
@@ -194,8 +199,14 @@ internal sealed class TrayFlyout : Window
         body.Children.Add(Tiles());
         body.Children.Add(Divider());
         body.Children.Add(Row(WpfUi.SymbolRegular.ClipboardTextLtr24, "剪贴板历史", app.HistoryHotKey, () => Then(app.ShowClipboardHistory)));
+        body.Children.Add(Row(WpfUi.SymbolRegular.TextBulletList24, "常用短语", app.ShortcutText("snippets"), () => Then(app.ShowSnippets)));
+        var awake = Row(WpfUi.SymbolRegular.WeatherSunny24, app.IsKeepingAwake ? "保持唤醒 · 已开启" : "保持唤醒", app.ShortcutText("keepAwake"), () => Then(app.ShowKeepAwake));
+        awake.ToolTip = app.AwakeStatus; body.Children.Add(awake);
         body.Children.Add(Row(WpfUi.SymbolRegular.ScanText24, "截图识字", app.OcrHotKey, () => Then(app.CaptureText)));
         body.Children.Add(Row(WpfUi.SymbolRegular.Pin24, "截图贴图", app.PinHotKey, () => Then(app.CapturePin)));
+        body.Children.Add(Row(WpfUi.SymbolRegular.Edit24, "截图标注", app.AnnotateHotKey, () => Then(app.CaptureAnnotate)));
+        body.Children.Add(Row(WpfUi.SymbolRegular.Color24, "屏幕取色", app.ColorHotKey, () => Then(app.PickColor)));
+        body.Children.Add(Row(WpfUi.SymbolRegular.Ruler24, "屏幕标尺", null, () => Then(app.MeasureScreen)));
         if (PinWindow.Count > 0)
             body.Children.Add(Row(WpfUi.SymbolRegular.PinOff24, $"关闭所有贴图（{PinWindow.Count}）", null, () => Then(PinWindow.CloseAll)));
         body.Children.Add(Divider());
@@ -250,8 +261,13 @@ internal sealed class TrayFlyout : Window
     {
         var version = $"版本 {Updater.CurrentVersion}";
         if (app.Updater.Status is { } status) return $"{version} · {status}";
-        if (!app.Settings.Enabled) return $"{version} · 长按唤起已关闭";
-        return $"{version} · 选中文字后长按右键";
+        if (!app.Settings.Enabled || app.Settings.TriggerMode == TriggerMode.Disabled) return $"{version} · 鼠标唤起已关闭";
+        return app.Settings.TriggerMode switch
+        {
+            TriggerMode.MiddleClick => $"{version} · 点击中键唤起",
+            TriggerMode.ModifierRightClick => $"{version} · 按修饰键并点击右键唤起",
+            _ => $"{version} · 选中文字后长按右键",
+        };
     }
 
     private UIElement? UpdateBanner()
@@ -299,7 +315,12 @@ internal sealed class TrayFlyout : Window
     private UIElement Tiles()
     {
         var grid = new UniformGrid { Columns = 3, Margin = new Thickness(-4, 0, -4, 10) };
-        grid.Children.Add(Tile(WpfUi.SymbolRegular.CursorClick24, "长按唤起", app.Settings.Enabled, () => app.UpdateSettings(s => s.Enabled = !s.Enabled)));
+        var mouseOn = app.Settings.Enabled && app.Settings.TriggerMode != TriggerMode.Disabled;
+        grid.Children.Add(Tile(WpfUi.SymbolRegular.CursorClick24, "鼠标唤起", mouseOn, () => app.UpdateSettings(s =>
+        {
+            s.Enabled = !mouseOn;
+            if (!mouseOn && s.TriggerMode == TriggerMode.Disabled) s.TriggerMode = TriggerMode.LongPressRight;
+        })));
         grid.Children.Add(Tile(WpfUi.SymbolRegular.Flash24, "直接出结果", app.Settings.DirectResults, () => app.UpdateSettings(s => s.DirectResults = !s.DirectResults)));
         grid.Children.Add(Tile(WpfUi.SymbolRegular.History24, "剪贴板记录", app.Settings.ClipboardHistory, () => app.UpdateSettings(s => s.ClipboardHistory = !s.ClipboardHistory)));
         return grid;
@@ -355,7 +376,7 @@ internal sealed class TrayFlyout : Window
         icon.Margin = new Thickness(0, 0, 12, 0);
         icon.VerticalAlignment = VerticalAlignment.Center;
         grid.Children.Add(icon);
-        var text = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center, Foreground = theme.Brush(theme.Text) };
+        var text = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center, Foreground = theme.Brush(theme.Text), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 6, 0) };
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);
         if (keys is not null)

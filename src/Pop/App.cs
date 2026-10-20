@@ -17,6 +17,9 @@ internal sealed class App : Application
     private TrayIcon? tray;
     private ClipboardHistory? history;
     private HotKeys? hotKeys;
+    private string? shortcutSignature;
+    private bool shortcutsSuspended;
+    private readonly Dictionary<string, string?> activeShortcuts = new(StringComparer.OrdinalIgnoreCase);
     private bool notifiedVersion;
 
     public App(StartupOptions options)
@@ -57,6 +60,9 @@ internal sealed class App : Application
             HistoryHotKey = "Win+Alt+V";
             OcrHotKey = "Win+Alt+O";
             PinHotKey = "Win+Alt+P";
+            AnnotateHotKey = "Win+Alt+A";
+            ColorHotKey = "Win+Alt+C";
+            RingHotKey = "Win+Alt+Space";
             await Demo.RunAsync(this, shots, options.DemoScenes);
             Shutdown();
             return;
@@ -72,20 +78,15 @@ internal sealed class App : Application
         }
 
         SetUpPlugins(Paths.Plugins);
-        hook = new InputHook { Enabled = Settings.Enabled, HoldMilliseconds = Settings.HoldMilliseconds };
+        hook = new InputHook { Enabled = Settings.Enabled, HoldMilliseconds = Settings.HoldMilliseconds,
+            TriggerMode = Settings.TriggerMode, TriggerModifier = Settings.TriggerModifier, SelectionToolbar = Settings.SelectionToolbar };
+        hook.ExcludeApplications(Settings.TriggerExcludedApps);
         hook.Start();
         NativeAutomation.WarmUp();
         history = new ClipboardHistory(() => Settings);
         coordinator = new Coordinator(Dispatcher, hook, () => Settings, history, () => Plugins, PluginRunner);
         watchdog = new UiWatchdog(Dispatcher);
-        hotKeys = new HotKeys();
-        // Win+Shift+V 被系统占用了；默认用 Win+Alt+V，也被占用时依次换下一个
-        HistoryHotKey = RegisterFirst("剪贴板历史", () => coordinator.ShowHistory(), (HotKeys.MOD_WIN | HotKeys.MOD_ALT, 0x56, "Win+Alt+V"),
-            (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x56, "Ctrl+Alt+Shift+V"), (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x48, "Ctrl+Alt+Shift+H"));
-        OcrHotKey = RegisterFirst("截图识字", () => _ = coordinator.CaptureTextAsync(), (HotKeys.MOD_WIN | HotKeys.MOD_ALT, 0x4F, "Win+Alt+O"),
-            (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x4F, "Ctrl+Alt+Shift+O"));
-        PinHotKey = RegisterFirst("截图贴图", () => _ = coordinator.CapturePinAsync(), (HotKeys.MOD_WIN | HotKeys.MOD_ALT, 0x50, "Win+Alt+P"),
-            (HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, 0x50, "Ctrl+Alt+Shift+P"));
+        ConfigureHotKeys();
         tray = new TrayIcon(this);
         ListenForSecondInstance();
         Updater.Changed += OnUpdaterChanged;
@@ -110,16 +111,39 @@ internal sealed class App : Application
     {
         change(Settings);
         SaveSettings();
+        ApplySettings();
+    }
+
+    private void ApplySettings()
+    {
         if (hook is not null)
         {
             hook.Enabled = Settings.Enabled;
             hook.HoldMilliseconds = Settings.HoldMilliseconds;
+            hook.TriggerMode = Settings.TriggerMode;
+            hook.TriggerModifier = Settings.TriggerModifier;
+            hook.SelectionToolbar = Settings.SelectionToolbar;
+            hook.ExcludeApplications(Settings.TriggerExcludedApps);
         }
+        coordinator?.SettingsUpdated();
         history?.Cleanup();
+        ConfigureHotKeys();
         SettingsChanged?.Invoke();
     }
 
     public bool IsDemo => options.DemoShots is not null;
+
+    public string ImportBackup(SettingsBackup backup)
+    {
+        var directory = Path.Combine(Paths.RoamingData, "Backups");
+        Directory.CreateDirectory(directory);
+        var recovery = Path.Combine(directory, $"导入前-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..6]}.json");
+        File.WriteAllText(recovery, new SettingsBackup(Settings, Plugins.Manifests, Updater.CurrentVersion.ToString()).ToJson());
+        backup.Restore(Paths.Settings, Plugins);
+        Settings = AppSettings.FromJson(backup.Settings.ToJson());
+        ApplySettings();
+        return recovery;
+    }
 
     // ── 插件 ──────────────────────────────────────────
 
@@ -136,6 +160,7 @@ internal sealed class App : Application
     {
         Actions.SetPlugins(PluginRunner.ToActions(Plugins.Manifests));
         Log.Info($"插件有变化：现在 {Plugins.Manifests.Count} 个{(Plugins.LoadErrors.Count > 0 ? $"，{Plugins.LoadErrors.Count} 个文件读不了" : "")}");
+        ConfigureHotKeys();
         PluginsChanged?.Invoke();
     }
 
@@ -212,18 +237,81 @@ internal sealed class App : Application
     public string? HistoryHotKey { get; private set; }
     public string? OcrHotKey { get; private set; }
     public string? PinHotKey { get; private set; }
+    public string? AnnotateHotKey { get; private set; }
+    public string? ColorHotKey { get; private set; }
+    public string? RingHotKey { get; private set; }
 
-    /// 依次尝试注册，返回注册上的那一个
-    private string? RegisterFirst(string title, Action handler, params (uint Modifiers, uint Key, string Name)[] candidates)
+    public string? ShortcutText(string id) => IsDemo
+        ? KeyboardShortcut.Effective(Settings.ActionShortcuts).GetValueOrDefault(id)?.Display
+        : activeShortcuts.GetValueOrDefault(id);
+
+    public string? ShortcutProblem(string id) => !Settings.IsEnabled(id) ? "功能已关闭，启用后快捷键生效"
+        : KeyboardShortcut.Effective(Settings.ActionShortcuts).ContainsKey(id) && ShortcutText(id) is null
+            ? "快捷键被系统或其他程序占用，请换一个组合" : null;
+
+    public bool SetShortcut(string id, KeyboardShortcut? shortcut, out string? error)
     {
-        foreach (var (modifiers, key, name) in candidates)
-            if (hotKeys!.Register(modifiers, key, $"{name}（{title}）", handler)) return name;
-        return null;
+        error = null;
+        if (shortcut is { Modifiers: 2, Key: 0x43 or 0x56 }) { error = "Ctrl+C / Ctrl+V 用于复制粘贴，请选择其他组合"; return false; }
+        if (shortcut is not null && !shortcut.IsValid) { error = "请使用 Ctrl、Alt 或 Win 加字母、数字、空格或功能键"; return false; }
+        var candidate = new Dictionary<string, KeyboardShortcut?>(Settings.ActionShortcuts, StringComparer.OrdinalIgnoreCase) { [id] = shortcut };
+        if (shortcut is not null && KeyboardShortcut.Effective(candidate).Any(p => p.Key != id && p.Value == shortcut))
+        { error = "这个组合已经分配给 Pop 的其他功能"; return false; }
+        UpdateSettings(s => s.ActionShortcuts[id] = shortcut);
+        return true;
+    }
+
+    public void SuspendShortcuts(bool suspended)
+    {
+        shortcutsSuspended = suspended;
+        shortcutSignature = null;
+        if (suspended) { hotKeys?.Dispose(); hotKeys = null; }
+        else ConfigureHotKeys();
+    }
+
+    private void ConfigureHotKeys()
+    {
+        if (IsDemo || coordinator is null || shortcutsSuspended) return;
+        var signature = System.Text.Json.JsonSerializer.Serialize(Settings.ActionShortcuts)
+            + string.Join(',', Settings.DisabledActions.Order()) + string.Join(',', Actions.List.Select(a => a.Id));
+        if (signature == shortcutSignature) return;
+        shortcutSignature = signature;
+        hotKeys?.Dispose(); hotKeys = new HotKeys(); activeShortcuts.Clear();
+        var bindings = KeyboardShortcut.Effective(Settings.ActionShortcuts);
+        foreach (var (id, shortcut) in bindings)
+        {
+            if (id != KeyboardShortcut.RingTarget && (!Settings.IsEnabled(id) || Actions.Find(id) is null)) continue;
+            var target = id;
+            var title = id == KeyboardShortcut.RingTarget ? "圆盘" : Actions.Find(id)!.Title;
+            Action handler = id == KeyboardShortcut.RingTarget ? coordinator.ShowRingFromShortcut : () => coordinator.RunActionFromShortcut(target);
+            var candidates = new List<KeyboardShortcut> { shortcut };
+            if (!Settings.ActionShortcuts.ContainsKey(id) && id != KeyboardShortcut.RingTarget)
+            {
+                var fallback = new KeyboardShortcut(HotKeys.MOD_CONTROL | HotKeys.MOD_ALT | HotKeys.MOD_SHIFT, shortcut.Key);
+                if (!bindings.Any(p => p.Key != id && p.Value == fallback)) candidates.Add(fallback);
+                if (id == "clipboard" && !bindings.Any(p => p.Key != id && p.Value == new KeyboardShortcut(7, 0x48))) candidates.Add(new(7, 0x48));
+            }
+            activeShortcuts[id] = null;
+            foreach (var candidate in candidates)
+            {
+                if (!hotKeys.Register(candidate.Modifiers, candidate.Key, $"{candidate.Display}（{title}）", handler)) continue;
+                activeShortcuts[id] = candidate.Display; break;
+            }
+        }
+        HistoryHotKey = ShortcutText("clipboard"); OcrHotKey = ShortcutText("ocr"); PinHotKey = ShortcutText("pin");
+        AnnotateHotKey = ShortcutText("annotate"); ColorHotKey = ShortcutText("colorPicker"); RingHotKey = ShortcutText(KeyboardShortcut.RingTarget);
     }
 
     public void CaptureText() => _ = coordinator?.CaptureTextAsync();
 
     public void CapturePin() => _ = coordinator?.CapturePinAsync();
+    public void CaptureAnnotate() => _ = coordinator?.CaptureAnnotateAsync();
+    public void PickColor() => _ = coordinator?.PickColorAsync();
+    public void MeasureScreen() => _ = coordinator?.MeasureScreenAsync();
+    public void ShowSnippets() => coordinator?.RunActionFromShortcut(Actions.Snippets.Id);
+    public bool IsKeepingAwake => coordinator?.IsKeepingAwake == true;
+    public string AwakeStatus => coordinator?.AwakeStatus ?? "当前未保持唤醒";
+    public void ShowKeepAwake() => coordinator?.RunActionFromShortcut(Actions.Awake.Id);
 
     public void ShowClipboardHistory() => coordinator?.ShowHistory();
 

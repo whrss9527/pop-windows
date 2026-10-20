@@ -167,11 +167,11 @@ public sealed class PluginStoreTests : IDisposable
         File.WriteAllText(folder.File(".hidden.json"), "{\"name\": \"隐藏\"}");
         File.WriteAllText(folder.File("notes.txt"), "{\"name\": \"不是插件\"}");
         File.WriteAllText(folder.File("c.json.1234.tmp"), "{\"name\": \"没写完的\"}");
-        File.WriteAllText(folder.File("UPPER.JSON"), "{\"name\": \"Beta\"}");
+        File.WriteAllText(folder.File("CUSTOM-UPPER.JSON"), "{\"name\": \"Beta\"}");
 
         var store = Open();
         Assert.Equal(["Alpha", "Beta"], store.Manifests.Select(m => m.Name));
-        Assert.Equal(["User-X", "UPPER"], store.Manifests.Select(m => m.Id));
+        Assert.Equal(["User-X", "CUSTOM-UPPER"], store.Manifests.Select(m => m.Id));
         Assert.Equal("和 a.json 的插件 ID 重复", Assert.Single(store.LoadErrors).Value);
         Assert.Equal("Alpha", store.Find("user-x")?.Name);
     }

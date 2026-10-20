@@ -49,7 +49,37 @@ internal static class Demo
             }
         }
 
+        if (Want("performance"))
+            await Scene("performance", async () =>
+            {
+                foreach (var line in await Task.Run(PerformanceChecks.Run)) SmokeTest.Report(line);
+                PerformanceChecks.VerifyNavigation(x, y); SmokeTest.Report("list-navigation=ok rows=100 updated=6 moves=3");
+            });
+
         var text = ContentClassifier.Classify("Pop makes selected text useful");
+
+        if (Want("snippets"))
+            await Scene("snippets", async () =>
+            {
+                var snippets = new SnippetWindow(); snippets.ShowAt(Snippet.Examples, x, y);
+                await Wait(400); Shot("snippets"); snippets.Close(); await Wait(150);
+            });
+        if (Want("utilities"))
+            await Scene("utilities", async () =>
+            {
+                var diff = new TextDiffWindow("标题\n功能已完成\n下一步：检查", "标题\n功能已完善\n新增：回归验证\n下一步：检查");
+                diff.Show(); await Wait(600); Shot("text-diff"); diff.Close(); await Wait(150);
+                using var awake = new KeepAwakeController(); awake.ShowWindow();
+                await Wait(400); Shot("keep-awake");
+            });
+
+        if (Want("toolbar"))
+            await Scene("toolbar", async () =>
+            {
+                var toolbar = new SelectionToolbar();
+                toolbar.ShowAt(x, y, SelectionToolbarLogic.Items(RingItems.Default, text), new Pop.Core.Rect(x - 140, y - 16, x + 140, y + 4));
+                await Wait(500); Shot("selection-toolbar"); toolbar.Dismiss(); toolbar.Close(); await Wait(200);
+            });
 
         if (Want("ring"))
             await Scene("ring", async () =>
@@ -94,6 +124,8 @@ internal static class Demo
                 var json = "{\"name\":\"Pop\",\"version\":\"0.7.0\",\"features\":[\"ring\",\"translate\",\"clipboard\",\"ocr\",\"pin\"],\"settings\":{\"holdMilliseconds\":250,\"directResults\":true,\"ringSlots\":[\"copy\",\"search\",\"translate\",\"upper\",\"count\",\"all\"],\"clipboard\":{\"retentionDays\":30,\"maxItems\":500,\"excludedApps\":[\"KeePass\",\"1Password\",\"Bitwarden\"]}},\"platforms\":[{\"os\":\"Windows 10\",\"minimum\":\"1809\"},{\"os\":\"Windows 11\",\"minimum\":\"21H2\"}]}";
                 if (Actions.Find("json") is { } jsonAction && jsonAction.Run(ContentClassifier.Classify(json)) is { Card: { } formatted })
                     cards.Add(("card-long", formatted with { Icon = formatted.Icon ?? jsonAction.Glyph }));
+                if (JwtDecoder.Card("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJQb3AiLCJpc3MiOiJodHRwczovL2V4YW1wbGUuY29tIiwiZXhwIjoxODAwMDAwMDAwfQ.signature") is { } jwt)
+                    cards.Add(("card-jwt", jwt));
                 foreach (var (name, content) in cards)
                 {
                     var card = new ResultCard();
@@ -186,6 +218,23 @@ internal static class Demo
                     Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var r);
                     Shot($"settings-{id}", new Drawing.Rectangle(r.Left - 16, r.Top - 16, r.Right - r.Left + 32, r.Bottom - r.Top + 32));
                 }
+                // 独立应用圆盘和修饰键设置，验证有配置时的布局，演示结束恢复默认。
+                app.UpdateSettings(s =>
+                {
+                    s.AppRings["notepad"] = ["copy", "ocr", "pin", "all"];
+                    s.TriggerMode = TriggerMode.ModifierRightClick;
+                    s.TriggerModifier = TriggerModifier.Control;
+                    s.ActionShortcuts["upper"] = new(6, 0x55);
+                    s.SelectionToolbar = true;
+                    s.TriggerExcludedApps = ["Code", "mstsc"];
+                });
+                if (window is not null)
+                {
+                    window.Navigate("triggers"); await Wait(600); Shot("settings-triggers-modifier");
+                    window.EditApplicationRing("notepad"); await Wait(600); Shot("settings-ring-application");
+                    window.Navigate("shortcuts"); await Wait(600); Shot("settings-shortcuts-configured");
+                }
+                app.UpdateSettings(s => { s.AppRings.Clear(); s.ActionShortcuts.Clear(); s.TriggerMode = TriggerMode.LongPressRight; s.TriggerModifier = TriggerModifier.Alt; s.SelectionToolbar = false; s.TriggerExcludedApps.Clear(); });
                 // 插件编辑器：一个脚本插件、一个网址插件，脚本插件先试运行一下
                 if (window is not null)
                     foreach (var manifest in app.Plugins.Manifests.OrderBy(m => m.Action.Type == PluginActionType.Url ? 1 : 0).Take(2))
@@ -203,6 +252,10 @@ internal static class Demo
                         editor.Close();
                         await Wait(250);
                     }
+                if (window is not null)
+                {
+                    var snippetEditor = window.PreviewSnippetEditor(); await Wait(500); Shot("snippet-editor"); snippetEditor.Close();
+                }
                 window?.Close();
                 await Wait(250);
             });
@@ -233,6 +286,73 @@ internal static class Demo
                 Shot("region-drag");
                 selector.Cancel();
                 await selecting;
+            });
+
+        if (Want("annotate"))
+            await Scene("annotate", async () =>
+            {
+                using var picture = ScreenCapture.Capture(new Drawing.Rectangle(x - 200, y - 80, 480, 260));
+                var editor = new AnnotationWindow(ScreenCapture.Png(picture), x, y);
+                editor.Preview(); editor.Show();
+                await Wait(500); Shot("annotate");
+                editor.ApplyFrame(new(AnnotationBackground.Sky, 32, 12));
+                await Wait(300); Shot("annotate-background"); editor.Close();
+                // 验证真正的渲染输出：尺寸不变、线条落在预期像素、未标注处保留原图。
+                var pixels = Enumerable.Repeat((byte)255, 100 * 60 * 4).ToArray();
+                var image = System.Windows.Media.Imaging.BitmapSource.Create(100, 60, 96, 96, PixelFormats.Bgra32, null, pixels, 400);
+                var strokes = new[]
+                {
+                    new AnnotationStroke(AnnotationTool.Rectangle, [new(20, 10), new(80, 50)], "#FF0000", 4),
+                    new AnnotationStroke(AnnotationTool.Mosaic, [new(0, 0), new(3, 3)], "#FF0000", 8),
+                };
+                var output = AnnotationRenderer.Render(image, strokes);
+                var restored = ScreenCapture.ToBitmapSource(AnnotationRenderer.Png(output));
+                if (restored.PixelWidth != 100 || restored.PixelHeight != 60) throw new InvalidOperationException("标注导出尺寸不一致");
+                var actual = new byte[pixels.Length]; output.CopyPixels(actual, 400, 0);
+                if (actual[(30 * 100 + 20) * 4 + 2] < 240 || actual[(30 * 100 + 20) * 4 + 1] > 100)
+                    throw new InvalidOperationException("标注线条未画在原图坐标");
+                if (actual[(30 * 100 + 50) * 4 + 1] < 240) throw new InvalidOperationException("标注改变了未绘制区域");
+                SmokeTest.Report("annotation-render=ok");
+                var framed = AnnotationRenderer.Render(image, strokes, new(AnnotationBackground.Sky, 16, 8));
+                var framedPng = ScreenCapture.ToBitmapSource(AnnotationRenderer.Png(framed));
+                if (framedPng.PixelWidth != 132 || framedPng.PixelHeight != 92) throw new InvalidOperationException("美化导出尺寸不一致");
+                var framedPixels = new byte[132 * 92 * 4]; framed.CopyPixels(framedPixels, 132 * 4, 0);
+                if (framedPixels[(46 * 132 + 36) * 4 + 2] < 240 || framedPixels[(46 * 132 + 36) * 4 + 1] > 100)
+                    throw new InvalidOperationException("美化后标注坐标偏移");
+                if (framedPixels[(46 * 132 + 66) * 4 + 1] < 240 || framedPixels[3] != 255 || framedPixels[1] > 230)
+                    throw new InvalidOperationException("美化背景覆盖原图或未绘制");
+                SmokeTest.Report("annotation-frame=ok");
+            });
+
+        if (Want("picker"))
+            await Scene("picker", async () =>
+            {
+                var picker = new ColorPicker();
+                var picking = picker.PickAsync();
+                picker.Preview(x, y); await Wait(300); Shot("picker");
+                picker.Cancel(); await picking;
+            });
+
+        if (Want("ruler"))
+            await Scene("ruler", async () =>
+            {
+                var ruler = new RegionSelector(); var measuring = ruler.MeasureAsync();
+                ruler.PreviewAuto(x + 180, y - 80); await Wait(300); Shot("ruler-auto"); ruler.Cancel(); await measuring;
+            });
+
+        if (Want("ring"))
+            await Scene("ring-layouts", async () =>
+            {
+                var ring = new RingWindow();
+                var twelve = RingItems.Build(Actions.BuiltIn.Take(11).Select(a => a.Id).Append("all"));
+                ring.ShowAt(x, y, twelve);
+                ring.SetContent(ContentClassifier.Classify("测试内容"), twelve);
+                await Wait(400); Shot("ring-twelve"); ring.Dismiss(); await Wait(160);
+                ring.ShowAt((int)work.Left + 4, (int)work.Top + 4, twelve);
+                await Wait(400); Shot("ring-corner");
+                if (!ring.Layout.IsArc || ring.Items.Count != 3 || ring.Items[^1].Id != Actions.All.Id)
+                    throw new InvalidOperationException("角落菜单没有保留更多入口");
+                ring.Close();
             });
 
         backdrop.Close();

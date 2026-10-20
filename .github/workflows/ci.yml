@@ -86,6 +86,9 @@ jobs:
         run: ./scripts/smoke.ps1 -Exe out/new/Pop.exe
       - name: Long-press gesture test
         run: ./scripts/gesture-e2e.ps1 -Exe (Resolve-Path out/new/Pop.exe) -OutDir screenshots
+      - name: Interaction parity test
+        if: success() || failure()
+        run: ./scripts/interaction-e2e.ps1 -Exe (Resolve-Path out/new/Pop.exe) -OutDir screenshots/interaction
       # 演示模式：每个界面浅色、深色各截一张，放在 ui 文件夹里
       - name: UI screenshots
         if: success() || failure()
