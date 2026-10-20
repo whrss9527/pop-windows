@@ -42,6 +42,18 @@ internal static class PerformanceChecks
             lines.Add(string.Create(CultureInfo.InvariantCulture,
                 $"performance: screen={width}x{height} png-ms={png.Milliseconds:0.###} direct-ms={bgra.Milliseconds:0.###} png-managed-bytes={png.Bytes} direct-managed-bytes={bgra.Bytes}"));
         }
+        var sample = string.Concat(Enumerable.Repeat("剪贴板 preview line\r\n", 100_000));
+        string Legacy()
+        {
+            var flat = string.Join(" ", sample.Split(['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+            return flat.Length > 120 ? flat[..120] + "…" : flat;
+        }
+        string Bounded() => TextPreview.SingleLine(sample, 120);
+        if (Legacy() != Bounded()) throw new InvalidOperationException("文本预览改变了显示内容");
+        var split = Measure(Legacy); var prefix = Measure(Bounded);
+        lines.Add("text-preview=ok");
+        lines.Add(string.Create(CultureInfo.InvariantCulture,
+            $"performance: preview-chars={sample.Length} split-ms={split.Milliseconds:0.###} prefix-ms={prefix.Milliseconds:0.###} split-managed-bytes={split.Bytes} prefix-managed-bytes={prefix.Bytes}"));
         return lines;
     }
 
@@ -60,6 +72,12 @@ internal static class PerformanceChecks
             if (probe.SelectedId != "probe-99") throw new InvalidOperationException("列表环绕选择错误");
             if (initial != 100 || probe.RowsCreated != initial + 6)
                 throw new InvalidOperationException("列表选择时重建了无关行");
+            probe.Hide();
+            if (probe.SelectedId is not null || probe.Content is not Grid { Children.Count: 0 })
+                throw new InvalidOperationException("隐藏后仍保留列表和背景");
+            probe.OpenAt(x, y);
+            if (probe.SelectedId != "probe-0" || probe.RowsCreated != initial + 106)
+                throw new InvalidOperationException("隐藏后重新打开列表失败");
         }
         finally { probe.Close(); }
     }
@@ -86,7 +104,7 @@ internal static class PerformanceChecks
         protected override void OnChosen(PopAction item) { }
     }
 
-    private static (double Milliseconds, long Bytes) Measure(Func<BitmapSource> convert)
+    private static (double Milliseconds, long Bytes) Measure<T>(Func<T> convert)
     {
         var times = new List<double>(); var allocations = new List<long>();
         for (var i = 0; i < 3; i++)

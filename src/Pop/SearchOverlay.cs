@@ -32,6 +32,15 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
         root.RenderTransform = scale;
         Content = root;
         scroller.Content = rows;
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible) return;
+            // 浮窗长期复用；隐藏时拆开视觉树，释放上一批文本、图片和毛玻璃屏幕快照。
+            rows.Children.Clear(); painted.Clear(); entries.Clear(); selected = -1;
+            root.Children.Clear(); query.Text = ""; SearchText = "";
+            if (query.Parent is Panel queryParent) queryParent.Children.Remove(query);
+            if (scroller.Parent is Panel scrollerParent) scrollerParent.Children.Remove(scroller);
+        };
     }
 
     /// 内容区域的宽和列表区域的高（DIP）

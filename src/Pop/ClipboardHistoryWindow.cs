@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using Pop.Core;
 using WpfUi = Wpf.Ui.Controls;
 
@@ -12,12 +11,19 @@ namespace Pop;
 internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
 {
     private ClipboardStore? store;
+    private readonly ClipboardThumbnailCache thumbnails = new();
+    private int thumbnailGeneration;
 
     /// 要粘贴这一条
     public event Action<ClipboardItem>? Chosen;
 
     public ClipboardHistoryWindow() : base("Pop 剪贴板历史")
     {
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible) return;
+            thumbnailGeneration++; thumbnails.Clear(); store = null;
+        };
     }
 
     protected override double PanelWidth => 420;
@@ -28,9 +34,10 @@ internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
 
     public void ShowAt(ClipboardStore history, int x, int y)
     {
+        thumbnailGeneration++; thumbnails.Clear();
         store = history;
         Open(x, y);
-        Log.Info($"剪贴板历史已显示，{history.Items("", 200).Count} 条");
+        Log.Info("剪贴板历史已显示");
     }
 
     public void DeleteSelected()
@@ -80,19 +87,24 @@ internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
 
         // 左边：缩略图或者图标
         FrameworkElement leading;
-        if (item.Kind == ClipboardKind.Image && store?.ImagePath(item) is { } path && Thumbnail(path) is { } thumbnail)
+        if (item.Kind == ClipboardKind.Image && store?.ImagePath(item) is { } path)
         {
-            leading = new Border
+            var preview = new Border
             {
                 Width = 44,
                 Height = 32,
                 CornerRadius = new CornerRadius(4),
                 BorderBrush = theme.Brush(theme.Divider),
                 BorderThickness = new Thickness(1),
-                Background = new ImageBrush(thumbnail) { Stretch = Stretch.UniformToFill },
+                Background = theme.Brush(theme.Hover),
+                Child = Icons.Make("Image24", 16, theme.Brush(theme.SecondaryText)),
                 Margin = new Thickness(0, 0, 12, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
+            ((FrameworkElement)preview.Child).HorizontalAlignment = HorizontalAlignment.Center;
+            ((FrameworkElement)preview.Child).VerticalAlignment = VerticalAlignment.Center;
+            _ = SetThumbnailAsync(preview, path, thumbnailGeneration);
+            leading = preview;
         }
         else
         {
@@ -140,7 +152,7 @@ internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
         });
         text.Children.Add(meta);
         line.Children.Add(text);
-        line.ToolTip = item.Kind == ClipboardKind.Text && item.Text.Length > 60 ? Shorten(item.Text, 600) : null;
+        line.ToolTip = item.Kind == ClipboardKind.Text && item.Text.Length > 60 ? TextPreview.SingleLine(item.Text, 600) : null;
         return line;
     }
 
@@ -154,8 +166,8 @@ internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
         ClipboardKind.Files => item.FilePaths.Count == 1
             ? Path.GetFileName(item.FilePaths[0].TrimEnd('\\'))
             : $"{item.FilePaths.Count} 个文件：{string.Join("、", item.FilePaths.Take(3).Select(p => Path.GetFileName(p.TrimEnd('\\'))))}",
-        ClipboardKind.Image => string.IsNullOrWhiteSpace(item.RecognizedText) ? "图片" : Shorten(item.RecognizedText, 80),
-        _ => Shorten(item.Text, 120),
+        ClipboardKind.Image => string.IsNullOrWhiteSpace(item.RecognizedText) ? "图片" : TextPreview.SingleLine(item.RecognizedText, 80),
+        _ => TextPreview.SingleLine(item.Text, 120),
     };
 
     private static string Meta(ClipboardItem item)
@@ -171,12 +183,6 @@ internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
         return string.Join(" · ", parts);
     }
 
-    private static string Shorten(string text, int max)
-    {
-        var flat = string.Join(" ", text.Split((char[])['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)).Trim();
-        return flat.Length > max ? flat[..max] + "…" : flat;
-    }
-
     private static string Ago(DateTimeOffset time, DateTimeOffset now)
     {
         var span = now - time;
@@ -187,22 +193,18 @@ internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
         return time.ToLocalTime().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private static BitmapImage? Thumbnail(string path)
+    private async Task SetThumbnailAsync(Border preview, string path, int generation)
     {
         try
         {
-            var image = new BitmapImage();
-            image.BeginInit();
-            image.CacheOption = BitmapCacheOption.OnLoad;
-            image.DecodePixelHeight = 64;
-            image.UriSource = new Uri(path);
-            image.EndInit();
-            image.Freeze();
-            return image;
+            var image = await thumbnails.GetAsync(path);
+            if (generation != thumbnailGeneration || image is null) return;
+            preview.Child = null;
+            preview.Background = new ImageBrush(image) { Stretch = Stretch.UniformToFill };
         }
-        catch (Exception e) when (e is IOException or NotSupportedException or UriFormatException)
+        catch (Exception e)
         {
-            return null;
+            Log.Error("载入剪贴板缩略图失败", e);
         }
     }
 }

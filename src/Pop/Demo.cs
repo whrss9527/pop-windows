@@ -54,6 +54,9 @@ internal static class Demo
             {
                 foreach (var line in await Task.Run(PerformanceChecks.Run)) SmokeTest.Report(line);
                 PerformanceChecks.VerifyNavigation(x, y); SmokeTest.Report("list-navigation=ok rows=100 updated=6 moves=3");
+                SmokeTest.Report("overlay-release=ok reopen=ok");
+                await ClipboardPerformanceChecks.VerifyAsync();
+                SmokeTest.Report("clipboard-thumbnails=ok bounded=256 pixels=96 workers=2 cancellation=ok");
             });
 
         var text = ContentClassifier.Classify("Pop makes selected text useful");
