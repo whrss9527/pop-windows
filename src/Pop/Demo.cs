@@ -51,6 +51,21 @@ internal static class Demo
 
         var text = ContentClassifier.Classify("Pop makes selected text useful");
 
+        if (Want("snippets"))
+            await Scene("snippets", async () =>
+            {
+                var snippets = new SnippetWindow(); snippets.ShowAt(Snippet.Examples, x, y);
+                await Wait(400); Shot("snippets"); snippets.Close(); await Wait(150);
+            });
+        if (Want("utilities"))
+            await Scene("utilities", async () =>
+            {
+                var diff = new TextDiffWindow("标题\n功能已完成\n下一步：检查", "标题\n功能已完善\n新增：回归验证\n下一步：检查");
+                diff.Show(); await Wait(600); Shot("text-diff"); diff.Close(); await Wait(150);
+                using var awake = new KeepAwakeController(); awake.ShowWindow();
+                await Wait(400); Shot("keep-awake");
+            });
+
         if (Want("toolbar"))
             await Scene("toolbar", async () =>
             {
@@ -102,6 +117,8 @@ internal static class Demo
                 var json = "{\"name\":\"Pop\",\"version\":\"0.7.0\",\"features\":[\"ring\",\"translate\",\"clipboard\",\"ocr\",\"pin\"],\"settings\":{\"holdMilliseconds\":250,\"directResults\":true,\"ringSlots\":[\"copy\",\"search\",\"translate\",\"upper\",\"count\",\"all\"],\"clipboard\":{\"retentionDays\":30,\"maxItems\":500,\"excludedApps\":[\"KeePass\",\"1Password\",\"Bitwarden\"]}},\"platforms\":[{\"os\":\"Windows 10\",\"minimum\":\"1809\"},{\"os\":\"Windows 11\",\"minimum\":\"21H2\"}]}";
                 if (Actions.Find("json") is { } jsonAction && jsonAction.Run(ContentClassifier.Classify(json)) is { Card: { } formatted })
                     cards.Add(("card-long", formatted with { Icon = formatted.Icon ?? jsonAction.Glyph }));
+                if (JwtDecoder.Card("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJQb3AiLCJpc3MiOiJodHRwczovL2V4YW1wbGUuY29tIiwiZXhwIjoxODAwMDAwMDAwfQ.signature") is { } jwt)
+                    cards.Add(("card-jwt", jwt));
                 foreach (var (name, content) in cards)
                 {
                     var card = new ResultCard();
@@ -228,6 +245,10 @@ internal static class Demo
                         editor.Close();
                         await Wait(250);
                     }
+                if (window is not null)
+                {
+                    var snippetEditor = window.PreviewSnippetEditor(); await Wait(500); Shot("snippet-editor"); snippetEditor.Close();
+                }
                 window?.Close();
                 await Wait(250);
             });
@@ -266,7 +287,9 @@ internal static class Demo
                 using var picture = ScreenCapture.Capture(new Drawing.Rectangle(x - 200, y - 80, 480, 260));
                 var editor = new AnnotationWindow(ScreenCapture.Png(picture), x, y);
                 editor.Preview(); editor.Show();
-                await Wait(500); Shot("annotate"); editor.Close();
+                await Wait(500); Shot("annotate");
+                editor.ApplyFrame(new(AnnotationBackground.Sky, 32, 12));
+                await Wait(300); Shot("annotate-background"); editor.Close();
                 // 验证真正的渲染输出：尺寸不变、线条落在预期像素、未标注处保留原图。
                 var pixels = Enumerable.Repeat((byte)255, 100 * 60 * 4).ToArray();
                 var image = System.Windows.Media.Imaging.BitmapSource.Create(100, 60, 96, 96, PixelFormats.Bgra32, null, pixels, 400);
@@ -283,6 +306,15 @@ internal static class Demo
                     throw new InvalidOperationException("标注线条未画在原图坐标");
                 if (actual[(30 * 100 + 50) * 4 + 1] < 240) throw new InvalidOperationException("标注改变了未绘制区域");
                 SmokeTest.Report("annotation-render=ok");
+                var framed = AnnotationRenderer.Render(image, strokes, new(AnnotationBackground.Sky, 16, 8));
+                var framedPng = ScreenCapture.ToBitmapSource(AnnotationRenderer.Png(framed));
+                if (framedPng.PixelWidth != 132 || framedPng.PixelHeight != 92) throw new InvalidOperationException("美化导出尺寸不一致");
+                var framedPixels = new byte[132 * 92 * 4]; framed.CopyPixels(framedPixels, 132 * 4, 0);
+                if (framedPixels[(46 * 132 + 36) * 4 + 2] < 240 || framedPixels[(46 * 132 + 36) * 4 + 1] > 100)
+                    throw new InvalidOperationException("美化后标注坐标偏移");
+                if (framedPixels[(46 * 132 + 66) * 4 + 1] < 240 || framedPixels[3] != 255 || framedPixels[1] > 230)
+                    throw new InvalidOperationException("美化背景覆盖原图或未绘制");
+                SmokeTest.Report("annotation-frame=ok");
             });
 
         if (Want("picker"))
@@ -292,6 +324,13 @@ internal static class Demo
                 var picking = picker.PickAsync();
                 picker.Preview(x, y); await Wait(300); Shot("picker");
                 picker.Cancel(); await picking;
+            });
+
+        if (Want("ruler"))
+            await Scene("ruler", async () =>
+            {
+                var ruler = new RegionSelector(); var measuring = ruler.SelectAsync(detectEdges: true);
+                ruler.PreviewAuto(x + 180, y - 80); await Wait(300); Shot("ruler-auto"); ruler.Cancel(); await measuring;
             });
 
         if (Want("ring"))

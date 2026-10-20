@@ -26,7 +26,7 @@ public sealed record DirectRule(string Kind, string ActionId, bool Enabled)
         foreach (var rule in rules)
         {
             if (!rule.Enabled || DirectResults.KindNamed(rule.Kind) is not { } kind || !content.Has(kind) || !enabled(rule.ActionId)) continue;
-            if (Actions.Find(rule.ActionId) is { } action && (action.Requires != ContentKind.None || action.Category == Actions.PluginCategory)
+            if (Actions.Find(rule.ActionId) is { } action && (action.Requires != ContentKind.None || action.OptionalInput || action.Category == Actions.PluginCategory)
                 && (action.Requires == ContentKind.None ? action.Accepts?.Invoke(content) ?? true : action.IsAvailable(content))) return action;
         }
         return null;

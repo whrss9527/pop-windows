@@ -26,7 +26,7 @@ internal sealed class ActionListWindow : SearchOverlay<PopAction>
 
     protected override double PanelWidth => 380;
     protected override double ListHeight => 10 * 38;
-    protected override string Placeholder => "搜索功能：拼音首字母或英文";
+    protected override string Placeholder => "搜索：拼音 / 英文 · Ctrl+V 粘贴中文";
     protected override IReadOnlyList<(string Keys, string Action)> Hints => [("↑↓", "选择"), ("Enter", "执行"), ("Esc", "关闭")];
 
     public void ShowFor(ClassifiedContent selectedContent, int x, int y, Func<string, bool> isEnabled,

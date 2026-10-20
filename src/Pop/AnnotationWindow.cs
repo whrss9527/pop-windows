@@ -25,6 +25,10 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
     private List<ImagePoint>? points;
     private TextBox? textEditor;
     private ImagePoint textAnchor;
+    private AnnotationFrame frame = new();
+    private string textColor = "#ED3833";
+    private double textWidth = 4;
+    private Button? undoButton, redoButton;
 
     public AnnotationWindow(byte[] png, int x, int y)
     {
@@ -72,15 +76,33 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
         width.SelectedIndex = 1;
         width.SelectionChanged += (_, _) => lineWidth = new[] { 2, 4, 6, 8 }[width.SelectedIndex];
         toolbar.Children.Add(width);
+        var backgrounds = new[] { (AnnotationBackground.None, "无背景"), (AnnotationBackground.Sky, "晴空"), (AnnotationBackground.Sunset, "晚霞"),
+            (AnnotationBackground.Mint, "薄荷"), (AnnotationBackground.Grape, "葡萄"), (AnnotationBackground.Graphite, "石墨"), (AnnotationBackground.Paper, "纸白") };
+        var background = new ComboBox { Width = 100, Margin = new Thickness(2), ToolTip = "给截图添加渐变背景" };
+        foreach (var (_, name) in backgrounds) background.Items.Add(name);
+        background.SelectedIndex = 0;
+        background.SelectionChanged += (_, _) => { if (background.SelectedIndex >= 0) ApplyFrame(frame with { Background = backgrounds[background.SelectedIndex].Item1 }); };
+        System.Windows.Automation.AutomationProperties.SetName(background, "标注美化背景");
+        toolbar.Children.Add(background);
+        var paddings = new[] { 16, 32, 48, 64, 96 };
+        var padding = new ComboBox { Width = 96, Margin = new Thickness(2), ToolTip = "美化背景的留白像素" };
+        foreach (var value in paddings) padding.Items.Add($"留白 {value}");
+        padding.SelectedIndex = 1;
+        padding.SelectionChanged += (_, _) => { if (padding.SelectedIndex >= 0) ApplyFrame(frame with { Padding = paddings[padding.SelectedIndex] }); };
+        toolbar.Children.Add(padding);
+        var shadow = new CheckBox { Content = "阴影", IsChecked = true, Margin = new Thickness(7, 2, 2, 2), VerticalAlignment = VerticalAlignment.Center };
+        shadow.Checked += (_, _) => ApplyFrame(frame with { Shadow = true });
+        shadow.Unchecked += (_, _) => ApplyFrame(frame with { Shadow = false }); toolbar.Children.Add(shadow);
         var actions = new WrapPanel { Margin = new Thickness(10, 0, 10, 6), HorizontalAlignment = HorizontalAlignment.Right };
         DockPanel.SetDock(actions, Dock.Bottom); root.Children.Add(actions);
-        void Add(string label, Action action)
+        Button Add(string label, Action action)
         {
             var button = new Button { Content = label, Margin = new Thickness(3), Padding = new Thickness(12, 7, 12, 7) };
             button.Click += (_, _) => action(); actions.Children.Add(button);
+            return button;
         }
-        Add("撤销 Ctrl+Z", () => { CommitText(); document.Undo(); Refresh(); });
-        Add("重做 Ctrl+Y", () => { CommitText(); document.Redo(); Refresh(); });
+        undoButton = Add("撤销 Ctrl+Z", () => { CommitText(); EndStroke(); document.Undo(); Refresh(); });
+        redoButton = Add("重做 Ctrl+Y", () => { CommitText(); EndStroke(); document.Redo(); Refresh(); });
         Add("复制 Ctrl+C", Copy);
         Add("保存 Ctrl+S", Save);
         Add("贴图", Pin);
@@ -101,6 +123,8 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
         surface.MouseLeftButtonDown += (_, e) =>
         {
             CommitText();
+            var raw = e.GetPosition(surface);
+            if (raw.X < frame.Inset || raw.Y < frame.Inset || raw.X > frame.Inset + image.PixelWidth || raw.Y > frame.Inset + image.PixelHeight) return;
             var p = Point(e);
             if (tool == AnnotationTool.Text) { EditText(p); return; }
             if (tool == AnnotationTool.Counter)
@@ -121,12 +145,13 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
         surface.MouseLeftButtonUp += (_, _) => EndStroke();
         surface.LostMouseCapture += (_, _) => EndStroke();
         PreviewKeyDown += OnKey;
+        Refresh();
     }
 
     private ImagePoint Point(MouseEventArgs e)
     {
         var p = e.GetPosition(surface);
-        return new(Math.Clamp(p.X, 0, image.PixelWidth), Math.Clamp(p.Y, 0, image.PixelHeight));
+        return new(Math.Clamp(p.X - frame.Inset, 0, image.PixelWidth), Math.Clamp(p.Y - frame.Inset, 0, image.PixelHeight));
     }
     private void UpdateCurrent() { surface.Current = points is null ? null : new(tool, points, color, lineWidth); Refresh(); }
     private void EndStroke()
@@ -136,7 +161,20 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
         points = null; surface.Current = null;
         surface.ReleaseMouseCapture(); Refresh();
     }
-    private void Refresh() => surface.InvalidateVisual();
+    private void Refresh()
+    {
+        surface.InvalidateVisual();
+        if (undoButton is not null) undoButton.IsEnabled = document.CanUndo;
+        if (redoButton is not null) redoButton.IsEnabled = document.CanRedo;
+    }
+    public void ApplyFrame(AnnotationFrame value)
+    {
+        CommitText(); EndStroke(); frame = value; surface.Frame = value;
+        var size = value.OutputSize(image.PixelWidth, image.PixelHeight);
+        surface.Width = size.Width; surface.Height = size.Height;
+        status.Text = $"导出 {size.Width} × {size.Height} 像素 · 原图 {image.PixelWidth} × {image.PixelHeight} · 点击背景不绘制";
+        Refresh();
+    }
     private void Choose(AnnotationTool selected)
     {
         CommitText(); EndStroke(); tool = selected;
@@ -145,8 +183,10 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
     private void EditText(ImagePoint p)
     {
         textAnchor = p;
-        textEditor = new TextBox { MinWidth = 100, MaxWidth = Math.Max(100, image.PixelWidth - p.X), FontSize = Math.Max(16, lineWidth * 5) };
-        Canvas.SetLeft(textEditor, p.X); Canvas.SetTop(textEditor, p.Y);
+        textColor = color; textWidth = lineWidth;
+        var available = Math.Max(1, image.PixelWidth - p.X);
+        textEditor = new TextBox { MinWidth = Math.Min(100, available), MaxWidth = available, FontSize = Math.Max(16, lineWidth * 5) };
+        Canvas.SetLeft(textEditor, p.X + frame.Inset); Canvas.SetTop(textEditor, p.Y + frame.Inset);
         surface.Children.Add(textEditor);
         textEditor.Focus();
         textEditor.KeyDown += (_, e) => { if (e.Key == Key.Enter) { CommitText(); e.Handled = true; } };
@@ -154,10 +194,10 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
     private void CommitText()
     {
         if (textEditor is null) return;
-        document.Add(new(AnnotationTool.Text, [textAnchor], color, lineWidth, Text: textEditor.Text));
+        document.Add(new(AnnotationTool.Text, [textAnchor], textColor, textWidth, Text: textEditor.Text));
         surface.Children.Remove(textEditor); textEditor = null; Refresh();
     }
-    private BitmapSource Export() { CommitText(); EndStroke(); return AnnotationRenderer.Render(image, document.Strokes); }
+    private BitmapSource Export() { CommitText(); EndStroke(); return AnnotationRenderer.Render(image, document.Strokes, frame); }
     private void Copy()
     {
         try { Clipboard.SetImage(Export()); status.Text = "已复制标注后的图片"; }
@@ -187,16 +227,19 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
         {
             switch (e.Key)
             {
-                case Key.Z: document.Undo(); Refresh(); break;
-                case Key.Y: document.Redo(); Refresh(); break;
+                case Key.Z: EndStroke(); document.Undo(); Refresh(); break;
+                case Key.Y: EndStroke(); document.Redo(); Refresh(); break;
                 case Key.C: Copy(); break;
                 case Key.S: Save(); break;
                 default: return;
             }
         }
-        else if (e.Key == Key.Escape) Close();
+        else if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.Z)
+        { EndStroke(); document.Redo(); Refresh(); }
+        else if (e.Key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None) Close();
         else
         {
+            if (Keyboard.Modifiers != ModifierKeys.None) return;
             var selected = e.Key switch { Key.A => AnnotationTool.Arrow, Key.R => AnnotationTool.Rectangle, Key.O => AnnotationTool.Ellipse, Key.P => AnnotationTool.Pen,
                 Key.T => AnnotationTool.Text, Key.M => AnnotationTool.Mosaic, Key.N => AnnotationTool.Counter, _ => (AnnotationTool?)null };
             if (selected is not { } kind) return;
@@ -218,12 +261,11 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
     private sealed class Surface(BitmapSource image, AnnotationDocument document) : Canvas
     {
         public AnnotationStroke? Current { get; set; }
+        public AnnotationFrame Frame { get; set; } = new();
         protected override void OnRender(DrawingContext dc)
         {
             base.OnRender(dc);
-            dc.DrawImage(image, new Rect(0, 0, image.PixelWidth, image.PixelHeight));
-            foreach (var stroke in document.Strokes) AnnotationRenderer.Draw(dc, image, stroke);
-            if (Current is { } current) AnnotationRenderer.Draw(dc, image, current);
+            AnnotationRenderer.DrawComposition(dc, image, document.Strokes, Frame, Current);
         }
     }
 }

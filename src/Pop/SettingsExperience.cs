@@ -166,7 +166,7 @@ internal sealed partial class SettingsWindow
             var index = i; var rule = rules[i];
             var kind = DirectResults.KindNamed(rule.Kind)!.Value;
             var title = DirectResults.Kinds.First(k => k.Name == rule.Kind).Title.Replace("（直接翻译）", "");
-            var choices = Actions.List.Where(a => a.Category == Actions.PluginCategory
+            var choices = Actions.List.Where(a => a.Category == Actions.PluginCategory || a.OptionalInput
                 || a.Requires != ContentKind.None && (a.Requires & (kind | ContentKind.Text)) != 0).ToList();
             var box = new ComboBox { MinWidth = 150, MaxWidth = 190, MaxDropDownHeight = 320 };
             foreach (var action in choices) box.Items.Add(action.Title + (Settings.IsEnabled(action.Id) ? "" : "（已关闭）"));

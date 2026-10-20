@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using WpfUi = Wpf.Ui.Controls;
+using Pop.Core;
 
 namespace Pop;
 
@@ -102,14 +103,15 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
 
     public void Type(char c)
     {
-        SearchText += c;
-        Refresh();
+        Paste(c.ToString());
     }
+
+    public void Paste(string text) { SearchText = SearchQuery.Append(SearchText, text); Refresh(); }
 
     public void Backspace()
     {
         if (SearchText.Length == 0) return;
-        SearchText = SearchText[..^1];
+        SearchText = SearchQuery.Backspace(SearchText);
         Refresh();
     }
 

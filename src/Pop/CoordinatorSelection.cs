@@ -37,6 +37,7 @@ internal sealed partial class Coordinator
 
     public void SettingsUpdated()
     {
+        CloseSnippets();
         toolbarVersion++;
         toolbar.Dismiss();
     }
@@ -45,7 +46,7 @@ internal sealed partial class Coordinator
     {
         bool CanShow() => hook.ActivityVersion == activity && settings().Enabled && settings().SelectionToolbar
             && Native.GetForegroundWindow() == target && !screenToolBusy && !selector.IsOpen && !colorPicker.IsOpen
-            && !ringOpen && !cardOpen && !listOpen && !historyOpen;
+            && !ringOpen && !cardOpen && !listOpen && !historyOpen && !snippetsOpen;
         if (waitingForToolbar || !CanShow()) return;
         var version = toolbarVersion;
         waitingForToolbar = true;

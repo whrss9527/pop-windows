@@ -41,6 +41,7 @@ foreach ($appearance in 'light', 'dark') {
     if ($null -ne $p -and $p.HasExited -and $p.ExitCode -ne 0) { $failures.Add("演示模式（${appearance}）退出码 $($p.ExitCode)") }
     if (-not ($lines -match 'demo-done')) { $failures.Add("演示模式（${appearance}）没有跑完") }
     if (-not ($lines -match 'annotation-render=ok')) { $failures.Add("演示模式（${appearance}）标注导出验证没有完成") }
+    if (-not ($lines -match 'annotation-frame=ok')) { $failures.Add("演示模式（${appearance}）美化导出验证没有完成") }
     $errors = @($lines | Where-Object { $_ -match 'demo-error|crash=' })
     if ($errors.Count -gt 0) { $failures.Add("演示模式（${appearance}）出错：`n$($errors -join "`n")") }
 }

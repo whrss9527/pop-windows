@@ -27,6 +27,7 @@ public sealed record SettingsBackup(AppSettings Settings, IReadOnlyList<PluginMa
             }
             writer.WriteEndArray(); writer.WriteEndObject();
         }
+        if (stream.Length > MaximumBytes) throw new InvalidDataException("设置和插件超过 16 MB，请减少内容后再导出备份");
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 

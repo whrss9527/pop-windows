@@ -6,8 +6,7 @@ public static class SelectionToolbarLogic
     public const int MaxItems = 5;
 
     public static IReadOnlyList<PopAction> Items(IEnumerable<PopAction> ring, ClassifiedContent content) =>
-        ring.Where(a => content.Has(ContentKind.Text) && (a.Requires == ContentKind.None
-            ? a.Category == Actions.PluginCategory && (a.Accepts?.Invoke(content) ?? true) : a.IsAvailable(content)))
+        ring.Where(a => content.Has(ContentKind.Text) && (a.Requires != ContentKind.None || a.OptionalInput || a.Category == Actions.PluginCategory) && a.IsAvailable(content))
             .DistinctBy(a => a.Id).Take(MaxItems).ToList();
 
     public static bool IsNear(Rect bounds, double x, double y, double scale = 1) =>

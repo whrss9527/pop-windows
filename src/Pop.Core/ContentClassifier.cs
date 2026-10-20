@@ -75,7 +75,7 @@ public static partial class ContentClassifier
     public static ClassifiedContent Classify(string? raw)
     {
         var text = raw?.Trim() ?? "";
-        if (text.Length == 0) return ClassifiedContent.Empty;
+        if (text.Length == 0) return string.IsNullOrEmpty(raw) ? ClassifiedContent.Empty : ClassifiedContent.Empty with { OriginalText = raw };
         var kinds = ContentKind.Text;
         string? url = null, path = null;
 

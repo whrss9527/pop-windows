@@ -95,6 +95,7 @@ internal sealed partial class Coordinator : IDisposable
         };
         hook.KeyFilter = FilterKey;
         SetUpSelectionToolbar();
+        SetUpSnippets();
         actionList.BackRequested += ReturnToRing;
         ring.Clicked += async index =>
         {
@@ -127,6 +128,8 @@ internal sealed partial class Coordinator : IDisposable
 
     public void Dispose()
     {
+        snippetWindow.Close();
+        awake.Dispose();
         toolbar.Close();
         selector.Cancel();
         colorPicker.Cancel();
@@ -140,6 +143,7 @@ internal sealed partial class Coordinator : IDisposable
 
     private async void OnTriggered(int x, int y)
     {
+        CloseSnippets();
         if (!hook.AllowsMouseTrigger) { hook.DiscardCurrentPress(); return; }
         toolbar.Dismiss();
         if (session is { Finished: false } previous) await Finish(previous, null);
@@ -184,6 +188,7 @@ internal sealed partial class Coordinator : IDisposable
     /// 快捷键唤起时没有右键按压，直接进入点击选择模式。
     public async void ShowRingFromShortcut()
     {
+        CloseSnippets();
         toolbar.Dismiss();
         if (screenToolBusy || selector.IsOpen || colorPicker.IsOpen) return;
         if (session is { Finished: false } previous) { await Finish(previous, null); return; }
@@ -202,6 +207,7 @@ internal sealed partial class Coordinator : IDisposable
 
     private async Task OpenFromClickAsync(int x, int y)
     {
+        CloseSnippets();
         toolbar.Dismiss();
         if (!hook.AllowsMouseTrigger) return;
         if (screenToolBusy || selector.IsOpen || colorPicker.IsOpen) return;
@@ -244,6 +250,7 @@ internal sealed partial class Coordinator : IDisposable
 
     public async void RunActionFromShortcut(string id)
     {
+        CloseSnippets();
         toolbar.Dismiss();
         if (screenToolBusy || selector.IsOpen || colorPicker.IsOpen || !settings().IsEnabled(id) || Actions.Find(id) is not { } action) return;
         var target = Native.GetForegroundWindow();
@@ -251,7 +258,7 @@ internal sealed partial class Coordinator : IDisposable
         if (session is { Finished: false } s) await Finish(s, null);
         CloseCard(); CloseList(); CloseHistory();
         Native.GetCursorPos(out var cursor);
-        var needsSelection = action.Requires != ContentKind.None || action.Id == Actions.All.Id || action.Category == Actions.PluginCategory;
+        var needsSelection = action.Requires != ContentKind.None || action.Id == Actions.All.Id || action.OptionalInput || action.Category == Actions.PluginCategory;
         var content = needsSelection ? ContentClassifier.Classify((await ReadSelectionAsync()).Text) : ClassifiedContent.Empty;
         if (Native.GetForegroundWindow() != target) return;
         if (action.Id == Actions.All.Id) ShowList(content, cursor.X, cursor.Y);
@@ -336,9 +343,16 @@ internal sealed partial class Coordinator : IDisposable
         }
         if (colorPicker.IsOpen)
         {
-            if (vk != VK_ESCAPE) return false;
-            dispatcher.BeginInvoke(colorPicker.Cancel);
-            return true;
+            if (vk == VK_ESCAPE) { dispatcher.BeginInvoke(colorPicker.Cancel); return true; }
+            if (vk == VK_RETURN) { dispatcher.BeginInvoke(colorPicker.Confirm); return true; }
+            if (vk is >= 0x25 and <= 0x28)
+            {
+                var step = (Native.GetAsyncKeyState(0x10) & 0x8000) != 0 ? 10 : 1;
+                var dx = vk == 0x25 ? -step : vk == 0x27 ? step : 0;
+                var dy = vk == 0x26 ? -step : vk == 0x28 ? step : 0;
+                dispatcher.BeginInvoke(() => colorPicker.MovePixel(dx, dy)); return true;
+            }
+            return false;
         }
         if (selector.IsOpen)
         {
@@ -346,6 +360,7 @@ internal sealed partial class Coordinator : IDisposable
             dispatcher.BeginInvoke(selector.Cancel);
             return true;
         }
+        if (snippetsOpen) return FilterSnippetKey(vk);
         if (listOpen) return FilterListKey(vk);
         if (historyOpen) return FilterHistoryKey(vk);
         if (ringOpen)
@@ -412,6 +427,9 @@ internal sealed partial class Coordinator : IDisposable
     {
         const int VK_BACK = 0x08, VK_UP = 0x26, VK_DOWN = 0x28;
         static bool Down(int key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
+        if (vk is 0x11 or 0xA2 or 0xA3) return false;
+        if (Down(0x11) && !Down(0x12) && !Down(0x5B) && !Down(0x5C) && vk == 0x56)
+        { dispatcher.BeginInvoke(() => actionList.Paste(clipboard.GetText() ?? "")); return true; }
         if (Down(0x11) || Down(0x12) || Down(0x5B) || Down(0x5C))
         {
             var held = HeldModifiers();
@@ -487,6 +505,7 @@ internal sealed partial class Coordinator : IDisposable
 
     private void ShowList(ClassifiedContent content, int x, int y, bool fromRing = false)
     {
+        CloseSnippets();
         lastList = (content, x, y);
         CloseCard();
         actionList.ShowFor(content, x, y, settings().IsEnabled, fromRing,
@@ -505,15 +524,16 @@ internal sealed partial class Coordinator : IDisposable
     }
 
     /// 框选一块屏幕区域，截下来（物理像素）；取消时返回 null
-    private async Task<(byte[] Png, System.Drawing.Rectangle Area)?> SelectRegionAsync()
+    private async Task<(byte[] Png, System.Drawing.Rectangle Area)?> SelectRegionAsync(bool detectEdges = false)
     {
         if (selector.IsOpen) return null;
         CloseCard();
         CloseList();
         CloseHistory();
         // 等圆盘和卡片淡出，不要被截进去
+        CloseSnippets();
         await Task.Delay(150);
-        var selected = await selector.SelectAsync();
+        var selected = await selector.SelectAsync(detectEdges);
         if (selected is not { } s)
         {
             Log.Info("框选区域：取消");
@@ -576,6 +596,7 @@ internal sealed partial class Coordinator : IDisposable
 
     public Task PickColorAsync() => ScreenToolAsync(async () =>
     {
+        CloseSnippets();
         CloseCard(); CloseList(); CloseHistory();
         await Task.Delay(150);
         if (await colorPicker.PickAsync() is not { } picked) return;
@@ -585,7 +606,7 @@ internal sealed partial class Coordinator : IDisposable
 
     public Task MeasureScreenAsync() => ScreenToolAsync(async () =>
     {
-        if (await SelectRegionAsync() is not { } region) return;
+        if (await SelectRegionAsync(detectEdges: true) is not { } region) return;
         var area = region.Area;
         ShowResult(area.Left, area.Top, new CardContent("屏幕标尺",
         [
@@ -614,6 +635,7 @@ internal sealed partial class Coordinator : IDisposable
     /// 打开剪贴板历史；不给位置时放在指针旁边
     public void ShowHistory(int? x = null, int? y = null)
     {
+        CloseSnippets();
         toolbar.Dismiss(); toolbarVersion++;
         if (x is null || y is null)
         {
@@ -676,6 +698,7 @@ internal sealed partial class Coordinator : IDisposable
         static bool Down(int key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
         if (Down(0x11) && !Down(0x12))
         {
+            if (vk == 0x56) { dispatcher.BeginInvoke(() => historyWindow.Paste(clipboard.GetText() ?? "")); return true; }
             if (vk is >= 0x31 and <= 0x39)
             {
                 var index = vk - 0x31;
@@ -823,6 +846,16 @@ internal sealed partial class Coordinator : IDisposable
                 break;
             case ActionEffect.MeasureScreen:
                 await MeasureScreenAsync();
+                break;
+            case ActionEffect.ShowSnippets:
+                ShowSnippets(content, x, y);
+                break;
+            case ActionEffect.KeepAwake:
+                ShowKeepAwake(x, y);
+                break;
+            case ActionEffect.CompareText:
+                toolbar.Dismiss(); CloseSnippets(); CloseCard(); CloseList(); CloseHistory();
+                new TextDiffWindow(content.OriginalText, clipboard.GetText() ?? "").Show();
                 break;
             case ActionEffect.ShowSettings:
                 ((App)System.Windows.Application.Current).ShowSettings();

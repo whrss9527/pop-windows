@@ -25,6 +25,8 @@ internal sealed class TrayFlyout : Window
     private readonly Grid root = new();
     private readonly TranslateTransform slide = new();
     private readonly StackPanel body = new() { Margin = new Thickness(16, 16, 16, 10) };
+    private readonly ScrollViewer viewport = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, CanContentScroll = false };
+    private double maxPanelHeight = 650;
     private bool closing;
 
     /// 截背景时多截的高度（DIP），够放下更新提示
@@ -54,6 +56,7 @@ internal sealed class TrayFlyout : Window
         Theme.ApplyTextOptions(this);
         root.RenderTransform = slide;
         Content = root;
+        viewport.Content = body;
         Native.AddExStyle(new WindowInteropHelper(this).EnsureHandle(), Native.WS_EX_TOOLWINDOW);
 
         Deactivated += (_, _) => CloseAnimated();
@@ -74,8 +77,9 @@ internal sealed class TrayFlyout : Window
     public void ShowNear(int x, int y)
     {
         Fill();
-        var height = Measure();
         var (bounds, work, monitorScale) = Native.MonitorDetailsAt(x, y);
+        maxPanelHeight = Math.Max(120, (work.Bottom - work.Top) / monitorScale - 2 * (Gap + Theme.ShadowPad));
+        var height = Measure();
         scale = monitorScale;
         var w = (int)Math.Ceiling(PanelWidth * scale);
         var h = (int)Math.Ceiling(height * scale);
@@ -131,7 +135,7 @@ internal sealed class TrayFlyout : Window
     private double Measure()
     {
         body.Measure(new Size(PanelWidth, double.PositiveInfinity));
-        return Math.Ceiling(body.DesiredSize.Height);
+        return Math.Min(maxPanelHeight, Math.Ceiling(body.DesiredSize.Height));
     }
 
     /// 按内容的高度摆好毛玻璃面板和窗口
@@ -140,8 +144,9 @@ internal sealed class TrayFlyout : Window
         var w = (int)Math.Ceiling(PanelWidth * scale);
         var h = (int)Math.Ceiling(height * scale);
         var top = growsUp ? edge - h : edge;
-        if (body.Parent is Panel old) old.Children.Remove(body);
-        var panel = Frost.Panel(shot, left, top, PanelWidth, height, Theme.OverlayRadius, theme, body);
+        if (viewport.Parent is Panel old) old.Children.Remove(viewport);
+        viewport.Height = height;
+        var panel = Frost.Panel(shot, left, top, PanelWidth, height, Theme.OverlayRadius, theme, viewport);
         panel.Margin = new Thickness(Theme.ShadowPad);
         root.Children.Clear();
         root.Children.Add(panel);
@@ -194,6 +199,8 @@ internal sealed class TrayFlyout : Window
         body.Children.Add(Tiles());
         body.Children.Add(Divider());
         body.Children.Add(Row(WpfUi.SymbolRegular.ClipboardTextLtr24, "剪贴板历史", app.HistoryHotKey, () => Then(app.ShowClipboardHistory)));
+        body.Children.Add(Row(WpfUi.SymbolRegular.TextBulletList24, "常用短语", app.ShortcutText("snippets"), () => Then(app.ShowSnippets)));
+        body.Children.Add(Row(WpfUi.SymbolRegular.WeatherSunny24, "保持唤醒", app.ShortcutText("keepAwake"), () => Then(app.ShowKeepAwake)));
         body.Children.Add(Row(WpfUi.SymbolRegular.ScanText24, "截图识字", app.OcrHotKey, () => Then(app.CaptureText)));
         body.Children.Add(Row(WpfUi.SymbolRegular.Pin24, "截图贴图", app.PinHotKey, () => Then(app.CapturePin)));
         body.Children.Add(Row(WpfUi.SymbolRegular.Edit24, "截图标注", app.AnnotateHotKey, () => Then(app.CaptureAnnotate)));

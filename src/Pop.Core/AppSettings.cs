@@ -17,6 +17,7 @@ public sealed class AppSettings
     public bool SelectionToolbar { get; set; }
     /// 这些程序保留原来的鼠标操作，快捷键仍然可用。
     public List<string> TriggerExcludedApps { get; set; } = [];
+    public List<Snippet> Snippets { get; set; } = [.. Snippet.Examples];
 
     /// 程序名（不带 .exe）到独立圆盘的映射，未配置的应用继承默认圆盘。
     public Dictionary<string, List<string>> AppRings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -110,6 +111,17 @@ public sealed class AppSettings
             {
                 switch (p.Name.ToLowerInvariant())
                 {
+                    case "snippets" when p.Value.ValueKind == JsonValueKind.Array:
+                        var snippets = new List<Snippet>();
+                        foreach (var item in p.Value.EnumerateArray())
+                            try
+                            {
+                                var snippet = item.Deserialize<Snippet>(Options);
+                                if (snippet is not null) snippets.Add(snippet);
+                            }
+                            catch (JsonException) { }
+                        settings.Snippets = Snippet.Normalize(snippets);
+                        break;
                     case "selectiontoolbar" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False:
                         settings.SelectionToolbar = p.Value.GetBoolean();
                         break;

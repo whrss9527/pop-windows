@@ -29,6 +29,11 @@ public enum ActionEffect
     PickColor,
     /// 框选测量像素尺寸
     MeasureScreen,
+    /// 选择一条常用短语，展开占位符后粘贴到原 App。
+    ShowSnippets,
+    /// 本机保持唤醒的开关和定时。
+    KeepAwake,
+    CompareText,
     /// 打开设置窗口
     ShowSettings,
     /// 翻译 Text，结果显示在卡片上（要联网，由界面异步完成）
@@ -69,10 +74,11 @@ public sealed record PopAction(
     Func<ClassifiedContent, ActionResult?> Run,
     Func<ClassifiedContent, bool>? Accepts = null,
     string Category = "其他",
-    string Summary = "")
+    string Summary = "",
+    bool OptionalInput = false)
 {
     public bool IsAvailable(ClassifiedContent content) =>
-        Requires == ContentKind.None || ((content.Kinds & Requires) != 0 && (Accepts?.Invoke(content) ?? true));
+        (Requires == ContentKind.None || (content.Kinds & Requires) != 0) && (Accepts?.Invoke(content) ?? true);
 
     /// 搜索框里的文字能不能匹配到这个功能（名称、拼音、英文，不分大小写，忽略空格）
     public bool Matches(string query)
@@ -137,7 +143,11 @@ public static partial class Actions
     public static readonly PopAction ColorPicker = new("colorPicker", "屏幕取色", "Color24", "pmqs pingmu quse color picker eyedropper", ContentKind.None,
         _ => new ActionResult(ActionEffect.PickColor), Category: Screen, Summary: "定格屏幕，放大指针处像素，点击查看 HEX、RGB、HSL");
     public static readonly PopAction Ruler = new("ruler", "屏幕标尺", "Ruler24", "pmbc pingmu biaochi ruler measure size", ContentKind.None,
-        _ => new ActionResult(ActionEffect.MeasureScreen), Category: Screen, Summary: "框选区域，测量物理像素宽高和对角线");
+        _ => new ActionResult(ActionEffect.MeasureScreen), Category: Screen, Summary: "移动寻找像素边界，点击测量；也可拖动框选宽高和对角线");
+    public static readonly PopAction Snippets = new("snippets", "常用短语", "TextBulletList24", "cydy changyong duanyu snippet phrase template", ContentKind.None,
+        _ => new ActionResult(ActionEffect.ShowSnippets), Category: Common, Summary: "选一条短语粘贴，支持日期、时间、剪贴板和原选区占位符", OptionalInput: true);
+    public static readonly PopAction Awake = new("keepAwake", "保持唤醒", "WeatherSunny24", "bc hx baochi huanxing sleep awake caffeine", ContentKind.None,
+        _ => new ActionResult(ActionEffect.KeepAwake), Category: Common, Summary: "临时防止屏幕和电脑自动休眠，可定时结束或手动停止");
     public static readonly PopAction Settings = new("settings", "设置", "Settings24", "sz shezhi settings preferences", ContentKind.None,
         _ => new ActionResult(ActionEffect.ShowSettings), Category: Common, Summary: "打开 Pop 设置");
 
@@ -176,17 +186,17 @@ public static partial class Actions
         withPlugins = plugins.Count == 0 ? null : [.. list.Value, .. plugins];
 
     /// 是不是内置功能的 ID（插件不能用）
-    public static bool IsBuiltIn(string id) => id == All.Id || list.Value.Any(a => a.Id == id);
+    public static bool IsBuiltIn(string id) => string.Equals(id, All.Id, StringComparison.OrdinalIgnoreCase) || list.Value.Any(a => string.Equals(a.Id, id, StringComparison.OrdinalIgnoreCase));
 
     private static IReadOnlyList<PopAction> BuildList()
     {
-        var list = new List<PopAction> { Copy, Search, Open, Translate, ClipboardHistory, Settings, ScreenText, Annotate, ScreenPin, ColorPicker, Ruler, Calculate, Units, Color, Time, Number, Count, Upper, Lower };
+        var list = new List<PopAction> { Copy, Search, Open, Translate, ClipboardHistory, Snippets, Awake, Settings, ScreenText, Annotate, ScreenPin, ColorPicker, Ruler, Calculate, Units, Color, Time, Number, Count, Upper, Lower };
         list.AddRange(TextTools());
         return list;
     }
 
     public static PopAction? Find(string id) =>
-        List.FirstOrDefault(a => a.Id == id) ?? (id == All.Id ? All : null)
+        List.FirstOrDefault(a => string.Equals(a.Id, id, StringComparison.OrdinalIgnoreCase)) ?? (string.Equals(id, All.Id, StringComparison.OrdinalIgnoreCase) ? All : null)
         ?? Plugins.FirstOrDefault(a => string.Equals(a.Id, id, StringComparison.OrdinalIgnoreCase));
 
     /// 能不能停用：「全部功能」一直都在

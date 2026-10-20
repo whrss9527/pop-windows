@@ -11,18 +11,46 @@ namespace Pop;
 /// 编辑器预览和导出使用同一套绘制逻辑，始终保持原图像素。
 internal static class AnnotationRenderer
 {
-    public static BitmapSource Render(BitmapSource image, IEnumerable<AnnotationStroke> strokes)
+    public static BitmapSource Render(BitmapSource image, IEnumerable<AnnotationStroke> strokes, AnnotationFrame? frame = null)
     {
+        frame ??= new();
+        var size = frame.OutputSize(image.PixelWidth, image.PixelHeight);
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
-        {
-            dc.DrawImage(image, new Rect(0, 0, image.PixelWidth, image.PixelHeight));
-            foreach (var stroke in strokes) Draw(dc, image, stroke);
-        }
-        var bitmap = new RenderTargetBitmap(image.PixelWidth, image.PixelHeight, 96, 96, PixelFormats.Pbgra32);
+            DrawComposition(dc, image, strokes, frame);
+        var bitmap = new RenderTargetBitmap(size.Width, size.Height, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(visual);
         bitmap.Freeze();
         return bitmap;
+    }
+
+    internal static void DrawComposition(DrawingContext dc, BitmapSource image, IEnumerable<AnnotationStroke> strokes, AnnotationFrame frame, AnnotationStroke? current = null)
+    {
+        var size = frame.OutputSize(image.PixelWidth, image.PixelHeight);
+        var inset = frame.Inset;
+        var radius = frame.CornerRadius(image.PixelWidth, image.PixelHeight);
+        var bounds = new Rect(inset, inset, image.PixelWidth, image.PixelHeight);
+        if (frame.Background != AnnotationBackground.None)
+        {
+            var colors = frame.Colors;
+            var gradient = new LinearGradientBrush((Color)ColorConverter.ConvertFromString(colors.Start), (Color)ColorConverter.ConvertFromString(colors.End), 45);
+            dc.DrawRectangle(gradient, null, new Rect(0, 0, size.Width, size.Height));
+            if (frame.Shadow)
+            {
+                var spread = Math.Min(16, inset / 2);
+                for (var i = spread; i >= 1; i--)
+                {
+                    var shadow = new Rect(bounds.Left - i, bounds.Top - i + spread / 3d, bounds.Width + i * 2, bounds.Height + i * 2);
+                    dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(5, 0, 0, 0)), null, shadow, radius + i, radius + i);
+                }
+            }
+        }
+        dc.PushClip(new RectangleGeometry(bounds, radius, radius));
+        dc.PushTransform(new TranslateTransform(inset, inset));
+        dc.DrawImage(image, new Rect(0, 0, image.PixelWidth, image.PixelHeight));
+        foreach (var stroke in strokes) Draw(dc, image, stroke);
+        if (current is not null) Draw(dc, image, current);
+        dc.Pop(); dc.Pop();
     }
 
     public static byte[] Png(BitmapSource image)

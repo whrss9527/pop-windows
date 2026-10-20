@@ -308,6 +308,8 @@ internal sealed class App : Application
     public void CaptureAnnotate() => _ = coordinator?.CaptureAnnotateAsync();
     public void PickColor() => _ = coordinator?.PickColorAsync();
     public void MeasureScreen() => _ = coordinator?.MeasureScreenAsync();
+    public void ShowSnippets() => coordinator?.RunActionFromShortcut(Actions.Snippets.Id);
+    public void ShowKeepAwake() => coordinator?.RunActionFromShortcut(Actions.Awake.Id);
 
     public void ShowClipboardHistory() => coordinator?.ShowHistory();
 

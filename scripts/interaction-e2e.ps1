@@ -13,6 +13,8 @@ $file = Join-Path $env:RUNNER_TEMP "pop-interaction-$([guid]::NewGuid().ToString
 $report = [Collections.Generic.List[string]]::new()
 $pop = $null
 $notepad = $null
+$fixture = $null
+$fixtureImage = $null
 
 function Wait-Window([string]$Title, [bool]$Visible) {
     $deadline = (Get-Date).AddSeconds(12)
@@ -76,7 +78,13 @@ function Start-Scenario([string]$Mode, [string]$Modifier = 'Control', [switch]$H
         selectionToolbar = [bool]$Toolbar
         triggerExcludedApps = @()
         appRings = @{ notepad = @('count', 'upper', 'copy', 'all') }
-        actionShortcuts = @{ '$ring' = @{ modifiers = 3; key = 75 }; upper = @{ modifiers = 3; key = 85 } }
+        snippets = @(@{ id = 'ci-selection'; title = '回信'; text = '{selection}|{clipboard}' })
+        actionShortcuts = @{
+            '$ring' = @{ modifiers = 3; key = 75 }; upper = @{ modifiers = 3; key = 85 }
+            snippets = @{ modifiers = 3; key = 74 }; textDiff = @{ modifiers = 3; key = 68 }
+            keepAwake = @{ modifiers = 3; key = 65 }; colorPicker = @{ modifiers = 3; key = 67 }
+            ruler = @{ modifiers = 3; key = 82 }
+        }
     }
     if ($ExcludeNotepad) { $settings.triggerExcludedApps = @('Notepad.EXE') }
     New-Item -ItemType Directory -Force (Split-Path $settingsPath) | Out-Null
@@ -107,6 +115,28 @@ function Assert-HashCard([string]$ShotName) {
     Start-Sleep -Milliseconds 250
     if ((Get-Clipboard -Raw).Trim() -cne $expected) { throw '直达规则没有执行哈希，或者复制了错误结果' }
     Wait-Window 'Pop 结果' $false
+}
+
+function Find-Control([string]$Title, [string]$Id) {
+    $hwnd = [PopCi.Native]::FindWindow([NullString]::Value, $Title)
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+    $element = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $Id))
+    if ($null -eq $element) { throw "窗口 $Title 缺少控件 $Id" }
+    return $element
+}
+
+function Invoke-Control([string]$Title, [string]$Id) {
+    (Find-Control $Title $Id).GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+}
+
+function Assert-Clipboard([string]$Expected) {
+    $deadline = (Get-Date).AddSeconds(12)
+    do {
+        if ((Get-Clipboard -Raw).TrimEnd("`r", "`n") -ceq $Expected) { return }
+        Start-Sleep -Milliseconds 100
+    } while ((Get-Date) -lt $deadline)
+    throw "剪贴板结果错误，预期：$Expected"
 }
 
 function Get-NotepadSelectionBounds {
@@ -279,6 +309,126 @@ try {
     Wait-Window 'Pop 圆盘' $true
     Passed 'corner-more-back'
     Invoke-Key 0x1B; Wait-Window 'Pop 圆盘' $false
+
+    Start-Scenario 'ModifierRightClick'
+    Set-Clipboard -Value '字数'
+    Invoke-CtrlAlt 0x4B
+    Wait-Window 'Pop 圆盘' $true
+    Invoke-Key 0x34
+    Wait-Window 'Pop 全部功能' $true
+    Invoke-Key 0x56 -Ctrl
+    Invoke-Key 0x0D
+    Wait-Window 'Pop 结果' $true
+    Invoke-Key 0x0D
+    Assert-Clipboard '15'
+    Passed 'pasted-chinese-action-search'
+
+    Reset-Selection
+    Set-Clipboard -Value 'clip {selection}'
+    Invoke-CtrlAlt 0x4A
+    Wait-Window 'Pop 常用短语' $true
+    if ([PopCi.Native]::GetForegroundWindow() -ne $notepad.MainWindowHandle) { throw '短语列表抢走原应用焦点' }
+    Invoke-Key 0x31 -Ctrl
+    $deadline = (Get-Date).AddSeconds(12)
+    do {
+        $actual = [PopCi.Native]::ReadEditText($notepad.MainWindowHandle)
+        if ($actual -ceq 'hello pop world|clip {selection}') { break }
+        Start-Sleep -Milliseconds 100
+    } while ((Get-Date) -lt $deadline)
+    if ($actual -cne 'hello pop world|clip {selection}') { throw '短语没有替换原选区，或错误地递归展开变量' }
+    Assert-Clipboard 'clip {selection}'
+    Passed 'snippet-pastes-and-restores-clipboard'
+
+    Reset-Selection
+    Invoke-CtrlAlt 0x44
+    Wait-Window 'Pop 文字对比' $true
+    (Find-Control 'Pop 文字对比' 'diff-before').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue("one`nold`nlast")
+    (Find-Control 'Pop 文字对比' 'diff-after').GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue("one`nnew`nlast")
+    # 等待自动比较完成，随后重新比较当前输入。
+    $deadline = (Get-Date).AddSeconds(12)
+    while (!(Find-Control 'Pop 文字对比' 'diff-compare').Current.IsEnabled) {
+        if ((Get-Date) -gt $deadline) { throw '文字对比一直忙碌' }
+        Start-Sleep -Milliseconds 100
+    }
+    Invoke-Control 'Pop 文字对比' 'diff-compare'
+    $deadline = (Get-Date).AddSeconds(12)
+    while (!(Find-Control 'Pop 文字对比' 'diff-copy').Current.IsEnabled) {
+        if ((Get-Date) -gt $deadline) { throw '文字对比未完成' }
+        Start-Sleep -Milliseconds 100
+    }
+    Invoke-Control 'Pop 文字对比' 'diff-copy'
+    Assert-Clipboard "--- 原文`n+++ 对照`n  one`n- old`n+ new`n  last"
+    Passed 'text-diff-compares-and-copies'
+    Invoke-Key 0x1B
+    Wait-Window 'Pop 文字对比' $false
+
+    Set-Foreground $notepad.MainWindowHandle
+    Invoke-CtrlAlt 0x41
+    Wait-Window 'Pop 保持唤醒' $true
+    Invoke-Control 'Pop 保持唤醒' 'awake-30'
+    if (!(Find-Control 'Pop 保持唤醒' 'awake-stop').Current.IsEnabled) { throw 'Windows 未接受保持唤醒请求' }
+    Invoke-Control 'Pop 保持唤醒' 'awake-stop'
+    if ((Find-Control 'Pop 保持唤醒' 'awake-stop').Current.IsEnabled) { throw '保持唤醒未释放' }
+    Passed 'keep-awake-starts-and-stops'
+    Invoke-Key 0x1B
+    Wait-Window 'Pop 保持唤醒' $false
+
+    # 静态像素夹具用于验证定格取色与自动边界，测试过程中不移动或缩放窗口。
+    Add-Type -AssemblyName System.Windows.Forms
+    $fixture = [Windows.Forms.Form]::new()
+    $fixture.FormBorderStyle = [Windows.Forms.FormBorderStyle]::None
+    $fixture.AutoScaleMode = [Windows.Forms.AutoScaleMode]::None
+    $fixture.StartPosition = [Windows.Forms.FormStartPosition]::Manual
+    $fixture.Location = [Drawing.Point]::new(350, 250)
+    $fixture.ClientSize = [Drawing.Size]::new(200, 120)
+    $fixture.TopMost = $true
+    $fixtureImage = [Drawing.Bitmap]::new(200, 120)
+    for ($x = 0; $x -lt 200; $x++) {
+        for ($y = 0; $y -lt 120; $y++) { $fixtureImage.SetPixel($x, $y, [Drawing.Color]::FromArgb($x, $y, 50)) }
+    }
+    $fixture.BackgroundImage = $fixtureImage
+    $fixture.Show(); $fixture.Refresh(); [Windows.Forms.Application]::DoEvents()
+    Set-Foreground $notepad.MainWindowHandle
+    [PopCi.Native]::SetCursorPos(390, 290) | Out-Null
+    Invoke-CtrlAlt 0x43
+    Wait-Window 'Pop 屏幕取色' $true
+    Invoke-Key 0x27
+    [PopCi.Native]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)
+    Invoke-Key 0x28
+    [PopCi.Native]::keybd_event(0x10, 0, 2, [UIntPtr]::Zero)
+    Invoke-Key 0x0D
+    Wait-Window 'Pop 结果' $true
+    Invoke-Key 0x0D
+    Assert-Clipboard '#293232'
+    Passed 'picker-keyboard-pixel-movement'
+
+    $graphics = [Drawing.Graphics]::FromImage($fixtureImage)
+    try {
+        $graphics.Clear([Drawing.Color]::FromArgb(40, 50, 60))
+        $graphics.FillRectangle([Drawing.Brushes]::White, 50, 30, 80, 60)
+    } finally { $graphics.Dispose() }
+    $fixture.Refresh(); [Windows.Forms.Application]::DoEvents()
+    Set-Foreground $notepad.MainWindowHandle
+    [PopCi.Native]::SetCursorPos(440, 310) | Out-Null
+    Invoke-CtrlAlt 0x52
+    Wait-Window 'Pop 屏幕标尺' $true
+    Invoke-LeftDown; Invoke-LeftUp
+    Wait-Window 'Pop 结果' $true
+    Invoke-Key 0x0D
+    Assert-Clipboard '80 × 60 px'
+    Passed 'ruler-detects-pixel-edges'
+
+    [PopCi.Native]::SetCursorPos(410, 290) | Out-Null
+    Invoke-CtrlAlt 0x52
+    Wait-Window 'Pop 屏幕标尺' $true
+    Invoke-LeftDown
+    Move-Pointer 410 290 460 325
+    Invoke-LeftUp
+    Wait-Window 'Pop 结果' $true
+    Invoke-Key 0x0D
+    Assert-Clipboard '50 × 35 px'
+    Passed 'ruler-manual-measurement'
+
 }
 catch {
     ($_ | Format-List * -Force | Out-String) | Set-Content (Join-Path $OutDir 'error.txt') -Encoding UTF8
@@ -286,6 +436,8 @@ catch {
     throw
 }
 finally {
+    if ($null -ne $fixture) { $fixture.Dispose() }
+    if ($null -ne $fixtureImage) { $fixtureImage.Dispose() }
     if ($null -ne $pop -and !$pop.HasExited) { $pop.Kill(); $pop.WaitForExit() }
     if ($null -ne $notepad -and !$notepad.HasExited) { $notepad.Kill(); $notepad.WaitForExit() }
     if ($settingsExisted) { [IO.File]::WriteAllBytes($settingsPath, [byte[]]$savedSettings) }

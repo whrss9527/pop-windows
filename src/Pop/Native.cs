@@ -255,6 +255,9 @@ internal static unsafe class Native
     [DllImport("user32.dll")]
     public static extern bool GetCursorPos(out POINT point);
 
+    [DllImport("user32.dll")]
+    public static extern bool SetCursorPos(int x, int y);
+
     /// 窗口所属的程序名（不带 .exe）。只查这一个进程；Process.GetProcessById 会枚举所有进程，浏览器开着很多子进程时要好几百毫秒
     public static string ProcessNameOf(IntPtr hwnd)
     {

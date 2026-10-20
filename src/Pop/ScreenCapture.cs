@@ -14,9 +14,13 @@ internal static class ScreenCapture
     public static Drawing.Bitmap Capture(Drawing.Rectangle area)
     {
         var bitmap = new Drawing.Bitmap(Math.Max(1, area.Width), Math.Max(1, area.Height), Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using var g = Drawing.Graphics.FromImage(bitmap);
-        g.CopyFromScreen(area.Left, area.Top, 0, 0, area.Size, Drawing.CopyPixelOperation.SourceCopy);
-        return bitmap;
+        try
+        {
+            using var g = Drawing.Graphics.FromImage(bitmap);
+            g.CopyFromScreen(area.Left, area.Top, 0, 0, area.Size, Drawing.CopyPixelOperation.SourceCopy);
+            return bitmap;
+        }
+        catch { bitmap.Dispose(); throw; }
     }
 
     public static byte[] Png(Drawing.Bitmap bitmap)

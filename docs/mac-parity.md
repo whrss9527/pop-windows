@@ -1,6 +1,6 @@
 # macOS 使用体验对齐清单
 
-基准：`whrss9527/pop` 的 `44c7dd6b6060abaf2d7006ae1556f89d85bd2d57`。对齐目标是用户操作和结果处理方式；Windows 界面继续使用 WPF、Fluent 控件、Mica 与现有毛玻璃浮窗。
+基准：`whrss9527/pop` 的 `3a76d5c`。对齐目标是用户操作和结果处理方式；Windows 界面继续使用 WPF、Fluent 控件、Mica 与现有毛玻璃浮窗。
 
 ## 本次基础流程
 
@@ -15,21 +15,22 @@
 - 设置拆分为通用、唤起、规则、快捷键、圆盘等页面，窄窗口中的侧栏和编辑区可滚动或换行。
 - 圆盘靠边朝内展开为弧，角落保留「更多」和返回菜单入口。菜单移动不会改变鼠标位置。
 - 标注、取色、框选测量使用同一套功能注册、设置开关、圆盘与托盘入口。标注使用原图像素坐标，导出与预览共用绘制逻辑。
+- 常用短语可带原始选区、剪贴板和日期变量回填原 App，设置中管理并随备份迁移。文字对比与保持唤醒使用统一的可输入工具窗口框架；JWT 在本机解码。浮窗支持粘贴中文查询和按字素退格。
 - macOS 的 Liquid Glass 使用 Windows 毛玻璃浮窗和 Mica 编辑窗口表达；系统关闭动画时不播放展开动画。
 
 ## 尚未对齐的基础体验
 
 英文界面、插件商店和按需下载插件仍待实现。直达规则已覆盖 Windows 当前支持的内容类型；选择图片、文件列表等更完整的内容输入仍需移植。Windows 原生编译插件不能直接加载 macOS 的 Swift 插件包；现有 JSON 插件继续通用。
 
-屏幕标尺目前只有拖动测量，没有 macOS 的自动检测上下左右边缘；标注尚无渐变背景美化。截图标注编辑器需要激活以输入中文，圆盘、取色和结果卡片保持不激活。
+屏幕标尺已支持自动边缘与手动拖动；标注已支持六种渐变背景、留白、圆角与阴影。截图标注编辑器需要激活以输入中文，圆盘、取色和结果卡片保持不激活。
 
 ## 验证
 
-Linux 验证：Release 核心测试 342 项通过、3 项跳过（PowerShell/cmd 平台运行器未加入测试路径）；Release 编译和 win-x64 单文件发布无警告、无错误。Windows 的真实手势、新窗口和导出验证由 Windows Server 2022、2025 两套 CI 执行，必须检查对应提交的结果。本地编译成功不能代替实际操作；混合 DPI、多显示器及复杂第三方 App 仍需要人工体验检查。
+Linux 验证：Release 核心测试 364 项通过、3 项跳过（PowerShell/cmd 平台运行器未加入测试路径）；Release 编译和 win-x64 单文件发布无警告、无错误。Windows 的真实手势、新窗口和导出验证由 Windows Server 2022、2025 两套 CI 执行，必须检查对应提交的结果。本地编译成功不能代替实际操作；混合 DPI、多显示器及复杂第三方 App 仍需要人工体验检查。
 
-`scripts/interaction-e2e.ps1` 已接入 Windows CI，覆盖独立圆盘、功能快捷键替换、Ctrl/Alt/Win 右键、中键直达、圆心保持与划选执行、角落更多及返回，以及工具条选词替换、更多保持原选区、Esc、拖选复制、输入收起和应用排除，共十五项功能检查。工具条检查同时断言原应用焦点和剪贴板未被自动读取改动，点击后处理真实记事本选区。PowerShell 脚本在 Linux 使用 PowerShell 7 检查语法，实际执行状态单独报告。
+`scripts/interaction-e2e.ps1` 已接入 Windows CI，覆盖独立圆盘、功能快捷键替换、Ctrl/Alt/Win 右键、中键直达、圆心保持与划选执行、角落更多及返回，以及工具条选词替换、更多保持原选区、Esc、拖选复制、输入收起和应用排除，并增加中文粘贴搜索、短语粘贴和剪贴板恢复、文字对比、保持唤醒、键盘取色、自动与手动标尺，共二十二项功能检查。工具条检查同时断言原应用焦点和剪贴板未被自动读取改动，点击后处理真实记事本选区。PowerShell 脚本在 Linux 使用 PowerShell 7 检查语法，实际执行状态单独报告。
 
-Windows 演示命令：`Pop.exe --demo-shots artifacts --demo-scenes ring,toolbar,annotate,picker`。完整演示包含备份页面和工具条的深浅色截图；完整 CI 还覆盖真实手势和更新，标注场景验证导出尺寸和像素。
+Windows 演示命令：`Pop.exe --demo-shots artifacts --demo-scenes ring,toolbar,annotate,picker,snippets,utilities`。完整演示包含短语编辑、文字对比、保持唤醒、备份页面和工具条的深浅色截图；完整 CI 还覆盖真实手势和更新，标注场景验证导出尺寸和像素。
 
 ## 全部功能对照
 
@@ -77,23 +78,23 @@ Windows 演示命令：`Pop.exe --demo-shots artifacts --demo-scenes ring,toolba
 | `windowLayout` | — | 待移植 |
 | `imageConvert` | — | 待移植 |
 | `linkInspect` | — | 待移植 |
-| `jwtDecode` | — | 待移植 |
+| `jwtDecode` | `jwtDecode` | 已有 |
 | `markdownCopy` | — | 待移植 |
 | `tableConvert` | `tableConvert` | 已有 |
 | `zip` | — | 待移植 |
 | `unzip` | — | 待移植 |
-| `snippets` | — | 待移植 |
+| `snippets` | `snippets` | 已有 |
 | `annotate` | `annotate` | 已有 |
-| `textDiff` | — | 待移植 |
+| `textDiff` | `textDiff` | 已有 |
 | `pdf` | — | 待移植 |
 | `scanCode` | — | 待移植 |
-| `keepAwake` | — | 待移植 |
+| `keepAwake` | `keepAwake` | 已有 |
 | `palette` | — | 待移植 |
 | `openWith` | — | 待移植 |
 | `shelf` | — | 待移植 |
 | `numberStats` | `numberStats` | 已有 |
 | `spellCheck` | — | 待移植 |
-| `ruler` | `ruler` | 部分 |
+| `ruler` | `ruler` | 已有 |
 | `cron` | — | 待移植 |
 | `contrast` | `color` | 已有 |
 | `markdownPreview` | — | 待移植 |
