@@ -28,9 +28,8 @@ internal sealed class ColorPicker
         {
             bounds = ScreenCapture.VirtualScreen;
             using var captured = ScreenCapture.Capture(bounds);
-            var decoded = ScreenCapture.ToBitmapSource(ScreenCapture.Png(captured));
-            var source = decoded.Format == PixelFormats.Bgra32 ? decoded : new FormatConvertedBitmap(decoded, PixelFormats.Bgra32, null, 0);
-            source.Freeze(); frozen = source;
+            var source = ScreenCapture.ToBitmapSource(captured);
+            frozen = source;
             Native.GetCursorPos(out var cursor); (cursorX, cursorY) = (cursor.X, cursor.Y);
             foreach (var screen in Forms.Screen.AllScreens)
             {

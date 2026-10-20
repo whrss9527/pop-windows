@@ -31,7 +31,7 @@ internal sealed class RegionSelector
         {
             var bounds = ScreenCapture.VirtualScreen;
             capture = ScreenCapture.Capture(bounds);
-            var source = ScreenCapture.ToBitmapSource(ScreenCapture.Png(capture));
+            var source = ScreenCapture.ToBitmapSource(capture);
             ScreenPixels? pixels = null;
             if (detectEdges)
             {

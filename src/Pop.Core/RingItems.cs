@@ -203,11 +203,11 @@ public static partial class Actions
     public static bool CanDisable(PopAction action) => action.Id != All.Id;
 
     /// 搜索结果：只列启用的功能，能用的排在前面，同一组里保持原来的顺序
-    public static IReadOnlyList<PopAction> Filter(string query, ClassifiedContent content, Func<string, bool>? enabled = null) =>
+    public static IReadOnlyList<PopAction> Filter(string query, ClassifiedContent content, Func<string, bool>? enabled = null, Func<PopAction, bool>? available = null) =>
         List.Where(a => enabled?.Invoke(a.Id) ?? true)
             .Where(a => a.Matches(query))
             .Select((a, i) => (a, i))
-            .OrderBy(x => x.a.IsAvailable(content) ? 0 : 1)
+            .OrderBy(x => (available?.Invoke(x.a) ?? x.a.IsAvailable(content)) ? 0 : 1)
             .ThenBy(x => x.i)
             .Select(x => x.a)
             .ToList();

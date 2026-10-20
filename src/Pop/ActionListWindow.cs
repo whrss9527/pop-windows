@@ -9,6 +9,7 @@ namespace Pop;
 internal sealed class ActionListWindow : SearchOverlay<PopAction>
 {
     private ClassifiedContent content = ClassifiedContent.Empty;
+    private ActionAvailability availability = new(ClassifiedContent.Empty);
     private Func<string, bool> enabled = _ => true;
     private bool canReturn;
     private IReadOnlyList<PopAction>? originalRing;
@@ -35,6 +36,7 @@ internal sealed class ActionListWindow : SearchOverlay<PopAction>
         canReturn = canReturnToRing;
         originalRing = ringActions;
         content = selectedContent;
+        availability = new(selectedContent);
         enabled = isEnabled;
         Open(x, y);
         Log.Info("全部功能列表已显示");
@@ -42,16 +44,17 @@ internal sealed class ActionListWindow : SearchOverlay<PopAction>
 
     protected override IEnumerable<Entry> Query(string text)
     {
-        var actions = Actions.Filter(text, content, enabled);
-        if (originalRing is { } original) actions = original.Where(a => a.Matches(text)).ToList();
+        var actions = originalRing is { } original
+            ? original.Where(a => a.Matches(text)).ToList()
+            : Actions.Filter(text, content, enabled, availability.IsAvailable);
         if (canReturn && text.Length == 0) yield return new Entry(null, Back);
         if (text.Length > 0)
         {
-            foreach (var action in actions) yield return new Entry(null, action, action.IsAvailable(content));
+            foreach (var action in actions) yield return new Entry(null, action, availability.IsAvailable(action));
             yield break;
         }
         // 没有搜索词时：能用的按分组列出，用不了的放在最后
-        var available = actions.Where(a => a.IsAvailable(content)).ToList();
+        var available = actions.Where(a => availability.IsAvailable(a)).ToList();
         foreach (var category in Actions.Categories)
         {
             var group = available.Where(a => a.Category == category).ToList();
@@ -59,7 +62,7 @@ internal sealed class ActionListWindow : SearchOverlay<PopAction>
             yield return new Entry(category, null);
             foreach (var action in group) yield return new Entry(null, action);
         }
-        var unavailable = actions.Where(a => !a.IsAvailable(content)).ToList();
+        var unavailable = actions.Where(a => !availability.IsAvailable(a)).ToList();
         if (unavailable.Count == 0) yield break;
         yield return new Entry("当前内容用不了", null);
         foreach (var action in unavailable) yield return new Entry(null, action, false);

@@ -606,8 +606,12 @@ internal sealed partial class Coordinator : IDisposable
 
     public Task MeasureScreenAsync() => ScreenToolAsync(async () =>
     {
-        if (await SelectRegionAsync(detectEdges: true) is not { } region) return;
+        CloseSnippets(); CloseCard(); CloseList(); CloseHistory();
+        await Task.Delay(150);
+        if (await selector.SelectAsync(detectEdges: true) is not { } region) return;
+        // 标尺只需要坐标，不裁剪、不编码 PNG；确认后立即释放定格的整屏位图。
         var area = region.Area;
+        region.Screen.Dispose();
         ShowResult(area.Left, area.Top, new CardContent("屏幕标尺",
         [
             new("尺寸", $"{area.Width} × {area.Height} px"),

@@ -49,6 +49,13 @@ internal static class Demo
             }
         }
 
+        if (Want("performance"))
+            await Scene("performance", async () =>
+            {
+                foreach (var line in await Task.Run(PerformanceChecks.Run)) SmokeTest.Report(line);
+                PerformanceChecks.VerifyNavigation(x, y); SmokeTest.Report("list-navigation=ok rows=100 updated=6 moves=3");
+            });
+
         var text = ContentClassifier.Classify("Pop makes selected text useful");
 
         if (Want("snippets"))
