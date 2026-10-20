@@ -44,6 +44,8 @@ Pop 的 Windows 版原型：在任意 App 里**长按鼠标右键**，Pop 读取
 
 到 [Releases](https://github.com/whrss9527/pop-windows/releases) 下载最新的 `Pop-<版本>-win-x64.zip`，解压出 `Pop.exe`，放到一个自己的文件夹里（例如 `%LOCALAPPDATA%\Programs\Pop`），双击运行。Pop 自带运行时，不用另装 .NET。
 
+从 0.10.0 起还提供 `Pop-<版本>-win-x64-lightweight.zip` 轻量版，功能与便携版相同，下载约 18 MB。它需要 **.NET 8 桌面运行时 x64（.NET Desktop Runtime）**，普通 .NET Runtime 或其他主版本不能替代；可从 [微软官网](https://dotnet.microsoft.com/zh-cn/download/dotnet/8.0) 安装。电脑已装该运行时，或多个应用共用它时，可以避免重复携带；首次安装运行时也会占用磁盘空间。两种版本一键更新时都会保持原来的包型。
+
 - 一键更新需要能写入 Pop.exe 所在的文件夹，**不要放在 Program Files 里**；
 - 安装包还没有代码签名，第一次运行时 Windows 可能提示「已保护你的电脑」，点「更多信息」→「仍要运行」；
 - 需要 Windows 10 1809 或更新的版本（64 位）。
@@ -71,7 +73,7 @@ Pop 的 Windows 版原型：在任意 App 里**长按鼠标右键**，Pop 读取
 
 - 以管理员身份运行的窗口里读不到选中内容、也收不到模拟按键（系统的权限隔离），需要 `uiAccess` 和代码签名，原型先不做；
 - 有的 App 在没有选中内容时按 Ctrl+C 会复制整行（例如一些代码编辑器），这时会被当成选中了这一行；
-- 安装包大约 60 MB（自带 .NET 运行时和 WPF）。
+- 自带 .NET/WPF 的便携版下载约 71 MB，解压后的 `Pop.exe` 约 78 MB；轻量版下载约 18 MB，程序约 48 MB，另需共享的桌面运行时。详见[体积测量与取舍](docs/performance.md#发布体积)。
 
 ## 数据存在哪里
 
@@ -94,6 +96,7 @@ dotnet test tests/Pop.Core.Tests          # 单元测试：长按判定、圆盘
 dotnet build src/Pop                       # 编译
 dotnet run --project src/Pop               # 在 Windows 上运行
 dotnet publish src/Pop -c Release -o out   # 打包成单个 Pop.exe
+dotnet publish src/Pop -c Release --self-contained false -o out/lightweight # 轻量版，需 .NET 8 桌面运行时
 ```
 
 | 目录 | 内容 |
@@ -120,6 +123,8 @@ dotnet publish src/Pop -c Release -o out   # 打包成单个 Pop.exe
 每次推送，GitHub Actions 会在 Windows 上：跑单元测试、编译 Release 版 Pop.exe；在 Windows Server 2022 和 2025 上真正启动一次，再用模拟的鼠标在记事本、Chrome 和 Edge 里走一遍长按右键（替换原文、结果卡片、翻译、圆心关闭、短按弹出系统右键菜单、浏览器里读取选中文字），然后用演示模式把每个界面在浅色、深色下各截一张图；截图和 Pop 的日志推到 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 两个分支（每次覆盖，界面截图在 `ui` 文件夹里，`git fetch origin ci-screenshots/windows-2022` 就能看到）；最后用本机的假发布把一键更新完整走一遍（校验和不对要拒绝、正常版本要替换并重新启动、已是最新时不更新）。
 
 发版：在 `CHANGELOG.md` 最上面加一节新版本，`Directory.Build.props` 里的 `Version` 跟着改，合并进 main、CI 通过后会自动打标签并发布，已安装的 Pop 会提示更新。
+
+CI 对便携版和轻量版分别执行两个 Windows 系统的启动、手势、交互和浅深色截图，并分别验证更新后包型不变；轻量版截图保存在 Actions 的 `screenshots-<系统>-lightweight` 工件中。Release 同时上传两种 ZIP，`SHA256SUMS.txt` 包含两者的校验和。
 
 ## 插件的格式
 

@@ -5,7 +5,6 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Pop.Core;
 using Drawing = System.Drawing;
-using Forms = System.Windows.Forms;
 
 namespace Pop;
 
@@ -32,9 +31,9 @@ internal sealed class ColorPicker
                 source = ScreenCapture.ToBitmapSource(captured);
             frozen = source;
             Native.GetCursorPos(out var cursor); (cursorX, cursorY) = (cursor.X, cursor.Y);
-            foreach (var screen in Forms.Screen.AllScreens)
+            foreach (var screen in DesktopInfo.Monitors())
             {
-                var window = new PickerWindow(this, source, bounds, screen.Bounds);
+                var window = new PickerWindow(this, source, bounds, screen);
                 windows.Add(window); window.Open();
             }
             return await pending.Task;
@@ -59,7 +58,7 @@ internal sealed class ColorPicker
         if (!IsOpen) return;
         var x = Math.Clamp(cursorX + dx, bounds.Left, bounds.Right - 1);
         var y = Math.Clamp(cursorY + dy, bounds.Top, bounds.Bottom - 1);
-        var screen = Forms.Screen.FromPoint(new Drawing.Point(x, y)).Bounds;
+        var screen = DesktopInfo.MonitorAt(x, y);
         x = Math.Clamp(x, screen.Left, screen.Right - 1); y = Math.Clamp(y, screen.Top, screen.Bottom - 1);
         Native.SetCursorPos(x, y); Preview(x, y);
     }
