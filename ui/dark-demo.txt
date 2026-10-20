@@ -1,0 +1,75 @@
+screen-snapshot=ok
+performance: screen=1920x1080 png-ms=50.072 direct-ms=1.166 png-managed-bytes=821496 direct-managed-bytes=624
+performance: screen=3840x2160 png-ms=199.955 direct-ms=6.065 png-managed-bytes=3500552 direct-managed-bytes=624
+text-preview=ok
+performance: preview-chars=1800000 split-ms=6.77 prefix-ms=0.007 split-managed-bytes=11400680 prefix-managed-bytes=1664
+performance: file-count=10000 split-ms=1.36 summary-ms=0.31 split-managed-bytes=1920208 summary-managed-bytes=320
+list-content=ok files=10000 snippets=ok
+performance: snippet-chars=90000 concat-ms=3.721 search-ms=0.011 concat-managed-bytes=1220160 search-managed-bytes=72 replace-managed-bytes=400088 preview-managed-bytes=2144
+plugin-match=ok graphemes=ok bounded=ok
+performance: plugin-match-chars=300000 whole-ms=11.718 bounded-ms=0.001 whole-managed-bytes=1200096 bounded-managed-bytes=40
+plugin-output=ok toast=ok environment=ok error=ok
+performance: plugin-toast-chars=1100000 split-managed-bytes=6400240 prefix-managed-bytes=128
+performance: plugin-environment-chars=2000000 whole-managed-bytes=8064304 bounded-managed-bytes=64280
+performance: plugin-error-chars=2000000 whole-managed-bytes=8001120 bounded-managed-bytes=1096
+clipboard-hash=ok utf8=ok bounded=ok
+performance: clipboard-hash-chars=500000 whole-ms=1.836 chunked-ms=1.709 whole-managed-bytes=1500584 chunked-managed-bytes=960
+list-navigation=ok rows=100 updated=6 moves=3
+list-selection=ok filtered=ok shortcuts=ok empty=ok
+overlay-release=ok reopen=ok
+clipboard-thumbnails=ok bounded=256 pixels=96 workers=2 cancellation=ok
+native-tray=ok keyboard=ok restart=ok dispose=ok monitors=ok
+list-sizing=ok compact=ok workarea=ok scroll=ok
+plugin-editor=ok restart=ok stop=ok copy-full=ok close=ok length=ok pending-numbers=ok
+demo-shot=dark-snippets
+demo-shot=dark-text-diff
+demo-shot=dark-keep-awake
+demo-shot=dark-selection-toolbar
+demo-shot=dark-ring
+demo-shot=dark-ring-highlight
+demo-shot=dark-ring-link
+demo-shot=dark-card-translate
+demo-shot=dark-card-translating
+demo-shot=dark-card-math
+demo-shot=dark-card-unit
+demo-shot=dark-card-color
+demo-shot=dark-card-time
+demo-shot=dark-card-count
+demo-shot=dark-card-codec
+demo-shot=dark-card-long
+demo-shot=dark-card-jwt
+demo-shot=dark-toast
+demo-shot=dark-list
+demo-shot=dark-list-search
+demo-shot=dark-history
+demo-shot=dark-flyout
+demo-shot=dark-settings-general
+demo-shot=dark-settings-triggers
+demo-shot=dark-settings-rules
+demo-shot=dark-settings-shortcuts
+demo-shot=dark-settings-ring
+demo-shot=dark-settings-actions
+demo-shot=dark-settings-translate
+demo-shot=dark-settings-clipboard
+demo-shot=dark-settings-snippets
+demo-shot=dark-settings-backup
+demo-shot=dark-settings-about
+demo-shot=dark-settings-triggers-modifier
+demo-shot=dark-settings-ring-application
+demo-shot=dark-settings-shortcuts-configured
+demo-shot=dark-plugin-editor-javascript
+demo-shot=dark-plugin-editor-shell
+demo-shot=dark-plugin-editor-match
+demo-shot=dark-snippet-editor
+demo-shot=dark-pin
+demo-shot=dark-region
+demo-shot=dark-region-drag
+demo-shot=dark-annotate
+demo-shot=dark-annotate-background
+annotation-render=ok
+annotation-frame=ok
+demo-shot=dark-picker
+demo-shot=dark-ruler-auto
+demo-shot=dark-ring-twelve
+demo-shot=dark-ring-corner
+demo-done
