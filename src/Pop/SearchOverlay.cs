@@ -235,7 +235,9 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
         var (entry, element, number) = painted[index];
         if (entry.Item is null || element is not Border { Child: Grid grid } row) return;
         var active = index == selected;
-        grid.Children[0] = Row(entry.Item, active, entry.Enabled, number);
+        var content = Row(entry.Item, active, entry.Enabled, number);
+        // WPF 的 VisualCollection 不允许直接覆盖仍有视觉父项的槽位。
+        grid.Children.RemoveAt(0); grid.Children.Insert(0, content);
         grid.Children[1].Visibility = active ? Visibility.Visible : Visibility.Collapsed;
         row.Background = active ? Palette.Brush(Palette.Selected)
             : row.IsMouseOver ? Palette.Brush(Palette.Hover) : Brushes.Transparent;
