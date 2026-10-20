@@ -39,19 +39,28 @@ public sealed record Snippet(string Id, string Title, string Text)
 
 public static partial class SnippetExpander
 {
+    public const int MaximumCharacters = 2_000_000;
     /// 只扫描模板一次，剪贴板和选区里的花括号原样保留，不递归展开。
     public static string Expand(string text, DateTimeOffset now, TimeZoneInfo? zone = null, string? clipboard = null, string? selection = null)
     {
         var date = TimeZoneInfo.ConvertTime(now, zone ?? TimeZoneInfo.Local);
-        return Placeholder().Replace(text, match => match.Value switch
+        long length = text.Length;
+        if (length > MaximumCharacters) throw new ArgumentException("短语展开后超过 200 万个字符，请缩短模板、选区或剪贴板内容");
+        return Placeholder().Replace(text, match =>
         {
-            "{date}" => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            "{time}" => date.ToString("HH:mm", CultureInfo.InvariantCulture),
-            "{datetime}" => date.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
-            "{weekday}" => date.ToString("dddd", CultureInfo.GetCultureInfo("zh-CN")),
-            "{clipboard}" => clipboard ?? "",
-            "{selection}" => selection ?? "",
-            _ => match.Value,
+            var value = match.Value switch
+            {
+                "{date}" => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                "{time}" => date.ToString("HH:mm", CultureInfo.InvariantCulture),
+                "{datetime}" => date.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                "{weekday}" => date.ToString("dddd", CultureInfo.GetCultureInfo("zh-CN")),
+                "{clipboard}" => clipboard ?? "",
+                "{selection}" => selection ?? "",
+                _ => match.Value,
+            };
+            length += value.Length - match.Length;
+            if (length > MaximumCharacters) throw new ArgumentException("短语展开后超过 200 万个字符，请缩短模板、选区或剪贴板内容");
+            return value;
         });
     }
     [GeneratedRegex(@"\{(?:date|time|datetime|weekday|clipboard|selection)\}")]

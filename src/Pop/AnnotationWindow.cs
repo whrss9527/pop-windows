@@ -29,6 +29,8 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
     private string textColor = "#ED3833";
     private double textWidth = 4;
     private Button? undoButton, redoButton;
+    private ComboBox? backgroundChoice, paddingChoice;
+    private CheckBox? shadowChoice;
 
     public AnnotationWindow(byte[] png, int x, int y)
     {
@@ -80,6 +82,7 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
             (AnnotationBackground.Mint, "薄荷"), (AnnotationBackground.Grape, "葡萄"), (AnnotationBackground.Graphite, "石墨"), (AnnotationBackground.Paper, "纸白") };
         var background = new ComboBox { Width = 100, Margin = new Thickness(2), ToolTip = "给截图添加渐变背景" };
         foreach (var (_, name) in backgrounds) background.Items.Add(name);
+        backgroundChoice = background;
         background.SelectedIndex = 0;
         background.SelectionChanged += (_, _) => { if (background.SelectedIndex >= 0) ApplyFrame(frame with { Background = backgrounds[background.SelectedIndex].Item1 }); };
         System.Windows.Automation.AutomationProperties.SetName(background, "标注美化背景");
@@ -87,10 +90,12 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
         var paddings = new[] { 16, 32, 48, 64, 96 };
         var padding = new ComboBox { Width = 96, Margin = new Thickness(2), ToolTip = "美化背景的留白像素" };
         foreach (var value in paddings) padding.Items.Add($"留白 {value}");
+        paddingChoice = padding;
         padding.SelectedIndex = 1;
         padding.SelectionChanged += (_, _) => { if (padding.SelectedIndex >= 0) ApplyFrame(frame with { Padding = paddings[padding.SelectedIndex] }); };
         toolbar.Children.Add(padding);
         var shadow = new CheckBox { Content = "阴影", IsChecked = true, Margin = new Thickness(7, 2, 2, 2), VerticalAlignment = VerticalAlignment.Center };
+        shadowChoice = shadow;
         shadow.Checked += (_, _) => ApplyFrame(frame with { Shadow = true });
         shadow.Unchecked += (_, _) => ApplyFrame(frame with { Shadow = false }); toolbar.Children.Add(shadow);
         var actions = new WrapPanel { Margin = new Thickness(10, 0, 10, 6), HorizontalAlignment = HorizontalAlignment.Right };
@@ -169,7 +174,11 @@ internal sealed class AnnotationWindow : Wpf.Ui.Controls.FluentWindow
     }
     public void ApplyFrame(AnnotationFrame value)
     {
+        if (frame == value) return;
         CommitText(); EndStroke(); frame = value; surface.Frame = value;
+        if (backgroundChoice is not null) backgroundChoice.SelectedIndex = (int)value.Background;
+        if (paddingChoice is not null) paddingChoice.SelectedIndex = Array.IndexOf(new[] { 16, 32, 48, 64, 96 }, value.Padding);
+        if (shadowChoice is not null) shadowChoice.IsChecked = value.Shadow;
         var size = value.OutputSize(image.PixelWidth, image.PixelHeight);
         surface.Width = size.Width; surface.Height = size.Height;
         status.Text = $"导出 {size.Width} × {size.Height} 像素 · 原图 {image.PixelWidth} × {image.PixelHeight} · 点击背景不绘制";

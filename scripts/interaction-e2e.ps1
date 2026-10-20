@@ -14,7 +14,6 @@ $report = [Collections.Generic.List[string]]::new()
 $pop = $null
 $notepad = $null
 $fixture = $null
-$fixtureImage = $null
 
 function Wait-Window([string]$Title, [bool]$Visible) {
     $deadline = (Get-Date).AddSeconds(12)
@@ -136,7 +135,26 @@ function Assert-Clipboard([string]$Expected) {
         if ((Get-Clipboard -Raw).TrimEnd("`r", "`n") -ceq $Expected) { return }
         Start-Sleep -Milliseconds 100
     } while ((Get-Date) -lt $deadline)
-    throw "剪贴板结果错误，预期：$Expected"
+    $actual = [string](Get-Clipboard -Raw)
+    throw "剪贴板结果错误，预期：$Expected，实际：$($actual.Substring(0, [Math]::Min(200, $actual.Length)))"
+}
+
+function Start-PixelFixture([string]$Mode) {
+    if ($null -ne $script:fixture -and !$script:fixture.HasExited) { $script:fixture.Kill(); $script:fixture.WaitForExit() }
+    $marker = Join-Path $env:RUNNER_TEMP "pixel-fixture-$([guid]::NewGuid().ToString('N')).txt"
+    $shell = (Get-Process -Id $PID).Path
+    $script:fixture = Start-Process $shell -WindowStyle Hidden -ArgumentList '-NoProfile', '-STA', '-File', "`"$PSScriptRoot\pixel-fixture.ps1`"", '-Mode', $Mode, '-Marker', "`"$marker`"" -PassThru
+    Wait-FileContains $marker 'ready' 20 | Out-Null
+    Set-Foreground $script:notepad.MainWindowHandle
+    Start-Sleep -Milliseconds 250
+    # 先断言夹具确实显示，区分夹具失败和产品取色错误。
+    $pixel = [Drawing.Bitmap]::new(1, 1)
+    $g = [Drawing.Graphics]::FromImage($pixel)
+    try {
+        $g.CopyFromScreen(390, 290, 0, 0, $pixel.Size)
+        $expected = if ($Mode -eq 'picker') { [Drawing.Color]::FromArgb(40, 40, 50) } else { [Drawing.Color]::FromArgb(40, 50, 60) }
+        if ($pixel.GetPixel(0, 0).ToArgb() -ne $expected.ToArgb()) { throw "像素夹具没有显示在预期坐标，模式=$Mode，实际=$($pixel.GetPixel(0, 0))" }
+    } finally { $g.Dispose(); $pixel.Dispose() }
 }
 
 function Get-NotepadSelectionBounds {
@@ -367,28 +385,19 @@ try {
     Wait-Window 'Pop 保持唤醒' $true
     Invoke-Control 'Pop 保持唤醒' 'awake-30'
     if (!(Find-Control 'Pop 保持唤醒' 'awake-stop').Current.IsEnabled) { throw 'Windows 未接受保持唤醒请求' }
+    Invoke-Key 0x1B
+    Wait-Window 'Pop 保持唤醒' $false
+    Set-Foreground $notepad.MainWindowHandle
+    Invoke-CtrlAlt 0x41
+    Wait-Window 'Pop 保持唤醒' $true
+    if (!(Find-Control 'Pop 保持唤醒' 'awake-stop').Current.IsEnabled) { throw '关闭窗口提前释放了保持唤醒' }
     Invoke-Control 'Pop 保持唤醒' 'awake-stop'
     if ((Find-Control 'Pop 保持唤醒' 'awake-stop').Current.IsEnabled) { throw '保持唤醒未释放' }
     Passed 'keep-awake-starts-and-stops'
     Invoke-Key 0x1B
     Wait-Window 'Pop 保持唤醒' $false
 
-    # 静态像素夹具用于验证定格取色与自动边界，测试过程中不移动或缩放窗口。
-    Add-Type -AssemblyName System.Windows.Forms
-    $fixture = [Windows.Forms.Form]::new()
-    $fixture.FormBorderStyle = [Windows.Forms.FormBorderStyle]::None
-    $fixture.AutoScaleMode = [Windows.Forms.AutoScaleMode]::None
-    $fixture.StartPosition = [Windows.Forms.FormStartPosition]::Manual
-    $fixture.Location = [Drawing.Point]::new(350, 250)
-    $fixture.ClientSize = [Drawing.Size]::new(200, 120)
-    $fixture.TopMost = $true
-    $fixtureImage = [Drawing.Bitmap]::new(200, 120)
-    for ($x = 0; $x -lt 200; $x++) {
-        for ($y = 0; $y -lt 120; $y++) { $fixtureImage.SetPixel($x, $y, [Drawing.Color]::FromArgb($x, $y, 50)) }
-    }
-    $fixture.BackgroundImage = $fixtureImage
-    $fixture.Show(); $fixture.Refresh(); [Windows.Forms.Application]::DoEvents()
-    Set-Foreground $notepad.MainWindowHandle
+    Start-PixelFixture 'picker'
     [PopCi.Native]::SetCursorPos(390, 290) | Out-Null
     Invoke-CtrlAlt 0x43
     Wait-Window 'Pop 屏幕取色' $true
@@ -396,19 +405,14 @@ try {
     [PopCi.Native]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)
     Invoke-Key 0x28
     [PopCi.Native]::keybd_event(0x10, 0, 2, [UIntPtr]::Zero)
+    Save-Screenshot (Join-Path $OutDir 'picker-before-confirm.png')
     Invoke-Key 0x0D
     Wait-Window 'Pop 结果' $true
     Invoke-Key 0x0D
     Assert-Clipboard '#293232'
     Passed 'picker-keyboard-pixel-movement'
 
-    $graphics = [Drawing.Graphics]::FromImage($fixtureImage)
-    try {
-        $graphics.Clear([Drawing.Color]::FromArgb(40, 50, 60))
-        $graphics.FillRectangle([Drawing.Brushes]::White, 50, 30, 80, 60)
-    } finally { $graphics.Dispose() }
-    $fixture.Refresh(); [Windows.Forms.Application]::DoEvents()
-    Set-Foreground $notepad.MainWindowHandle
+    Start-PixelFixture 'ruler'
     [PopCi.Native]::SetCursorPos(440, 310) | Out-Null
     Invoke-CtrlAlt 0x52
     Wait-Window 'Pop 屏幕标尺' $true
@@ -436,8 +440,7 @@ catch {
     throw
 }
 finally {
-    if ($null -ne $fixture) { $fixture.Dispose() }
-    if ($null -ne $fixtureImage) { $fixtureImage.Dispose() }
+    if ($null -ne $fixture -and !$fixture.HasExited) { $fixture.Kill(); $fixture.WaitForExit() }
     if ($null -ne $pop -and !$pop.HasExited) { $pop.Kill(); $pop.WaitForExit() }
     if ($null -ne $notepad -and !$notepad.HasExited) { $notepad.Kill(); $notepad.WaitForExit() }
     if ($settingsExisted) { [IO.File]::WriteAllBytes($settingsPath, [byte[]]$savedSettings) }

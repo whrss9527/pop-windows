@@ -200,7 +200,8 @@ internal sealed class TrayFlyout : Window
         body.Children.Add(Divider());
         body.Children.Add(Row(WpfUi.SymbolRegular.ClipboardTextLtr24, "剪贴板历史", app.HistoryHotKey, () => Then(app.ShowClipboardHistory)));
         body.Children.Add(Row(WpfUi.SymbolRegular.TextBulletList24, "常用短语", app.ShortcutText("snippets"), () => Then(app.ShowSnippets)));
-        body.Children.Add(Row(WpfUi.SymbolRegular.WeatherSunny24, "保持唤醒", app.ShortcutText("keepAwake"), () => Then(app.ShowKeepAwake)));
+        var awake = Row(WpfUi.SymbolRegular.WeatherSunny24, app.IsKeepingAwake ? "保持唤醒 · 已开启" : "保持唤醒", app.ShortcutText("keepAwake"), () => Then(app.ShowKeepAwake));
+        awake.ToolTip = app.AwakeStatus; body.Children.Add(awake);
         body.Children.Add(Row(WpfUi.SymbolRegular.ScanText24, "截图识字", app.OcrHotKey, () => Then(app.CaptureText)));
         body.Children.Add(Row(WpfUi.SymbolRegular.Pin24, "截图贴图", app.PinHotKey, () => Then(app.CapturePin)));
         body.Children.Add(Row(WpfUi.SymbolRegular.Edit24, "截图标注", app.AnnotateHotKey, () => Then(app.CaptureAnnotate)));
@@ -375,7 +376,7 @@ internal sealed class TrayFlyout : Window
         icon.Margin = new Thickness(0, 0, 12, 0);
         icon.VerticalAlignment = VerticalAlignment.Center;
         grid.Children.Add(icon);
-        var text = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center, Foreground = theme.Brush(theme.Text) };
+        var text = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center, Foreground = theme.Brush(theme.Text), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 6, 0) };
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);
         if (keys is not null)

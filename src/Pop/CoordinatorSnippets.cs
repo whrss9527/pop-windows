@@ -6,6 +6,7 @@ internal sealed partial class Coordinator
 {
     private readonly SnippetWindow snippetWindow = new();
     private volatile bool snippetsOpen;
+    private int snippetVersion;
     private (IntPtr Target, string Selection, string Clipboard)? snippetContext;
 
     private void SetUpSnippets()
@@ -17,21 +18,30 @@ internal sealed partial class Coordinator
         snippetWindow.Chosen += async snippet =>
         {
             snippetsOpen = false;
-            if (snippetContext is not { } context || !await WaitForModifiersAsync() || Native.GetForegroundWindow() != context.Target) return;
+            var request = snippetVersion; var snapshot = snippetContext; snippetContext = null;
+            if (snapshot is not { } context || !await WaitForModifiersAsync() || request != snippetVersion || Native.GetForegroundWindow() != context.Target) return;
             if (!settings().Snippets.Any(s => s.Id == snippet.Id && s.Text == snippet.Text)) return;
-            var expanded = SnippetExpander.Expand(snippet.Text, DateTimeOffset.Now, clipboard: context.Clipboard, selection: context.Selection);
-            await Replace(expanded);
+            try
+            {
+                var expanded = SnippetExpander.Expand(snippet.Text, DateTimeOffset.Now, clipboard: context.Clipboard, selection: context.Selection);
+                await Replace(expanded);
+            }
+            catch (ArgumentException e)
+            {
+                Native.GetCursorPos(out var cursor); ShowToast(cursor.X, cursor.Y, e.Message);
+            }
         };
     }
 
     private void ShowSnippets(ClassifiedContent content, int x, int y)
     {
         toolbar.Dismiss(); CloseList(); CloseHistory(); CloseCard();
+        snippetVersion++;
         snippetContext = (Native.GetForegroundWindow(), content.OriginalText, clipboard.GetText() ?? "");
-        snippetWindow.ShowAt(settings().Snippets, x, y); snippetsOpen = true;
+        snippetsOpen = true; snippetWindow.ShowAt(settings().Snippets, x, y);
     }
 
-    private void CloseSnippets() { snippetsOpen = false; snippetWindow.Dismiss(); }
+    private void CloseSnippets() { snippetVersion++; snippetsOpen = false; snippetContext = null; snippetWindow.Dismiss(); }
 
     private bool FilterSnippetKey(int vk)
     {

@@ -6,6 +6,16 @@ namespace Pop.Core.Tests;
 public class SnippetExperienceTests
 {
     [Fact]
+    public void ExpansionRefusesOversizedRepeatedValuesBeforePasting()
+    {
+        var text = new string('x', SnippetExpander.MaximumCharacters / 2 + 1);
+        Assert.Throws<ArgumentException>(() => SnippetExpander.Expand("{clipboard}{clipboard}", DateTimeOffset.UtcNow, clipboard: text));
+        var exact = new string('x', SnippetExpander.MaximumCharacters);
+        Assert.Equal(exact, SnippetExpander.Expand("{selection}", DateTimeOffset.UtcNow, selection: exact));
+        Assert.Equal("ok", SnippetExpander.Expand("ok", DateTimeOffset.UtcNow, clipboard: exact));
+    }
+
+    [Fact]
     public void TemplatesUseLocalDateAndExpandUserInputOnlyOnce()
     {
         var now = new DateTimeOffset(2026, 10, 19, 20, 30, 0, TimeSpan.Zero);

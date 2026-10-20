@@ -508,9 +508,9 @@ internal sealed partial class Coordinator : IDisposable
         CloseSnippets();
         lastList = (content, x, y);
         CloseCard();
+        listOpen = true;
         actionList.ShowFor(content, x, y, settings().IsEnabled, fromRing,
             fromRing && ring.Layout.IsArc ? session?.OriginalItems : null);
-        listOpen = true;
     }
 
     private void ReturnToRing()
@@ -644,8 +644,8 @@ internal sealed partial class Coordinator : IDisposable
         }
         CloseCard();
         CloseList();
-        historyWindow.ShowAt(history.Store, x.Value, y.Value);
         historyOpen = true;
+        historyWindow.ShowAt(history.Store, x.Value, y.Value);
     }
 
     private void CloseHistory()
@@ -946,8 +946,8 @@ internal sealed partial class Coordinator : IDisposable
     private void ShowResult(int x, int y, CardContent content)
     {
         var watch = Stopwatch.StartNew();
-        card.ShowResult(x, y, content);
         cardOpen = true;
+        card.ShowResult(x, y, content);
         LogIfSlow("显示卡片", watch);
     }
 

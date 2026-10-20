@@ -309,6 +309,8 @@ internal sealed class App : Application
     public void PickColor() => _ = coordinator?.PickColorAsync();
     public void MeasureScreen() => _ = coordinator?.MeasureScreenAsync();
     public void ShowSnippets() => coordinator?.RunActionFromShortcut(Actions.Snippets.Id);
+    public bool IsKeepingAwake => coordinator?.IsKeepingAwake == true;
+    public string AwakeStatus => coordinator?.AwakeStatus ?? "当前未保持唤醒";
     public void ShowKeepAwake() => coordinator?.RunActionFromShortcut(Actions.Awake.Id);
 
     public void ShowClipboardHistory() => coordinator?.ShowHistory();
