@@ -22,7 +22,16 @@ internal sealed class RegionSelector
     public bool IsOpen => pending is not null;
 
     /// 选好的区域（物理像素）和定格的整屏截图；取消时返回 null
-    public async Task<(Drawing.Rectangle Area, Drawing.Bitmap Screen, Drawing.Rectangle ScreenBounds)?> SelectAsync(bool detectEdges = false)
+    public async Task<(Drawing.Rectangle Area, Drawing.Bitmap Screen, Drawing.Rectangle ScreenBounds)?> SelectAsync()
+    {
+        if (await SelectCoreAsync(detectEdges: false, keepScreen: true) is not { Screen: { } screenshot } selected) return null;
+        return (selected.Area, screenshot, selected.ScreenBounds);
+    }
+
+    /// 标尺只需要范围，预览建立后即可释放 GDI 整屏位图。
+    public async Task<Drawing.Rectangle?> MeasureAsync() => (await SelectCoreAsync(detectEdges: true, keepScreen: false))?.Area;
+
+    private async Task<(Drawing.Rectangle Area, Drawing.Bitmap? Screen, Drawing.Rectangle ScreenBounds)?> SelectCoreAsync(bool detectEdges, bool keepScreen)
     {
         if (pending is not null) return null;
         pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -40,6 +49,7 @@ internal sealed class RegionSelector
                 converted.CopyPixels(data, converted.PixelWidth * 4, 0);
                 pixels = new(converted.PixelWidth, converted.PixelHeight, data);
             }
+            if (!keepScreen) { capture.Dispose(); capture = null; }
             foreach (var screen in Forms.Screen.AllScreens)
             {
                 var window = new SelectorWindow(this, screen.Bounds, bounds, source, pixels);

@@ -524,7 +524,7 @@ internal sealed partial class Coordinator : IDisposable
     }
 
     /// 框选一块屏幕区域，截下来（物理像素）；取消时返回 null
-    private async Task<(byte[] Png, System.Drawing.Rectangle Area)?> SelectRegionAsync(bool detectEdges = false)
+    private async Task<(byte[] Png, System.Drawing.Rectangle Area)?> SelectRegionAsync()
     {
         if (selector.IsOpen) return null;
         CloseCard();
@@ -533,7 +533,7 @@ internal sealed partial class Coordinator : IDisposable
         // 等圆盘和卡片淡出，不要被截进去
         CloseSnippets();
         await Task.Delay(150);
-        var selected = await selector.SelectAsync(detectEdges);
+        var selected = await selector.SelectAsync();
         if (selected is not { } s)
         {
             Log.Info("框选区域：取消");
@@ -608,10 +608,8 @@ internal sealed partial class Coordinator : IDisposable
     {
         CloseSnippets(); CloseCard(); CloseList(); CloseHistory();
         await Task.Delay(150);
-        if (await selector.SelectAsync(detectEdges: true) is not { } region) return;
-        // 标尺只需要坐标，不裁剪、不编码 PNG；确认后立即释放定格的整屏位图。
-        var area = region.Area;
-        region.Screen.Dispose();
+        // 标尺只需要坐标，不裁剪、不编码 PNG；预览建立后已释放 GDI 整屏位图。
+        if (await selector.MeasureAsync() is not { } area) return;
         ShowResult(area.Left, area.Top, new CardContent("屏幕标尺",
         [
             new("尺寸", $"{area.Width} × {area.Height} px"),

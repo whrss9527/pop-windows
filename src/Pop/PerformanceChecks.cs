@@ -51,7 +51,13 @@ internal static class PerformanceChecks
         try
         {
             probe.OpenAt(x, y); var initial = probe.RowsCreated;
-            probe.Move(1); probe.Move(-1); probe.Move(-1);
+            if (probe.SelectedId != "probe-0") throw new InvalidOperationException("列表没有选择第一项");
+            probe.Move(1);
+            if (probe.SelectedId != "probe-2") throw new InvalidOperationException("列表没有跳过禁用项");
+            probe.Move(-1);
+            if (probe.SelectedId != "probe-0") throw new InvalidOperationException("列表反向选择错误");
+            probe.Move(-1);
+            if (probe.SelectedId != "probe-99") throw new InvalidOperationException("列表环绕选择错误");
             if (initial != 100 || probe.RowsCreated != initial + 6)
                 throw new InvalidOperationException("列表选择时重建了无关行");
         }
@@ -61,6 +67,7 @@ internal static class PerformanceChecks
     private sealed class NavigationProbe : SearchOverlay<PopAction>
     {
         public int RowsCreated { get; private set; }
+        public string? SelectedId => SelectedItem?.Id;
         public NavigationProbe() : base("Pop 列表性能检查") { }
         public void OpenAt(int x, int y) => Open(x, y);
         protected override double PanelWidth => 380;

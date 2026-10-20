@@ -336,7 +336,7 @@ internal static class Demo
         if (Want("ruler"))
             await Scene("ruler", async () =>
             {
-                var ruler = new RegionSelector(); var measuring = ruler.SelectAsync(detectEdges: true);
+                var ruler = new RegionSelector(); var measuring = ruler.MeasureAsync();
                 ruler.PreviewAuto(x + 180, y - 80); await Wait(300); Shot("ruler-auto"); ruler.Cancel(); await measuring;
             });
 
