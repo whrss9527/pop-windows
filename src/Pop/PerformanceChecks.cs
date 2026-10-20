@@ -145,7 +145,7 @@ internal static class PerformanceChecks
                 throw new InvalidOperationException("列表超出了小工作区");
             probe.Paste("99");
             if (probe.Height >= fullHeight - 30 || probe.SelectedId != "probe-99")
-                throw new InvalidOperationException("少量搜索结果没有收缩列表");
+                throw new InvalidOperationException($"少量搜索结果没有收缩列表：{fullHeight:0.##} → {probe.Height:0.##}，选中 {probe.SelectedId}");
             probe.Backspace();
             if (probe.Height < fullHeight - 1)
                 throw new InvalidOperationException($"增加搜索结果后列表没有恢复高度：{fullHeight:0.##} → {probe.Height:0.##}");

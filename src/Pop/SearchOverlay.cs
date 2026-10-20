@@ -121,9 +121,9 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
     private void Reflow()
     {
         if (layout is null) return;
-        if (layout.Parent is Panel old) old.Children.Remove(layout);
         // ScrollViewer 会延后更新内容范围，直接读它的 DesiredSize 可能沿用上一次视口高度。
         // 先独立测量列表，再明确设置视口高度，让连续筛选与清除搜索在同一轮布局中生效。
+        // 测量时保持连接：从视觉树移除会暂停整个子树的布局，Measure 也只返回旧尺寸。
         var rowWidth = Math.Max(1, panelWidth - 16);
         rows.Measure(new Size(rowWidth, double.PositiveInfinity));
         if (rows.DesiredSize.Height > scroller.MaxHeight)
@@ -133,6 +133,7 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
         layout.Measure(new Size(panelWidth, double.PositiveInfinity));
         var height = Math.Ceiling(layout.DesiredSize.Height);
         var (left, top, width, h) = BoundsFor(height);
+        if (layout.Parent is Panel old) old.Children.Remove(layout);
         root.Children.Clear();
         var panel = Frost.Panel(backdrop, left, top, panelWidth, height, Theme.OverlayRadius, Palette, layout);
         panel.Margin = new Thickness(Theme.ShadowPad); root.Children.Add(panel);

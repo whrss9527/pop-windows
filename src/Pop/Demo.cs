@@ -50,6 +50,7 @@ internal static class Demo
         }
 
         if (Want("performance"))
+        {
             await Scene("performance", async () =>
             {
                 foreach (var line in await Task.Run(PerformanceChecks.Run)) SmokeTest.Report(line);
@@ -58,10 +59,21 @@ internal static class Demo
                 SmokeTest.Report("overlay-release=ok reopen=ok");
                 await ClipboardPerformanceChecks.VerifyAsync();
                 SmokeTest.Report("clipboard-thumbnails=ok bounded=256 pixels=96 workers=2 cancellation=ok");
+            });
+            // 独立报告，某一项失败时仍检查其余原生接口与真实界面。
+            await Scene("native-tray", async () =>
+            {
                 await NativeExperienceChecks.VerifyAsync(); SmokeTest.Report("native-tray=ok keyboard=ok restart=ok dispose=ok monitors=ok");
+            });
+            await Scene("list-sizing", async () =>
+            {
                 await PerformanceChecks.VerifySizingAsync(x, y); SmokeTest.Report("list-sizing=ok compact=ok workarea=ok scroll=ok");
+            });
+            await Scene("plugin-editor", async () =>
+            {
                 await PluginExperienceChecks.VerifyAsync(app); SmokeTest.Report("plugin-editor=ok restart=ok stop=ok copy-full=ok close=ok");
             });
+        }
 
         var text = ContentClassifier.Classify("Pop makes selected text useful");
 
