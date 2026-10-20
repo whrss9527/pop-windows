@@ -3,7 +3,6 @@ using System.Windows.Controls;
 using Microsoft.Win32;
 using Pop.Core;
 using Wpf.Ui.Appearance;
-using Forms = System.Windows.Forms;
 using WindowBackdropType = Wpf.Ui.Controls.WindowBackdropType;
 
 namespace Pop;
@@ -216,7 +215,7 @@ internal sealed class App : Application
         }
         catch (UpdateException e)
         {
-            tray?.Notify("Pop", e.Message, Forms.ToolTipIcon.Warning);
+            tray?.Notify("Pop", e.Message, warning: true);
         }
     }
 
@@ -229,7 +228,7 @@ internal sealed class App : Application
         }
         catch (UpdateException e)
         {
-            tray?.Notify("更新失败", e.Message, Forms.ToolTipIcon.Warning);
+            tray?.Notify("更新失败", e.Message, warning: true);
         }
     }
 

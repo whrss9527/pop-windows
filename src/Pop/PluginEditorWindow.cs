@@ -34,6 +34,7 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
     ];
 
     private readonly App app;
+    private readonly PluginRunner runner;
     private readonly PluginManifest original;
     private readonly bool isNew;
 
@@ -80,13 +81,20 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
 
     private readonly TextBlock error = Label("", Theme.Body, "SystemFillColorCriticalBrush");
     private CancellationTokenSource? testRun;
+    private WpfUi.Button stopTest = null!, copyTest = null!;
+    private string? fullTestOutput;
+    private bool closed;
+    internal bool IsTestRunning => testRun is not null;
+    internal bool IsTestProgressVisible => testProgress.Visibility == Visibility.Visible;
+    internal string TestOutput => testResult.Text;
 
     /// 保存下来的插件；取消时是 null
     public PluginManifest? Saved { get; private set; }
 
-    public PluginEditorWindow(App app, PluginManifest manifest, bool isNew)
+    public PluginEditorWindow(App app, PluginManifest manifest, bool isNew, PluginRunner? runner = null)
     {
         this.app = app;
+        this.runner = runner ?? app.PluginRunner;
         original = manifest;
         this.isNew = isNew;
         glyph = PluginGlyphs.Resolve(manifest);
@@ -144,9 +152,23 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
 
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Escape) Close();
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key == Key.S) { Save(); e.Handled = true; }
+            else if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key == Key.Enter) { RunTest(); e.Handled = true; }
+            else if (e.Key == Key.Escape && e.OriginalSource is not ComboBoxItem && e.OriginalSource is not ComboBox { IsDropDownOpen: true })
+            { if (IsTestRunning) StopTest(); else Close(); e.Handled = true; }
         };
-        Closed += (_, _) => testRun?.Cancel();
+        Closed += (_, _) => { closed = true; StopTest(showMessage: false); fullTestOutput = null; };
+        script.TextChanged += (_, _) => InvalidateTest();
+        url.TextChanged += (_, _) => InvalidateTest();
+        testInput.TextChanged += (_, _) => InvalidateTest();
+        pattern.TextChanged += (_, _) => InvalidateTest();
+        type.SelectionChanged += (_, _) => InvalidateTest();
+        shell.SelectionChanged += (_, _) => InvalidateTest();
+        timeout.ValueChanged += (_, _) => InvalidateTest();
+        foreach (var box in kinds.Values)
+        {
+            box.Checked += (_, _) => InvalidateTest(); box.Unchecked += (_, _) => InvalidateTest();
+        }
         Loaded += (_, _) => name.Focus();
     }
 
@@ -294,13 +316,21 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         var run = ActionButton("运行", Symbol.Play24, async () => await RunTestAsync(), WpfUi.ControlAppearance.Primary);
         run.Margin = new Thickness(8, 0, 0, 0);
         run.VerticalAlignment = VerticalAlignment.Top;
+        run.ToolTip = "Ctrl+Enter 试运行";
+        stopTest = ActionButton("停止", Symbol.Stop24, () => StopTest());
+        stopTest.IsEnabled = false;
+        stopTest.Margin = new Thickness(8, 0, 0, 0);
+        copyTest = ActionButton("复制结果", Symbol.Copy24, () => CopyTestResult());
+        copyTest.IsEnabled = false;
+        copyTest.Margin = new Thickness(8, 0, 0, 0);
         var line = new Grid();
         line.ColumnDefinitions.Add(new ColumnDefinition());
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         line.Children.Add(testInput);
-        Grid.SetColumn(run, 1);
-        line.Children.Add(run);
+        var controls = Horizontal(run, stopTest, copyTest);
+        Grid.SetColumn(controls, 1);
+        line.Children.Add(controls);
         testProgress.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(testProgress, 2);
         line.Children.Add(testProgress);
@@ -309,7 +339,8 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         var stack = new StackPanel { Margin = new Thickness(16) };
         stack.Children.Add(line);
         stack.Children.Add(testWarning);
-        stack.Children.Add(testResult);
+        stack.Children.Add(new ScrollViewer { Content = testResult, MaxHeight = 240, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        stack.Children.Add(Note("Ctrl+Enter 试运行，Esc 停止当前运行，Ctrl+S 保存。长结果仅显示预览，复制结果保留完整内容。"));
         return CardBorder(stack);
     }
 
@@ -391,8 +422,11 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
     /// 演示模式：点一下「运行」
     public void RunTest() => _ = RunTestAsync();
 
-    private async Task RunTestAsync()
+    internal async Task RunTestAsync()
     {
+        if (closed) return;
+        StopTest(showMessage: false);
+        fullTestOutput = null; copyTest.IsEnabled = false;
         var manifest = Collect().Normalized();
         testResult.Visibility = Visibility.Visible;
         if (manifest.ValidationError() is { } problem)
@@ -403,32 +437,66 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         var content = ContentClassifier.Classify(testInput.Text);
         testWarning.Text = "这段内容不满足「什么时候可用」，在圆盘里不会出现";
         testWarning.Visibility = PluginMatcher.Matches(manifest, content) ? Visibility.Collapsed : Visibility.Visible;
-        testRun?.Cancel();
         using var run = new CancellationTokenSource();
         testRun = run;
         testProgress.Visibility = Visibility.Visible;
+        stopTest.IsEnabled = true;
+        testInput.BringIntoView();
         testResult.Text = "";
         try
         {
-            var result = await app.PluginRunner.ExecuteAsync(manifest.Action, PluginInput.From(content), run.Token);
-            if (run.IsCancellationRequested) return;
+            var result = await runner.ExecuteAsync(manifest.Action, PluginInput.From(content), run.Token);
+            if (closed || run.IsCancellationRequested || !ReferenceEquals(testRun, run)) return;
             if (result.Error is { } failure) ShowTestResult(failure, failed: true);
-            else ShowTestResult(result.Output.Length == 0 ? "（没有输出）" : result.Output, failed: false);
+            else ShowTestResult(result.Output, failed: false);
         }
         catch (OperationCanceledException)
         {
         }
+        catch (Exception e)
+        {
+            Log.Error("插件试运行失败", e);
+            if (!closed && ReferenceEquals(testRun, run)) ShowTestResult(e.Message, failed: true);
+        }
         finally
         {
-            testProgress.Visibility = Visibility.Collapsed;
-            if (ReferenceEquals(testRun, run)) testRun = null;
+            if (ReferenceEquals(testRun, run))
+            {
+                testRun = null; testProgress.Visibility = Visibility.Collapsed; stopTest.IsEnabled = false;
+            }
         }
+    }
+
+    internal void StopTest(bool showMessage = true)
+    {
+        var previous = testRun; testRun = null; previous?.Cancel();
+        testProgress.Visibility = Visibility.Collapsed; stopTest.IsEnabled = false;
+        if (previous is not null && showMessage) { ShowTestResult("已停止", failed: false); fullTestOutput = null; copyTest.IsEnabled = false; }
+    }
+
+    private void InvalidateTest()
+    {
+        if (testResult.Visibility != Visibility.Visible) return;
+        StopTest(showMessage: false); fullTestOutput = null; copyTest.IsEnabled = false;
+        testResult.Text = "内容已更改，请重新试运行";
+        testResult.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
     }
 
     private void ShowTestResult(string text, bool failed)
     {
-        testResult.Text = text;
+        fullTestOutput = text; copyTest.IsEnabled = text.Length > 0;
+        copyTest.Content = "复制结果";
+        testResult.Text = text.Length == 0 ? "（没有输出）" : TextPreview.Truncate(text, 4000);
         testResult.SetResourceReference(TextBlock.ForegroundProperty, failed ? "SystemFillColorCriticalBrush" : "TextFillColorPrimaryBrush");
+    }
+
+    internal bool CopyTestResult()
+    {
+        if (fullTestOutput is not { Length: > 0 } text) return false;
+        using var clipboard = new ClipboardAccess("Pop 插件结果", openAttempts: 1);
+        var copied = clipboard.SetText(text, temporary: false);
+        copyTest.Content = copied ? "已复制" : "重试复制";
+        return copied;
     }
 
     /// 打开编辑器（设置窗口是它的主窗口），保存了返回插件

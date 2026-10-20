@@ -46,7 +46,15 @@ public static class PluginMatcher
         if (subject.Length == 0) return false;
         if (match.MinLength is not null || match.MaxLength is not null)
         {
-            var length = new StringInfo(subject).LengthInTextElements;
+            var remaining = subject.AsSpan();
+            var length = 0;
+            while (!remaining.IsEmpty)
+            {
+                length++;
+                if (length > match.MaxLength) return false;
+                if (match.MaxLength is null && length >= match.MinLength) break;
+                remaining = remaining[StringInfo.GetNextTextElementLength(remaining)..];
+            }
             if (length < match.MinLength || length > match.MaxLength) return false;
         }
         if (!string.IsNullOrEmpty(match.Pattern))

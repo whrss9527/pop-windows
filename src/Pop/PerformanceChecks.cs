@@ -83,6 +83,15 @@ internal static class PerformanceChecks
         lines.Add("list-content=ok files=10000 snippets=ok");
         lines.Add(string.Create(CultureInfo.InvariantCulture,
             $"performance: snippet-chars={snippet.Text.Length} concat-ms={concat.Milliseconds:0.###} search-ms={search.Milliseconds:0.###} concat-managed-bytes={concat.Bytes} search-managed-bytes={search.Bytes} replace-managed-bytes={replace.Bytes} preview-managed-bytes={previewPrefix.Bytes}"));
+        var pluginText = ContentClassifier.Classify(new string('a', 300_000));
+        var match = new PluginMatch { Kinds = [], MaxLength = 12 };
+        bool OldLength() => new StringInfo(pluginText.Text).LengthInTextElements <= 12;
+        bool BoundedLength() => PluginMatcher.Matches(match, pluginText);
+        if (OldLength() != BoundedLength()) throw new InvalidOperationException("插件长度判断改变了结果");
+        var whole = Measure(OldLength); var bounded = Measure(BoundedLength);
+        lines.Add("plugin-match=ok graphemes=ok bounded=ok");
+        lines.Add(string.Create(CultureInfo.InvariantCulture,
+            $"performance: plugin-match-chars={pluginText.Text.Length} whole-ms={whole.Milliseconds:0.###} bounded-ms={bounded.Milliseconds:0.###} whole-managed-bytes={whole.Bytes} bounded-managed-bytes={bounded.Bytes}"));
         return lines;
     }
 
@@ -122,11 +131,49 @@ internal static class PerformanceChecks
         finally { probe.Close(); }
     }
 
+    public static async Task VerifySizingAsync(int x, int y)
+    {
+        var (work, _) = Native.MonitorAt(x, y);
+        var area = new Pop.Core.Rect(work.Left + 20, work.Top + 20, Math.Min(work.Right, work.Left + 440), Math.Min(work.Bottom, work.Top + 320));
+        var probe = new NavigationProbe { OverrideWorkArea = area };
+        try
+        {
+            probe.OpenAt(x, y);
+            var fullHeight = probe.Height;
+            Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(probe).Handle, out var rect);
+            if (rect.Left < area.Left - 1 || rect.Top < area.Top - 1 || rect.Right > area.Right + 1 || rect.Bottom > area.Bottom + 1)
+                throw new InvalidOperationException("列表超出了小工作区");
+            probe.Paste("99");
+            if (probe.Height >= fullHeight - 30 || probe.SelectedId != "probe-99")
+                throw new InvalidOperationException("少量搜索结果没有收缩列表");
+            probe.Backspace();
+            if (probe.Height < fullHeight - 1) throw new InvalidOperationException("增加搜索结果后列表没有恢复高度");
+            probe.Move(-1);
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ContextIdle);
+            ScrollViewer? Find(System.Windows.DependencyObject parent)
+            {
+                if (parent is ScrollViewer viewer) return viewer;
+                for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+                    if (Find(VisualTreeHelper.GetChild(parent, i)) is { } child) return child;
+                return null;
+            }
+            if (probe.SelectedId != "probe-99" || Find(probe)?.VerticalOffset is not > 0)
+                throw new InvalidOperationException("小窗口内键盘选择没有滚动到可见项");
+        }
+        finally { probe.Close(); }
+    }
+
     private sealed class NavigationProbe : SearchOverlay<PopAction>
     {
         public int RowsCreated { get; private set; }
         public string? SelectedId => SelectedItem?.Id;
         public string? ChosenId { get; private set; }
+        public Pop.Core.Rect? OverrideWorkArea { get; init; }
+        protected override (Pop.Core.Rect WorkArea, double Scale) WorkAreaAt(int x, int y)
+        {
+            var (work, scale) = base.WorkAreaAt(x, y);
+            return (OverrideWorkArea ?? work, scale);
+        }
         public NavigationProbe() : base("Pop 列表性能检查") { }
         public void OpenAt(int x, int y) => Open(x, y);
         protected override double PanelWidth => 380;

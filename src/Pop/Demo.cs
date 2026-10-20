@@ -58,6 +58,9 @@ internal static class Demo
                 SmokeTest.Report("overlay-release=ok reopen=ok");
                 await ClipboardPerformanceChecks.VerifyAsync();
                 SmokeTest.Report("clipboard-thumbnails=ok bounded=256 pixels=96 workers=2 cancellation=ok");
+                await NativeExperienceChecks.VerifyAsync(); SmokeTest.Report("native-tray=ok keyboard=ok restart=ok dispose=ok monitors=ok");
+                await PerformanceChecks.VerifySizingAsync(x, y); SmokeTest.Report("list-sizing=ok compact=ok workarea=ok scroll=ok");
+                await PluginExperienceChecks.VerifyAsync(app); SmokeTest.Report("plugin-editor=ok restart=ok stop=ok copy-full=ok close=ok");
             });
 
         var text = ContentClassifier.Classify("Pop makes selected text useful");

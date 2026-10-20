@@ -6,7 +6,6 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Pop.Core;
 using Drawing = System.Drawing;
-using Forms = System.Windows.Forms;
 using Rect = System.Windows.Rect;
 using Path = System.Windows.Shapes.Path;
 
@@ -50,12 +49,13 @@ internal sealed class RegionSelector
                 pixels = new(converted.PixelWidth, converted.PixelHeight, data);
             }
             if (!keepScreen) { capture.Dispose(); capture = null; }
-            foreach (var screen in Forms.Screen.AllScreens)
+            var monitors = DesktopInfo.Monitors();
+            foreach (var screen in monitors)
             {
-                var window = new SelectorWindow(this, screen.Bounds, bounds, source, pixels);
+                var window = new SelectorWindow(this, screen, bounds, source, pixels);
                 windows.Add(window); window.Open();
             }
-            Log.Info($"框选区域：{Forms.Screen.AllScreens.Length} 个显示器，自动边缘={detectEdges}");
+            Log.Info($"框选区域：{monitors.Count} 个显示器，自动边缘={detectEdges}");
             var area = await pending.Task;
             var minimum = detectEdges ? 1 : 4;
             if (area is not { } chosen || chosen.Width < minimum || chosen.Height < minimum) return null;

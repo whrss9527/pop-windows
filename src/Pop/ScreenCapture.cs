@@ -3,7 +3,6 @@ using System.Runtime.InteropServices;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Drawing = System.Drawing;
-using Forms = System.Windows.Forms;
 
 namespace Pop;
 
@@ -11,7 +10,7 @@ namespace Pop;
 internal static class ScreenCapture
 {
     /// 整个虚拟屏幕（所有显示器）的范围
-    public static Drawing.Rectangle VirtualScreen => Forms.SystemInformation.VirtualScreen;
+    public static Drawing.Rectangle VirtualScreen => DesktopInfo.VirtualScreen;
 
     public static Drawing.Bitmap Capture(Drawing.Rectangle area)
     {

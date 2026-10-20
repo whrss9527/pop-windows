@@ -5,8 +5,6 @@
     <!-- 文字识别（Windows.Media.Ocr）要用 WinRT 接口；最低支持 Windows 10 1809 -->
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <UseWPF>true</UseWPF>
-    <!-- 只用到托盘图标 -->
-    <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>Pop</RootNamespace>
     <AssemblyName>Pop</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -24,16 +22,14 @@
     <!-- 单文件发布默认把整个运行时一起重新编译成一大块，会大 20 MB；运行时本身已经预编译过，只编译自己的就够了 -->
     <PublishReadyToRunComposite>false</PublishReadyToRunComposite>
     <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
-    <!-- 高 DPI 设置写在 app.manifest 里（WPF 靠它按显示器缩放），WinForms 的检查会误报 -->
-    <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <!-- WPF 和 WinForms 有很多同名类型，不用全局引入 WinForms -->
-    <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
     <Using Include="System.IO" />
   </ItemGroup>
   <ItemGroup>
+    <!-- 截屏和图片标注使用 GDI+；无需同时携带 WinForms 界面框架 -->
+    <PackageReference Include="System.Drawing.Common" Version="8.0.31" />
     <Resource Include="Assets\Pop.ico" />
     <!-- 中文字体：Noto Sans CJK SC 的常用字子集（SIL Open Font License） -->
     <Resource Include="Assets\Fonts\*.otf" />
@@ -58,4 +54,14 @@
   <ItemGroup>
     <ProjectReference Include="..\Pop.Core\Pop.Core.csproj" />
   </ItemGroup>
+  <!-- .NET 8 的桌面运行时包仍包含 WinForms，WPF 应用也会被默认整包复制。
+       本项目已使用原生托盘和屏幕 API，仅排除不再使用的 WinForms 专属程序集与资源。 -->
+  <Target Name="RemoveUnusedWinFormsRuntime" AfterTargets="ResolveRuntimePackAssets">
+    <ItemGroup>
+      <UnusedWinFormsAsset Include="@(RuntimePackAsset)"
+        Condition="$([System.String]::Copy('%(RuntimePackAsset.Filename)').StartsWith('System.Windows.Forms')) Or $([System.String]::Copy('%(RuntimePackAsset.Filename)').StartsWith('Microsoft.VisualBasic.Forms')) Or $([System.String]::Copy('%(RuntimePackAsset.Filename)').StartsWith('WindowsFormsIntegration'))" />
+      <RuntimePackAsset Remove="@(UnusedWinFormsAsset)" />
+      <ReferenceCopyLocalPaths Remove="@(UnusedWinFormsAsset)" />
+    </ItemGroup>
+  </Target>
 </Project>

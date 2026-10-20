@@ -51,6 +51,8 @@ public sealed class PluginRunner
 
     // MARK: 圆盘和列表
 
+    public static bool IsSupported(PluginActionType type) => type is PluginActionType.Url or PluginActionType.Shell or PluginActionType.JavaScript;
+
     /// 圆盘和「全部功能」列表里的一项。脚本可能要跑好几秒，所以 Run 不直接运行插件，
     /// 只返回 ActionEffect.RunPlugin（带着插件 ID），App 收到后在后台调用 RunAsync
     public static PopAction ToAction(PluginManifest manifest) =>
@@ -59,10 +61,10 @@ public sealed class PluginRunner
             PluginGlyphs.Resolve(manifest),
             Keywords(manifest),
             PluginMatcher.RequiredKinds(manifest.Match),
-            content => PluginMatcher.Matches(manifest, content) ? ActionResult.RunPlugin(manifest.Id) : null,
-            content => PluginMatcher.Matches(manifest, content),
+            content => IsSupported(manifest.Action.Type) && PluginMatcher.Matches(manifest, content) ? ActionResult.RunPlugin(manifest.Id) : null,
+            content => IsSupported(manifest.Action.Type) && PluginMatcher.Matches(manifest, content),
             Category: Actions.PluginCategory,
-            Summary: manifest.DisplaySummary);
+            Summary: IsSupported(manifest.Action.Type) ? manifest.DisplaySummary : $"{PluginNames.Title(manifest.Action.Type)}暂时无法在 Windows 上运行");
 
     /// 一组插件对应的功能：跳过 ID 无效、和内置功能重名或者重复的
     public static IReadOnlyList<PopAction> ToActions(IEnumerable<PluginManifest> manifests, Func<string, bool>? isReserved = null)
