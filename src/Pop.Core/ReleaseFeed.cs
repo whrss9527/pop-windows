@@ -2,6 +2,9 @@ using System.Text.Json;
 
 namespace Pop.Core;
 
+/// 两种发布包功能相同，轻量版使用电脑上已安装的桌面运行时
+public enum ReleasePackage { Portable, Lightweight }
+
 /// GitHub Releases 里的一个版本
 public sealed record ReleaseInfo(
     SemVersion Version,
@@ -18,10 +21,11 @@ public static class ReleaseFeed
     public const string ChecksumsAssetName = "SHA256SUMS.txt";
 
     /// 发布包的文件名：Pop-0.1.0-win-x64.zip
-    public static string PackageName(SemVersion version) => $"Pop-{version}-win-x64.zip";
+    public static string PackageName(SemVersion version, ReleasePackage package = ReleasePackage.Portable) =>
+        $"Pop-{version}-win-x64{(package == ReleasePackage.Lightweight ? "-lightweight" : "")}.zip";
 
     /// 解析失败的条目直接跳过，不影响其他版本
-    public static IReadOnlyList<ReleaseInfo> Parse(string json)
+    public static IReadOnlyList<ReleaseInfo> Parse(string json, ReleasePackage package = ReleasePackage.Portable)
     {
         var result = new List<ReleaseInfo>();
         using var doc = JsonDocument.Parse(json);
@@ -32,7 +36,7 @@ public static class ReleaseFeed
             if (GetBool(item, "draft")) continue;
             var tag = GetString(item, "tag_name");
             if (!SemVersion.TryParse(tag, out var version)) continue;
-            var package = PackageName(version);
+            var packageName = PackageName(version, package);
             string? packageUrl = null, checksumsUrl = null;
             if (item.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
             {
@@ -41,14 +45,14 @@ public static class ReleaseFeed
                     var name = GetString(asset, "name");
                     var url = GetString(asset, "browser_download_url");
                     if (string.IsNullOrEmpty(url)) continue;
-                    if (string.Equals(name, package, StringComparison.OrdinalIgnoreCase)) packageUrl = url;
+                    if (string.Equals(name, packageName, StringComparison.OrdinalIgnoreCase)) packageUrl = url;
                     else if (string.Equals(name, ChecksumsAssetName, StringComparison.OrdinalIgnoreCase)) checksumsUrl = url;
                 }
             }
             // 没有安装包或者校验和的版本不能更新
             if (packageUrl is null || checksumsUrl is null) continue;
             result.Add(new ReleaseInfo(version, tag!, GetString(item, "body") ?? "", GetBool(item, "prerelease") || version.IsPrerelease,
-                package, packageUrl, checksumsUrl));
+                packageName, packageUrl, checksumsUrl));
         }
         return result;
     }

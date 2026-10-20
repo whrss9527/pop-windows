@@ -99,7 +99,7 @@ internal sealed class App : Application
 
         if (options.ShowSettings) ShowSettings();
         if (!SmokeTest.ExitAfterStart) _ = Dispatcher.BeginInvoke(() => coordinator.WarmUp(), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-        SmokeTest.Report($"started version={Updater.CurrentVersion} hooks={(hook.IsInstalled ? "ok" : "failed")} updated-from={options.UpdatedFrom ?? "-"}");
+        SmokeTest.Report($"started version={Updater.CurrentVersion} hooks={(hook.IsInstalled ? "ok" : "failed")} updated-from={options.UpdatedFrom ?? "-"} package={Updater.Package.ToString().ToLowerInvariant()}");
         if (SmokeTest.ExitAfterStart) Quit();
     }
 

@@ -46,6 +46,40 @@ Windows CI 在浅色、深色演示中执行 `PerformanceChecks`：
 
 本地候选发布比较：原提交 `fbd3206` 的 Windows CI 程序为 85,981,972 字节，移除 WinForms 并加入本轮界面改进后的候选约 78.2 MB，减少约 9%。最终体积以 Windows CI 的实际文件为准；程序仍为解压即可运行的单个 `Pop.exe`。加入 WinForms 功能时须同步审视发布排除项与原生回归检查。
 
+### 为什么仍有 70 MB 以上
+
+`3fcec3b` 的 Windows CI 实际程序为 78,292,175 字节，ZIP 为 70,613,418 字节。下表按单文件清单中的实际存储字节统计，已经包含包内压缩的效果；MB 使用十进制，不是把原始 DLL 大小直接相加。
+
+| 内容 | 包内占用 |
+| --- | ---: |
+| .NET 运行时 | 25.38 MB |
+| WPF 桌面运行时 | 23.13 MB |
+| 单文件宿主、清单与对齐 | 9.72 MB |
+| Pop 与中文字体 | 8.25 MB |
+| Windows OCR 接口 | 6.32 MB |
+| WPF-UI 控件与图标 | 2.73 MB |
+| SQLite | 1.31 MB |
+| JavaScript 插件解释器 | 1.11 MB |
+| 其他依赖与配置 | 0.34 MB |
+
+便携版已经启用单文件压缩；继续整体压缩不会消除运行时。WPF 不支持通用裁剪和 Native AOT，直接删除看似不用的框架 DLL 会影响反射、界面或插件。保留界面程序集的 ReadyToRun，避免为了减包让首次弹出重新承担编译成本。
+
+### 可选轻量版
+
+从 0.10.0 起同时生成 `Pop-<版本>-win-x64-lightweight.zip`：以 `--self-contained false` 发布，复用电脑上已安装的 **.NET 8 桌面运行时 x64**。保留同样的字体、OCR、截图、SQLite、JavaScript 插件和界面预编译。本地候选 EXE 约 48.0 MB，ZIP 约 18.2 MB，相比上面的 ZIP 减少约 74%；SDK 不支持给依赖框架的单文件启用包内压缩，因此应分别比较 EXE 和 ZIP。
+
+没有运行时的电脑必须先安装；普通 .NET Runtime、x86 或其他主版本不能替代。第一次安装运行时有额外下载与磁盘占用，轻量版主要节省重复携带和后续更新流量，不代表运行时、总安装空间或进程内存消失。无需另装依赖时继续使用便携版。
+
+更新根据编译时包型选择资产，两种 ZIP 共用包含各自条目的 SHA-256 清单；缺少同包型资产时跳过该发布，不自动切换包型。CI 对两种包分别执行 Windows 2022/2025 的启动、手势、交互与浅深色截图；更新端到端测试提供一个故意不可用的另一包型资产，检查正确下载、拒绝错误校验和，以及更新重启后包型不变。
+
+可独立复核任何 .NET 8 发布文件，无需运行 Windows 程序或安装第三方 Python 包：
+
+```bash
+python scripts/measure-package.py out/new/Pop.exe out/lightweight/Pop.exe --json out/package-sizes.json
+```
+
+脚本只读单文件清单与依赖清单，区分实际存储字节和解压字节，不改写程序；CI 的 `pop-exe` 工件也保存这份统计。
+
 结果在截图分支 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 的 `ui/light-demo.txt` 和 `ui/dark-demo.txt` 中。先核对分支 README 中的提交号，再查看 `screen-snapshot=ok`、`list-navigation=ok`、`text-preview=ok`、`clipboard-thumbnails=ok`、`overlay-release=ok` 和 `performance:` 行。
 
 `png-ms`、`direct-ms` 仅比较相同输入的图像转换，不代表完整工具启动时间；`managed-bytes` 不含 WPF/WIC 的原生内存，不能作为进程总内存。CI 不对耗时设置硬阈值，以免共享运行器负载波动产生误报。

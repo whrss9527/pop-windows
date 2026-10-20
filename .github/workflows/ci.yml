@@ -53,16 +53,27 @@ jobs:
         run: dotnet publish src/Pop -c Release -o out/new
       - name: Publish an old version for the update test
         run: dotnet publish src/Pop -c Release -p:Version=0.0.1 -o out/old
+      - name: Publish lightweight packages
+        shell: pwsh
+        run: |
+          dotnet publish src/Pop -c Release --self-contained false -o out/lightweight
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish src/Pop -c Release --self-contained false -p:Version=0.0.1 -o out/lightweight-old
+      - name: Measure package contents
+        run: python -X utf8 scripts/measure-package.py out/new/Pop.exe out/lightweight/Pop.exe --json out/package-sizes.json
       - uses: actions/upload-artifact@v4
         with:
           name: pop-exe
           path: |
             out/new/Pop.exe
             out/old/Pop.exe
+            out/lightweight/Pop.exe
+            out/lightweight-old/Pop.exe
+            out/package-sizes.json
           if-no-files-found: error
 
   launch-smoke:
-    name: launch-smoke (${{ matrix.os }})
+    name: launch-smoke (${{ matrix.os }}, ${{ matrix.package }})
     needs: build-and-test
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -73,37 +84,46 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-2022, windows-2025]
+        package: [portable, lightweight]
     defaults:
       run:
         shell: pwsh
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v4
+        if: matrix.package == 'lightweight'
+        with:
+          dotnet-version: 8.0.x
       - uses: actions/download-artifact@v4
         with:
           name: pop-exe
           path: out
+      - name: Select package
+        run: |
+          $folder = if ('${{ matrix.package }}' -eq 'lightweight') { 'lightweight' } else { 'new' }
+          "POP_TEST_EXE=$((Resolve-Path "out/$folder/Pop.exe").Path)" >> $env:GITHUB_ENV
       - name: Launch smoke test
-        run: ./scripts/smoke.ps1 -Exe out/new/Pop.exe
+        run: ./scripts/smoke.ps1 -Exe $env:POP_TEST_EXE -PackageVariant '${{ matrix.package }}'
       - name: Long-press gesture test
-        run: ./scripts/gesture-e2e.ps1 -Exe (Resolve-Path out/new/Pop.exe) -OutDir screenshots
+        run: ./scripts/gesture-e2e.ps1 -Exe $env:POP_TEST_EXE -OutDir screenshots
       - name: Interaction parity test
         if: success() || failure()
-        run: ./scripts/interaction-e2e.ps1 -Exe (Resolve-Path out/new/Pop.exe) -OutDir screenshots/interaction
+        run: ./scripts/interaction-e2e.ps1 -Exe $env:POP_TEST_EXE -OutDir screenshots/interaction
       # 演示模式：每个界面浅色、深色各截一张，放在 ui 文件夹里
       - name: UI screenshots
         if: success() || failure()
-        run: ./scripts/ui-screenshots.ps1 -Exe (Resolve-Path out/new/Pop.exe) -OutDir screenshots/ui
+        run: ./scripts/ui-screenshots.ps1 -Exe $env:POP_TEST_EXE -OutDir screenshots/ui
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: screenshots-${{ matrix.os }}
+          name: screenshots-${{ matrix.os }}${{ matrix.package == 'lightweight' && '-lightweight' || '' }}
           path: screenshots
           if-no-files-found: ignore
       # 每次覆盖 ci-screenshots/<系统> 分支，改了浮窗之后 git fetch 这个分支就能看到效果
       - name: Push screenshots
         # push 的运行覆盖 ci-screenshots/<系统>；失败的运行（PR 的也算）另外放一份到 ci-screenshots/<系统>-failed，
         # 不会被同一个提交的另一次运行冲掉
-        if: always() && (github.event_name == 'push' || failure())
+        if: always() && matrix.package == 'portable' && (github.event_name == 'push' || failure())
         run: |
           if (-not (Test-Path screenshots)) { exit 0 }
           $branches = @()
@@ -128,17 +148,28 @@ jobs:
     needs: [version, build-and-test]
     runs-on: windows-2022
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [portable, lightweight]
     defaults:
       run:
         shell: pwsh
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v4
+        if: matrix.package == 'lightweight'
+        with:
+          dotnet-version: 8.0.x
       - uses: actions/download-artifact@v4
         with:
           name: pop-exe
           path: out
       - name: Update end-to-end test
-        run: ./scripts/update-e2e.ps1 -OldExe (Resolve-Path out/old/Pop.exe) -NewExe (Resolve-Path out/new/Pop.exe) -Version ${{ needs.version.outputs.version }}
+        run: |
+          $old = if ('${{ matrix.package }}' -eq 'lightweight') { 'lightweight-old' } else { 'old' }
+          $new = if ('${{ matrix.package }}' -eq 'lightweight') { 'lightweight' } else { 'new' }
+          ./scripts/update-e2e.ps1 -OldExe (Resolve-Path "out/$old/Pop.exe") -NewExe (Resolve-Path "out/$new/Pop.exe") -Version ${{ needs.version.outputs.version }} -PackageVariant '${{ matrix.package }}'
 
   release:
     needs: [version, build-and-test, launch-smoke, update-e2e]

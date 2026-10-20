@@ -7,6 +7,11 @@ namespace Pop;
 /// 一键更新：读 GitHub Releases，下载安装包，比对 SHA-256、检查代码签名，确认无误再替换 Pop.exe 并重新启动
 internal sealed class Updater : IDisposable
 {
+#if POP_LIGHTWEIGHT
+    public const ReleasePackage Package = ReleasePackage.Lightweight;
+#else
+    public const ReleasePackage Package = ReleasePackage.Portable;
+#endif
     private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(6);
 
     private readonly HttpClient http;
@@ -20,7 +25,8 @@ internal sealed class Updater : IDisposable
         this.settings = settings;
         http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd($"Pop-Windows/{CurrentVersion}");
-        client = new UpdateClient(http);
+        // 更新继续使用当前包型，避免轻量版下次更新又下载整套运行时。
+        client = new UpdateClient(http, Package);
     }
 
     public static SemVersion CurrentVersion { get; } = ReadCurrentVersion();

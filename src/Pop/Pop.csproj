@@ -15,7 +15,9 @@
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- 轻量版以 SelfContained=false 发布，复用已安装的 .NET 8 桌面运行时；SDK 不支持压缩这种单文件。 -->
+    <EnableCompressionInSingleFile>$(SelfContained)</EnableCompressionInSingleFile>
+    <DefineConstants Condition="'$(SelfContained)' != 'true'">$(DefineConstants);POP_LIGHTWEIGHT</DefineConstants>
     <!-- 发布时预先编译成机器码：第一次弹出圆盘、卡片时不用现场编译，慢的机器上也不会卡一下。
          只编译界面相关的程序集，见下面的 PublishReadyToRunExclude -->
     <PublishReadyToRun>true</PublishReadyToRun>

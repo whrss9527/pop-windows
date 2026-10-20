@@ -1,5 +1,8 @@
 # 启动一次 Release 版 Pop.exe，确认能正常启动并装上输入钩子，然后退出
-param([Parameter(Mandatory)][string]$Exe)
+param(
+    [Parameter(Mandatory)][string]$Exe,
+    [ValidateSet('portable', 'lightweight')][string]$PackageVariant = 'portable'
+)
 . "$PSScriptRoot\ci-helpers.ps1"
 
 $marker = Join-Path $env:RUNNER_TEMP "pop-smoke-$([guid]::NewGuid().ToString('N')).txt"
@@ -10,6 +13,7 @@ try {
     $text = Wait-FileContains $marker 'started' 60
     Write-Host $text
     if ($text -notmatch 'hooks=ok') { throw "输入钩子没装上：$text" }
+    if ($text -notmatch "package=$PackageVariant\b") { throw "启动的包型不对：$text" }
     if (-not $p.WaitForExit(20000)) { $p.Kill(); throw 'Pop 没有按时退出' }
     Write-Host '启动测试通过'
 } finally {
