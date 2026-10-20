@@ -122,6 +122,14 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
     {
         if (layout is null) return;
         if (layout.Parent is Panel old) old.Children.Remove(layout);
+        // ScrollViewer 会延后更新内容范围，直接读它的 DesiredSize 可能沿用上一次视口高度。
+        // 先独立测量列表，再明确设置视口高度，让连续筛选与清除搜索在同一轮布局中生效。
+        var rowWidth = Math.Max(1, panelWidth - 16);
+        rows.Measure(new Size(rowWidth, double.PositiveInfinity));
+        if (rows.DesiredSize.Height > scroller.MaxHeight)
+            rows.Measure(new Size(Math.Max(1, rowWidth - SystemParameters.VerticalScrollBarWidth), double.PositiveInfinity));
+        scroller.Height = Math.Min(scroller.MaxHeight, Math.Ceiling(rows.DesiredSize.Height));
+        scroller.InvalidateMeasure(); layout.InvalidateMeasure();
         layout.Measure(new Size(panelWidth, double.PositiveInfinity));
         var height = Math.Ceiling(layout.DesiredSize.Height);
         var (left, top, width, h) = BoundsFor(height);

@@ -30,6 +30,16 @@ internal static class PluginExperienceChecks
             await second;
             if (editor.IsTestRunning || editor.IsTestProgressVisible || editor.TestOutput.Length > 4001 || !editor.CopyTestResult() || clipboard.GetText() != output)
                 throw new InvalidOperationException("输出预览、完成状态或复制完整结果错误");
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ContextIdle);
+            var resultView = editor.TestResultViewport;
+            System.Windows.DependencyObject? ancestor = resultView;
+            do { ancestor = System.Windows.Media.VisualTreeHelper.GetParent(ancestor); }
+            while (ancestor is not null && ancestor is not System.Windows.Controls.ScrollViewer);
+            if (ancestor is not System.Windows.Controls.ScrollViewer page)
+                throw new InvalidOperationException("找不到插件编辑器页面视口");
+            var resultBounds = resultView.TransformToAncestor(page).TransformBounds(new System.Windows.Rect(resultView.RenderSize));
+            if (resultBounds.Top < -1 || resultBounds.Bottom > page.ActualHeight + 1)
+                throw new InvalidOperationException("试运行结果被页面边缘或保存栏遮挡");
             var third = editor.RunTestAsync(); editor.StopTest();
             if (!processes.Calls[2].Cancellation.IsCancellationRequested || editor.IsTestRunning || editor.TestOutput != "已停止")
                 throw new InvalidOperationException("停止试运行没有生效");

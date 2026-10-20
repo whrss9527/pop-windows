@@ -76,6 +76,8 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
 
     private readonly WpfUi.TextBox testInput = new() { Text = "Hello Pop", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 120 };
     private readonly TextBlock testResult = new() { FontFamily = Theme.MonoFont, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0), Visibility = Visibility.Collapsed };
+    private readonly ScrollViewer testResults = new() { MaxHeight = 240, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private FrameworkElement testCard = null!;
     private readonly TextBlock testWarning = Label("", Theme.Caption, "SystemFillColorCautionBrush");
     private readonly WpfUi.ProgressRing testProgress = new() { IsIndeterminate = true, Width = 16, Height = 16, Margin = new Thickness(10, 0, 0, 0), Visibility = Visibility.Collapsed };
 
@@ -87,6 +89,7 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
     internal bool IsTestRunning => testRun is not null;
     internal bool IsTestProgressVisible => testProgress.Visibility == Visibility.Visible;
     internal string TestOutput => testResult.Text;
+    internal FrameworkElement TestResultViewport => testResults;
 
     /// 保存下来的插件；取消时是 null
     public PluginManifest? Saved { get; private set; }
@@ -339,9 +342,11 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         var stack = new StackPanel { Margin = new Thickness(16) };
         stack.Children.Add(line);
         stack.Children.Add(testWarning);
-        stack.Children.Add(new ScrollViewer { Content = testResult, MaxHeight = 240, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        testResults.Content = testResult;
+        stack.Children.Add(testResults);
         stack.Children.Add(Note("Ctrl+Enter 试运行，Esc 停止当前运行，Ctrl+S 保存。长结果仅显示预览，复制结果保留完整内容。"));
-        return CardBorder(stack);
+        testCard = CardBorder(stack);
+        return testCard;
     }
 
     private UIElement Footer()
@@ -488,6 +493,8 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         copyTest.Content = "复制结果";
         testResult.Text = text.Length == 0 ? "（没有输出）" : TextPreview.Truncate(text, 4000);
         testResult.SetResourceReference(TextBlock.ForegroundProperty, failed ? "SystemFillColorCriticalBrush" : "TextFillColorPrimaryBrush");
+        // 输出出现后再滚动，使运行按钮和结果一起留在视野内，避免被底部保存栏挡住。
+        Dispatcher.BeginInvoke(() => { if (!closed && IsVisible) testCard.BringIntoView(); }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     internal bool CopyTestResult()

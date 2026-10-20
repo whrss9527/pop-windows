@@ -147,7 +147,8 @@ internal static class PerformanceChecks
             if (probe.Height >= fullHeight - 30 || probe.SelectedId != "probe-99")
                 throw new InvalidOperationException("少量搜索结果没有收缩列表");
             probe.Backspace();
-            if (probe.Height < fullHeight - 1) throw new InvalidOperationException("增加搜索结果后列表没有恢复高度");
+            if (probe.Height < fullHeight - 1)
+                throw new InvalidOperationException($"增加搜索结果后列表没有恢复高度：{fullHeight:0.##} → {probe.Height:0.##}");
             probe.Move(-1);
             await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ContextIdle);
             ScrollViewer? Find(System.Windows.DependencyObject parent)
