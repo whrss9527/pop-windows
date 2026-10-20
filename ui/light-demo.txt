@@ -1,0 +1,67 @@
+screen-snapshot=ok
+performance: screen=1920x1080 png-ms=50.11 direct-ms=1.046 png-managed-bytes=3359488 direct-managed-bytes=624
+performance: screen=3840x2160 png-ms=200.271 direct-ms=6.236 png-managed-bytes=13943400 direct-managed-bytes=624
+text-preview=ok
+performance: preview-chars=1800000 split-ms=6.209 prefix-ms=0.007 split-managed-bytes=11400680 prefix-managed-bytes=1664
+performance: file-count=10000 split-ms=1.405 summary-ms=0.311 split-managed-bytes=1920208 summary-managed-bytes=320
+list-content=ok files=10000 snippets=ok
+performance: snippet-chars=90000 concat-ms=0.867 search-ms=0.011 concat-managed-bytes=1220160 search-managed-bytes=72 replace-managed-bytes=400088 preview-managed-bytes=2144
+plugin-match=ok graphemes=ok bounded=ok
+performance: plugin-match-chars=300000 whole-ms=12.062 bounded-ms=0.001 whole-managed-bytes=1200096 bounded-managed-bytes=40
+list-navigation=ok rows=100 updated=6 moves=3
+list-selection=ok filtered=ok shortcuts=ok empty=ok
+overlay-release=ok reopen=ok
+clipboard-thumbnails=ok bounded=256 pixels=96 workers=2 cancellation=ok
+native-tray=ok keyboard=ok restart=ok dispose=ok monitors=ok
+demo-error=performance: InvalidOperationException 少量搜索结果没有收缩列表
+demo-shot=light-snippets
+demo-shot=light-text-diff
+demo-shot=light-keep-awake
+demo-shot=light-selection-toolbar
+demo-shot=light-ring
+demo-shot=light-ring-highlight
+demo-shot=light-ring-link
+demo-shot=light-card-translate
+demo-shot=light-card-translating
+demo-shot=light-card-math
+demo-shot=light-card-unit
+demo-shot=light-card-color
+demo-shot=light-card-time
+demo-shot=light-card-count
+demo-shot=light-card-codec
+demo-shot=light-card-long
+demo-shot=light-card-jwt
+demo-shot=light-toast
+demo-shot=light-list
+demo-shot=light-list-search
+demo-shot=light-history
+demo-shot=light-flyout
+demo-shot=light-settings-general
+demo-shot=light-settings-triggers
+demo-shot=light-settings-rules
+demo-shot=light-settings-shortcuts
+demo-shot=light-settings-ring
+demo-shot=light-settings-actions
+demo-shot=light-settings-translate
+demo-shot=light-settings-clipboard
+demo-shot=light-settings-snippets
+demo-shot=light-settings-backup
+demo-shot=light-settings-about
+demo-shot=light-settings-triggers-modifier
+demo-shot=light-settings-ring-application
+demo-shot=light-settings-shortcuts-configured
+demo-shot=light-plugin-editor-javascript
+demo-shot=light-plugin-editor-shell
+demo-shot=light-snippet-editor
+demo-shot=light-pin
+demo-shot=light-region
+demo-shot=light-region-drag
+demo-shot=light-annotate
+demo-shot=light-annotate-background
+annotation-render=ok
+annotation-frame=ok
+demo-shot=light-picker
+demo-shot=light-ruler-auto
+demo-shot=light-ring-twelve
+demo-shot=light-ring-corner
+demo-done
