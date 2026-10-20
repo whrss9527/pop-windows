@@ -62,19 +62,21 @@ internal static class PluginExperienceChecks
     {
         var processes = new PendingProcesses();
         var manifest = new PluginManifest { Name = "长度条件检查", Match = new() { MinLength = 2, MaxLength = 3 },
-            Action = new() { Type = PluginActionType.Shell, Script = "Write-Output test" } };
+            Action = new() { Type = PluginActionType.Shell, Script = "Write-Output test", Timeout = 1.5 } };
         var editor = new PluginEditorWindow(app, manifest, true, new PluginRunner(processes));
         try
         {
             editor.Show();
             await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ContextIdle);
             if (editor.CurrentManifest.Match != manifest.Match) throw new InvalidOperationException("导入插件的长度条件没有显示在编辑器中");
+            if (editor.CurrentManifest.Action.Timeout != 1.5) throw new InvalidOperationException("导入插件的小数超时被取整");
             async Task Trial(string input)
             {
                 editor.TestInput = input;
                 var count = processes.Calls.Count;
                 var run = editor.RunTestAsync();
                 if (processes.Calls.Count != count + 1) throw new InvalidOperationException("长度条件试运行没有启动");
+                if (processes.Calls[^1].Timeout != TimeSpan.FromSeconds(1.5)) throw new InvalidOperationException("试运行丢失了小数超时");
                 processes.Calls[^1].Completion.SetResult(new(0, "ok", "", false));
                 await run;
             }
@@ -115,11 +117,11 @@ internal static class PluginExperienceChecks
 
     private sealed class PendingProcesses : IProcessRunner
     {
-        public List<(TaskCompletionSource<ProcessOutput> Completion, CancellationToken Cancellation)> Calls { get; } = [];
+        public List<(TaskCompletionSource<ProcessOutput> Completion, CancellationToken Cancellation, TimeSpan Timeout)> Calls { get; } = [];
         public Task<ProcessOutput> RunAsync(ProcessRequest request, CancellationToken cancellationToken = default)
         {
             var completion = new TaskCompletionSource<ProcessOutput>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Calls.Add((completion, cancellationToken));
+            Calls.Add((completion, cancellationToken, request.Timeout));
             return completion.Task;
         }
     }

@@ -64,7 +64,7 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         Minimum = PluginAction.MinTimeout,
         Maximum = PluginAction.MaxTimeout,
         SmallChange = 5,
-        MaxDecimalPlaces = 0,
+        MaxDecimalPlaces = 15,
         Width = 150,
         SpinButtonPlacementMode = WpfUi.NumberBoxSpinButtonPlacementMode.Inline,
     };
