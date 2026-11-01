@@ -65,13 +65,17 @@ internal sealed class TrayFlyout : Window
             if (e.Key == Key.Escape) CloseAnimated();
         };
         app.SettingsChanged += Refill;
+        app.SettingsSaveStateChanged += OnSettingsSaved;
         app.Updater.Changed += Refill;
         Closed += (_, _) =>
         {
             app.SettingsChanged -= Refill;
+            app.SettingsSaveStateChanged -= OnSettingsSaved;
             app.Updater.Changed -= Refill;
         };
     }
+
+    private void OnSettingsSaved() { if (!app.SettingsSavePending) Refill(); }
 
     /// 在任务栏图标旁边弹出来；x、y 是点击的位置（物理像素）
     public void ShowNear(int x, int y)

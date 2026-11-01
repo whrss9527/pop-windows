@@ -492,6 +492,45 @@ internal static class Demo
                 window.Close(); SmokeTest.Report("backup-preview=ok cancel=ok unchanged=ok");
             });
 
+        if (Want("settings-batching"))
+            await Scene("settings-batching", async () =>
+            {
+                var original = app.Settings.HoldMilliseconds;
+                var completed = 0;
+                void Saved() { if (!app.SettingsSavePending && app.SettingsHaveBeenSaved && app.SettingsSaveError is null) completed++; }
+                app.FlushPendingSettings();
+                app.SettingsSaveStateChanged += Saved;
+                var window = app.ShowSettings("general");
+                try
+                {
+                    for (var n = 0; n < 10; n++) app.UpdateSettings(s => s.HoldMilliseconds = 200 + n * 40);
+                    if (!app.SettingsSavePending || app.SettingsHaveBeenSaved || completed != 0 || app.Settings.HoldMilliseconds != 560)
+                        throw new InvalidOperationException("连续修改没有立即生效或提前写入");
+                    await Task.Delay(80); Shot("settings-pending-save");
+                    var deadline = DateTime.UtcNow.AddSeconds(5);
+                    while (app.SettingsSavePending)
+                    {
+                        if (DateTime.UtcNow > deadline) throw new InvalidOperationException("待保存设置没有自动保存");
+                        await Task.Delay(50);
+                    }
+                    if (completed != 1 || !app.SettingsHaveBeenSaved) throw new InvalidOperationException("连续修改没有合并成一次保存");
+                    app.UpdateSettings(s => s.HoldMilliseconds = 600);
+                    if (!app.RetrySaveSettings() || app.SettingsSavePending) throw new InvalidOperationException("手动保存未清除待保存任务");
+                    await Task.Delay(450);
+                    if (completed != 2) throw new InvalidOperationException("手动保存后仍有重复排队写入");
+                    app.UpdateSettings(s => s.HoldMilliseconds = 640); window.Close();
+                    if (app.SettingsSavePending || completed != 3 || !app.SettingsHaveBeenSaved)
+                        throw new InvalidOperationException("关闭设置未保存最新修改");
+                    SmokeTest.Report("settings-batching=ok burst=10 writes=1 retry=ok close-flush=ok");
+                }
+                finally
+                {
+                    app.SettingsSaveStateChanged -= Saved;
+                    app.UpdateSettings(s => s.HoldMilliseconds = original); app.FlushPendingSettings();
+                    if (window.IsVisible) window.Close();
+                }
+            });
+
         backdrop.Close();
         SmokeTest.Report("demo-done");
     }

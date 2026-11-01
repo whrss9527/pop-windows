@@ -20,6 +20,8 @@ internal sealed class App : Application
     private bool shortcutsSuspended;
     private readonly Dictionary<string, string?> activeShortcuts = new(StringComparer.OrdinalIgnoreCase);
     private bool notifiedVersion;
+    private System.Windows.Threading.DispatcherTimer? settingsSaveTimer;
+    private (int Days, int Maximum)? appliedClipboardPolicy;
 
     public App(StartupOptions options)
     {
@@ -83,6 +85,7 @@ internal sealed class App : Application
         hook.Start();
         NativeAutomation.WarmUp();
         history = new ClipboardHistory(() => Settings);
+        appliedClipboardPolicy = (Settings.ClipboardRetentionDays, Settings.ClipboardMaxItems);
         coordinator = new Coordinator(Dispatcher, hook, () => Settings, history, () => Plugins, PluginRunner);
         watchdog = new UiWatchdog(Dispatcher);
         ConfigureHotKeys();
@@ -108,6 +111,7 @@ internal sealed class App : Application
 
     public string? SettingsSaveError { get; private set; }
     public bool SettingsHaveBeenSaved { get; private set; }
+    public bool SettingsSavePending { get; private set; }
     public event Action? SettingsSaveStateChanged;
 
     public bool RetrySaveSettings()
@@ -120,9 +124,25 @@ internal sealed class App : Application
     public void UpdateSettings(Action<AppSettings> change)
     {
         change(Settings);
-        SaveSettings();
+        QueueSettingsSave();
         ApplySettings();
     }
+
+    // 控件的连续变化立即生效，停止操作 350 ms 后只写入最新配置。
+    private void QueueSettingsSave()
+    {
+        if (settingsSaveTimer is null)
+        {
+            settingsSaveTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background)
+            { Interval = TimeSpan.FromMilliseconds(350) };
+            settingsSaveTimer.Tick += (_, _) => SaveSettings();
+        }
+        SettingsSavePending = true; SettingsHaveBeenSaved = false;
+        settingsSaveTimer.Stop(); settingsSaveTimer.Start();
+        SettingsSaveStateChanged?.Invoke();
+    }
+
+    public bool FlushPendingSettings() => SettingsSavePending ? SaveSettings() : SettingsSaveError is null;
 
     private void ApplySettings()
     {
@@ -136,7 +156,11 @@ internal sealed class App : Application
             hook.ExcludeApplications(Settings.TriggerExcludedApps);
         }
         coordinator?.SettingsUpdated();
-        history?.Cleanup();
+        var policy = (Settings.ClipboardRetentionDays, Settings.ClipboardMaxItems);
+        if (history is not null && appliedClipboardPolicy != policy)
+        {
+            history.Cleanup(); appliedClipboardPolicy = policy;
+        }
         ConfigureHotKeys();
         SettingsChanged?.Invoke();
     }
@@ -151,6 +175,7 @@ internal sealed class App : Application
         File.WriteAllText(recovery, new SettingsBackup(Settings, Plugins.Manifests, Updater.CurrentVersion.ToString()).ToJson());
         backup.Restore(Paths.Settings, Plugins);
         Settings = AppSettings.FromJson(backup.Settings.ToJson());
+        settingsSaveTimer?.Stop(); SettingsSavePending = false;
         SettingsSaveError = null;
         SettingsHaveBeenSaved = true;
         SettingsSaveStateChanged?.Invoke();
@@ -238,7 +263,7 @@ internal sealed class App : Application
         tray?.Notify("Pop", $"正在下载 {release.Version}，完成后会自动重新启动");
         try
         {
-            if (await Updater.InstallAsync(release, null)) Quit();
+            if (await Updater.InstallAsync(release, null, FlushPendingSettings)) Quit();
         }
         catch (UpdateException e)
         {
@@ -367,6 +392,7 @@ internal sealed class App : Application
 
     public void Quit()
     {
+        FlushPendingSettings();
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         watchdog?.Dispose();
         hotKeys?.Dispose();
@@ -392,6 +418,9 @@ internal sealed class App : Application
 
     private bool SaveSettings()
     {
+        settingsSaveTimer?.Stop();
+        SettingsSavePending = false;
+        SettingsHaveBeenSaved = false;
         try
         {
             if (!IsDemo) Settings.Save(Paths.Settings);
@@ -405,6 +434,16 @@ internal sealed class App : Application
         }
         SettingsSaveStateChanged?.Invoke();
         return SettingsSaveError is null;
+    }
+
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        FlushPendingSettings(); base.OnSessionEnding(e);
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        FlushPendingSettings(); base.OnExit(e);
     }
 
     /// 上一次更新留下的 Pop.exe.old：旧进程可能还没退出，隔一会儿再删
@@ -431,7 +470,7 @@ internal sealed class App : Application
             {
                 SmokeTest.Report($"no-update version={Updater.CurrentVersion}");
             }
-            else if (!await Updater.InstallAsync(release, null))
+            else if (!await Updater.InstallAsync(release, null, FlushPendingSettings))
             {
                 SmokeTest.Report("update-error=busy");
             }
