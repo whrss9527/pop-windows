@@ -42,6 +42,7 @@ foreach ($appearance in 'light', 'dark') {
     if (-not ($lines -match 'demo-done')) { $failures.Add("演示模式（${appearance}）没有跑完") }
     if (-not ($lines -match 'copy-feedback=ok')) { $failures.Add("演示模式（${appearance}）复制失败与重试验证没有完成") }
     if (-not ($lines -match 'settings-save-feedback=ok')) { $failures.Add("演示模式（${appearance}）设置保存反馈验证没有完成") }
+    if (-not ($lines -match 'settings-search=ok')) { $failures.Add("演示模式（${appearance}）设置搜索与跳转验证没有完成") }
     if (-not ($lines -match 'list-navigation=ok')) { $failures.Add("演示模式（${appearance}）列表增量更新验证没有完成") }
     if (-not ($lines -match 'list-selection=ok')) { $failures.Add("演示模式（${appearance}）列表搜索与快捷选择验证没有完成") }
     if (-not ($lines -match 'list-content=ok')) { $failures.Add("演示模式（${appearance}）文件与短语性能验证没有完成") }

@@ -419,6 +419,25 @@ internal static class Demo
                 SmokeTest.Report("settings-save-feedback=ok");
             });
 
+        if (Want("settings-search"))
+            await Scene("settings-search", async () =>
+            {
+                if (SettingsCatalog.Entries.Any(entry => !SettingsWindow.Pages.Any(page => page.Id == entry.Page)))
+                    throw new InvalidOperationException("搜索索引包含不存在的设置页");
+                var window = app.ShowSettings("general");
+                window.PreviewSettingsSearch("剪贴板"); await Wait(350);
+                Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var rect);
+                Shot("settings-search", new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                if (!window.OpenFirstSearchResult() || window.CurrentPage != "clipboard")
+                    throw new InvalidOperationException("设置搜索没有跳转到匹配页面");
+                window.PreviewSettingsSearch("no-setting-matches-this-query"); await Wait(250);
+                if (window.OpenFirstSearchResult()) throw new InvalidOperationException("空结果不能打开其他设置");
+                Shot("settings-search-empty", new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                window.PreviewSettingsSearch("");
+                if (window.CurrentPage != "clipboard") throw new InvalidOperationException("清空搜索改变了原页面");
+                window.Close(); SmokeTest.Report("settings-search=ok");
+            });
+
         backdrop.Close();
         SmokeTest.Report("demo-done");
     }
