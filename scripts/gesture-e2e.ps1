@@ -453,6 +453,11 @@ try {
         }
         Start-Sleep -Seconds 2
         Set-Foreground $browserWindow
+        # 窗口成为前台不保证网页正文获得键盘焦点；先点击正文再全选。
+        $documentX, $documentY = Get-WindowCenter $browserWindow
+        [PopCi.Native]::SetCursorPos($documentX, $documentY) | Out-Null
+        Invoke-LeftDown; Invoke-LeftUp
+        Start-Sleep -Milliseconds 100
         Invoke-Key 0x41 -Ctrl   # Ctrl+A 选中整页文字
         Set-Clipboard -Value 'before'
         Invoke-LongPress 0 (-110) $name -Hwnd $browserWindow
