@@ -3,7 +3,8 @@
 param(
     [Parameter(Mandatory)][string]$OldExe,   # 用 -p:Version=0.0.1 编出来的旧版本
     [Parameter(Mandatory)][string]$NewExe,   # 这次提交编出来的版本
-    [Parameter(Mandatory)][string]$Version   # 新版本的版本号
+    [Parameter(Mandatory)][string]$Version,   # 新版本的版本号
+    [ValidateSet('portable', 'lightweight')][string]$PackageVariant = 'portable'
 )
 . "$PSScriptRoot\ci-helpers.ps1"
 
@@ -17,7 +18,9 @@ $oldVersion = Get-FileProductVersion $installedExe
 Write-Host "旧版本 $oldVersion → 新版本 $Version"
 
 # 假的发布：安装包 + 校验和 + GitHub Releases 接口格式的列表
-$packageName = "Pop-$Version-win-x64.zip"
+$suffix = if ($PackageVariant -eq 'lightweight') { '-lightweight' } else { '' }
+$otherSuffix = if ($PackageVariant -eq 'lightweight') { '' } else { '-lightweight' }
+$packageName = "Pop-$Version-win-x64$suffix.zip"
 $package = Join-Path $release $packageName
 Compress-Archive -Path $NewExe -DestinationPath $package
 $hash = (Get-FileHash $package -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -28,6 +31,8 @@ function Write-Feed([string]$Name, [string]$Sums) {
     $feed = @(@{
         tag_name = "v$Version"; draft = $false; prerelease = $false; body = '测试'
         assets = @(
+            # 另一个包型故意指向不存在的文件；选错包时正常更新检查必然失败。
+            @{ name = "Pop-$Version-win-x64$otherSuffix.zip"; browser_download_url = ([Uri]"$package.wrong-variant").AbsoluteUri },
             @{ name = $packageName; browser_download_url = ([Uri]$package).AbsoluteUri },
             @{ name = 'SHA256SUMS.txt'; browser_download_url = ([Uri]$sumsPath).AbsoluteUri }
         )
@@ -66,6 +71,7 @@ try {
     Invoke-Update $goodFeed $marker
     $text = Wait-FileContains $marker "started version=$([regex]::Escape($Version)) .*updated-from=$([regex]::Escape($oldVersion))" 60
     Write-Host $text
+    if ($text -notmatch "package=$PackageVariant\b") { throw "更新后包型改变了：$text" }
     $actual = Get-FileProductVersion $installedExe
     if ($actual -ne $Version) { throw "更新后 Pop.exe 的版本是 $actual" }
     Write-Host '✓ 更新后替换并重新启动'

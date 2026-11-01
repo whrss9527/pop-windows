@@ -365,6 +365,8 @@ public sealed record PluginManifest
     public string? ValidationError()
     {
         if (Name.Trim().Length == 0) return "请填写名称";
+        if (Match.MinLength is > 0 && Match.MaxLength is > 0 && Match.MinLength > Match.MaxLength)
+            return "最多字符不能少于最少字符";
         if (!string.IsNullOrEmpty(Match.Pattern) && !PluginMatcher.IsValidPattern(Match.Pattern)) return "正则表达式有误";
         switch (Action.Type)
         {

@@ -60,13 +60,33 @@ public sealed record ClipboardCapture(ClipboardKind Kind, string Text, byte[]? I
     public string Hash => Kind switch
     {
         ClipboardKind.Image => "image:" + Sha256(ImagePng ?? []),
-        ClipboardKind.Files => "files:" + Sha256(Encoding.UTF8.GetBytes(Text)),
-        _ => "text:" + Sha256(Encoding.UTF8.GetBytes(Text)),
+        ClipboardKind.Files => "files:" + Sha256(Text),
+        _ => "text:" + Sha256(Text),
     };
 
     public long ByteSize => Kind == ClipboardKind.Image ? ImagePng?.Length ?? 0 : Encoding.UTF8.GetByteCount(Text);
 
     private static string Sha256(byte[] data) => Digests.Hex(SHA256.HashData(data));
+
+    // 常见短文本直接在栈上编码；长文本分块，避免为每次复制分配整段 UTF-8 字节数组。
+    // Encoder 保留跨块的代理项状态，摘要与整段 Encoding.UTF8.GetBytes 的结果一致。
+    private static string Sha256(string text)
+    {
+        Span<byte> buffer = stackalloc byte[4096];
+        if (Encoding.UTF8.TryGetBytes(text, buffer, out var written))
+            return Digests.Hex(SHA256.HashData(buffer[..written]));
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var encoder = Encoding.UTF8.GetEncoder();
+        var remaining = text.AsSpan();
+        bool complete;
+        do
+        {
+            encoder.Convert(remaining, buffer, flush: true, out var consumed, out written, out complete);
+            hash.AppendData(buffer[..written]);
+            remaining = remaining[consumed..];
+        } while (!complete);
+        return Digests.Hex(hash.GetHashAndReset());
+    }
 }
 
 /// 剪贴板历史数据库：目录下的 history.sqlite（WAL 模式），图片单独存成 PNG 放在旁边的 Images 文件夹里。

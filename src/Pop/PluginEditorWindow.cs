@@ -34,6 +34,7 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
     ];
 
     private readonly App app;
+    private readonly PluginRunner runner;
     private readonly PluginManifest original;
     private readonly bool isNew;
 
@@ -63,7 +64,7 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         Minimum = PluginAction.MinTimeout,
         Maximum = PluginAction.MaxTimeout,
         SmallChange = 5,
-        MaxDecimalPlaces = 0,
+        MaxDecimalPlaces = 15,
         Width = 150,
         SpinButtonPlacementMode = WpfUi.NumberBoxSpinButtonPlacementMode.Inline,
     };
@@ -72,21 +73,38 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
 
     private readonly Dictionary<string, CheckBox> kinds = [];
     private readonly WpfUi.TextBox pattern = new() { PlaceholderText = "可选，比如 ^[A-Z]{2,}$", Width = 300 };
+    private readonly WpfUi.NumberBox minimumLength = LengthInput("最少字符");
+    private readonly WpfUi.NumberBox maximumLength = LengthInput("最多字符");
 
     private readonly WpfUi.TextBox testInput = new() { Text = "Hello Pop", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 120 };
     private readonly TextBlock testResult = new() { FontFamily = Theme.MonoFont, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0), Visibility = Visibility.Collapsed };
+    private readonly ScrollViewer testResults = new() { MaxHeight = 240, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private FrameworkElement testCard = null!;
     private readonly TextBlock testWarning = Label("", Theme.Caption, "SystemFillColorCautionBrush");
     private readonly WpfUi.ProgressRing testProgress = new() { IsIndeterminate = true, Width = 16, Height = 16, Margin = new Thickness(10, 0, 0, 0), Visibility = Visibility.Collapsed };
 
     private readonly TextBlock error = Label("", Theme.Body, "SystemFillColorCriticalBrush");
     private CancellationTokenSource? testRun;
+    private WpfUi.Button stopTest = null!, copyTest = null!;
+    private string? fullTestOutput;
+    private bool closed;
+    internal bool IsTestRunning => testRun is not null;
+    internal bool IsTestProgressVisible => testProgress.Visibility == Visibility.Visible;
+    internal string TestOutput => testResult.Text;
+    internal FrameworkElement TestResultViewport => testResults;
+    internal WpfUi.NumberBox MinimumLengthInput => minimumLength;
+    internal WpfUi.NumberBox MaximumLengthInput => maximumLength;
+    internal string TestInput { get => testInput.Text; set => testInput.Text = value; }
+    internal string TestWarning => testWarning.Visibility == Visibility.Visible ? testWarning.Text : "";
+    internal PluginManifest CurrentManifest => Collect().Normalized();
 
     /// 保存下来的插件；取消时是 null
     public PluginManifest? Saved { get; private set; }
 
-    public PluginEditorWindow(App app, PluginManifest manifest, bool isNew)
+    public PluginEditorWindow(App app, PluginManifest manifest, bool isNew, PluginRunner? runner = null)
     {
         this.app = app;
+        this.runner = runner ?? app.PluginRunner;
         original = manifest;
         this.isNew = isNew;
         glyph = PluginGlyphs.Resolve(manifest);
@@ -144,9 +162,26 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
 
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Escape) Close();
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key == Key.S) { Save(); e.Handled = true; }
+            else if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && e.Key == Key.Enter) { RunTest(); e.Handled = true; }
+            else if (e.Key == Key.Escape && e.OriginalSource is not ComboBoxItem && e.OriginalSource is not ComboBox { IsDropDownOpen: true })
+            { if (IsTestRunning) StopTest(); else Close(); e.Handled = true; }
         };
-        Closed += (_, _) => testRun?.Cancel();
+        Closed += (_, _) => { closed = true; StopTest(showMessage: false); fullTestOutput = null; };
+        script.TextChanged += (_, _) => InvalidateTest();
+        url.TextChanged += (_, _) => InvalidateTest();
+        testInput.TextChanged += (_, _) => InvalidateTest();
+        pattern.TextChanged += (_, _) => InvalidateTest();
+        type.SelectionChanged += (_, _) => InvalidateTest();
+        shell.SelectionChanged += (_, _) => InvalidateTest();
+        timeout.ValueChanged += (_, _) => InvalidateTest();
+        timeout.TextChanged += (_, _) => InvalidateTest();
+        minimumLength.TextChanged += (_, _) => InvalidateTest();
+        maximumLength.TextChanged += (_, _) => InvalidateTest();
+        foreach (var box in kinds.Values)
+        {
+            box.Checked += (_, _) => InvalidateTest(); box.Unchecked += (_, _) => InvalidateTest();
+        }
         Loaded += (_, _) => name.Focus();
     }
 
@@ -170,6 +205,8 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         output.SelectedIndex = manifest.Output switch { PluginOutput.Copy => 1, PluginOutput.Replace => 2, PluginOutput.Toast => 3, _ => 0 };
         timeout.Value = PluginAction.ClampTimeout(manifest.Action.Timeout);
         pattern.Text = manifest.Match.Pattern ?? "";
+        minimumLength.Value = manifest.Match.MinLength;
+        maximumLength.Value = manifest.Match.MaxLength;
     }
 
     private UIElement Basics()
@@ -286,7 +323,40 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         stack.Children.Add(grid);
         stack.Children.Add(Divider());
         stack.Children.Add(Row(null, "正则", "选中的文字要能匹配它", pattern));
+        stack.Children.Add(Divider());
+        var separator = Label("—", Theme.Body, "TextFillColorSecondaryBrush");
+        separator.Margin = new Thickness(8, 0, 8, 0);
+        stack.Children.Add(Row(null, "长度范围", "按完整可见字符计算，留空或 0 表示不限", Horizontal(minimumLength, separator, maximumLength)));
         return CardBorder(stack);
+    }
+
+    private static WpfUi.NumberBox LengthInput(string name)
+    {
+        var input = new WpfUi.NumberBox { Width = 120, Minimum = 0, Maximum = int.MaxValue, SmallChange = 1,
+            MaxDecimalPlaces = 0, PlaceholderText = name, SpinButtonPlacementMode = WpfUi.NumberBoxSpinButtonPlacementMode.Hidden };
+        System.Windows.Automation.AutomationProperties.SetName(input, name);
+        return input;
+    }
+
+    // NumberBox 在失去焦点时才更新 Value；键盘运行/保存也应读取尚未离开输入框的新文字。
+    private static double? NumberValue(WpfUi.NumberBox input)
+    {
+        if (string.IsNullOrWhiteSpace(input.Text)) return null;
+        var value = (input.NumberFormatter as WpfUi.INumberParser)?.ParseDouble(input.Text.Trim());
+        return value is { } number && double.IsFinite(number) ? Math.Clamp(number, input.Minimum, input.Maximum) : input.Value;
+    }
+
+    private static int? LengthValue(WpfUi.NumberBox input) => NumberValue(input) is > 0 and var value ? (int)Math.Round(value) : null;
+
+    private void CommitNumberInputs()
+    {
+        foreach (var input in new[] { timeout, minimumLength, maximumLength })
+        {
+            var value = NumberValue(input);
+            input.Value = value is { } number ? Math.Round(number, input.MaxDecimalPlaces) : null;
+            input.Text = input.Value is { } committed
+                ? input.NumberFormatter?.FormatDouble(committed) ?? committed.ToString(System.Globalization.CultureInfo.CurrentCulture) : "";
+        }
     }
 
     private UIElement TestCard()
@@ -294,13 +364,21 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         var run = ActionButton("运行", Symbol.Play24, async () => await RunTestAsync(), WpfUi.ControlAppearance.Primary);
         run.Margin = new Thickness(8, 0, 0, 0);
         run.VerticalAlignment = VerticalAlignment.Top;
+        run.ToolTip = "Ctrl+Enter 试运行";
+        stopTest = ActionButton("停止", Symbol.Stop24, () => StopTest());
+        stopTest.IsEnabled = false;
+        stopTest.Margin = new Thickness(8, 0, 0, 0);
+        copyTest = ActionButton("复制结果", Symbol.Copy24, () => CopyTestResult());
+        copyTest.IsEnabled = false;
+        copyTest.Margin = new Thickness(8, 0, 0, 0);
         var line = new Grid();
         line.ColumnDefinitions.Add(new ColumnDefinition());
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         line.Children.Add(testInput);
-        Grid.SetColumn(run, 1);
-        line.Children.Add(run);
+        var controls = Horizontal(run, stopTest, copyTest);
+        Grid.SetColumn(controls, 1);
+        line.Children.Add(controls);
         testProgress.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(testProgress, 2);
         line.Children.Add(testProgress);
@@ -309,8 +387,11 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         var stack = new StackPanel { Margin = new Thickness(16) };
         stack.Children.Add(line);
         stack.Children.Add(testWarning);
-        stack.Children.Add(testResult);
-        return CardBorder(stack);
+        testResults.Content = testResult;
+        stack.Children.Add(testResults);
+        stack.Children.Add(Note("Ctrl+Enter 试运行，Esc 停止当前运行，Ctrl+S 保存。长结果仅显示预览，复制结果保留完整内容。"));
+        testCard = CardBorder(stack);
+        return testCard;
     }
 
     private UIElement Footer()
@@ -351,7 +432,7 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
                 Template = kind == PluginActionType.Url ? url.Text : original.Action.Template,
                 Script = kind is PluginActionType.Shell or PluginActionType.JavaScript ? script.Text : original.Action.Script,
                 Shell = shell.SelectedIndex >= 0 ? (PluginShell)shell.SelectedIndex : original.Action.Shell,
-                Timeout = timeout.Value ?? PluginAction.DefaultTimeout,
+                Timeout = NumberValue(timeout) ?? PluginAction.DefaultTimeout,
             },
             Output = kind == PluginActionType.Url ? PluginOutput.None : output.SelectedIndex switch
             {
@@ -364,12 +445,15 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
             {
                 Kinds = [.. PluginKinds.All.Where(k => kinds.TryGetValue(k, out var box) && box.IsChecked == true)],
                 Pattern = pattern.Text,
+                MinLength = LengthValue(minimumLength),
+                MaxLength = LengthValue(maximumLength),
             },
         };
     }
 
     private void Save()
     {
+        CommitNumberInputs();
         var manifest = Collect().Normalized();
         if (manifest.ValidationError() is { } problem)
         {
@@ -391,8 +475,14 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
     /// 演示模式：点一下「运行」
     public void RunTest() => _ = RunTestAsync();
 
-    private async Task RunTestAsync()
+    internal async Task RunTestAsync()
     {
+        if (closed) return;
+        StopTest(showMessage: false);
+        // 先提交数字框，防止 Enter 抬起时 NumberBox 再格式化并取消刚启动的任务。
+        CommitNumberInputs();
+        fullTestOutput = null; copyTest.IsEnabled = false;
+        testWarning.Visibility = Visibility.Collapsed;
         var manifest = Collect().Normalized();
         testResult.Visibility = Visibility.Visible;
         if (manifest.ValidationError() is { } problem)
@@ -401,34 +491,81 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
             return;
         }
         var content = ContentClassifier.Classify(testInput.Text);
-        testWarning.Text = "这段内容不满足「什么时候可用」，在圆盘里不会出现";
-        testWarning.Visibility = PluginMatcher.Matches(manifest, content) ? Visibility.Collapsed : Visibility.Visible;
-        testRun?.Cancel();
+        var mismatch = PluginMatcher.Check(manifest.Match, content);
+        testWarning.Text = mismatch switch
+        {
+            PluginMatchFailure.Kind => "输入类型不符合勾选的内容类型，在圆盘里不会出现",
+            PluginMatchFailure.Empty => "长度或正则条件需要选中内容，在圆盘里不会出现",
+            PluginMatchFailure.TooShort => $"输入至少需要 {manifest.Match.MinLength} 个可见字符，在圆盘里不会出现",
+            PluginMatchFailure.TooLong => $"输入最多允许 {manifest.Match.MaxLength} 个可见字符，在圆盘里不会出现",
+            PluginMatchFailure.PatternTimeout => "正则匹配超时，请简化表达式",
+            PluginMatchFailure.Pattern or PluginMatchFailure.InvalidPattern => "输入没有匹配正则表达式，在圆盘里不会出现",
+            _ => "",
+        };
+        testWarning.Visibility = mismatch == PluginMatchFailure.None ? Visibility.Collapsed : Visibility.Visible;
         using var run = new CancellationTokenSource();
         testRun = run;
         testProgress.Visibility = Visibility.Visible;
+        stopTest.IsEnabled = true;
+        testInput.BringIntoView();
         testResult.Text = "";
         try
         {
-            var result = await app.PluginRunner.ExecuteAsync(manifest.Action, PluginInput.From(content), run.Token);
-            if (run.IsCancellationRequested) return;
+            var result = await runner.ExecuteAsync(manifest.Action, PluginInput.From(content), run.Token);
+            if (closed || run.IsCancellationRequested || !ReferenceEquals(testRun, run)) return;
             if (result.Error is { } failure) ShowTestResult(failure, failed: true);
-            else ShowTestResult(result.Output.Length == 0 ? "（没有输出）" : result.Output, failed: false);
+            else ShowTestResult(result.Output, failed: false);
         }
         catch (OperationCanceledException)
         {
         }
+        catch (Exception e)
+        {
+            Log.Error("插件试运行失败", e);
+            if (!closed && ReferenceEquals(testRun, run)) ShowTestResult(e.Message, failed: true);
+        }
         finally
         {
-            testProgress.Visibility = Visibility.Collapsed;
-            if (ReferenceEquals(testRun, run)) testRun = null;
+            if (ReferenceEquals(testRun, run))
+            {
+                testRun = null; testProgress.Visibility = Visibility.Collapsed; stopTest.IsEnabled = false;
+            }
         }
+    }
+
+    internal void StopTest(bool showMessage = true)
+    {
+        var previous = testRun; testRun = null; previous?.Cancel();
+        testProgress.Visibility = Visibility.Collapsed; stopTest.IsEnabled = false;
+        if (previous is not null && showMessage) { ShowTestResult("已停止", failed: false); fullTestOutput = null; copyTest.IsEnabled = false; }
+    }
+
+    private void InvalidateTest()
+    {
+        testWarning.Visibility = Visibility.Collapsed;
+        if (testResult.Visibility != Visibility.Visible) return;
+        StopTest(showMessage: false); fullTestOutput = null; copyTest.IsEnabled = false;
+        testResult.Text = "内容已更改，请重新试运行";
+        testResult.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
     }
 
     private void ShowTestResult(string text, bool failed)
     {
-        testResult.Text = text;
+        fullTestOutput = text; copyTest.IsEnabled = text.Length > 0;
+        copyTest.Content = "复制结果";
+        testResult.Text = text.Length == 0 ? "（没有输出）" : TextPreview.Truncate(text, 4000);
         testResult.SetResourceReference(TextBlock.ForegroundProperty, failed ? "SystemFillColorCriticalBrush" : "TextFillColorPrimaryBrush");
+        // 输出出现后再滚动，使运行按钮和结果一起留在视野内，避免被底部保存栏挡住。
+        Dispatcher.BeginInvoke(() => { if (!closed && IsVisible) testCard.BringIntoView(); }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    internal bool CopyTestResult()
+    {
+        if (fullTestOutput is not { Length: > 0 } text) return false;
+        using var clipboard = new ClipboardAccess("Pop 插件结果", openAttempts: 1);
+        var copied = clipboard.SetText(text, temporary: false);
+        copyTest.Content = copied ? "已复制" : "重试复制";
+        return copied;
     }
 
     /// 打开编辑器（设置窗口是它的主窗口），保存了返回插件

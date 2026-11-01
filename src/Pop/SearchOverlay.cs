@@ -20,8 +20,14 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
     private readonly StackPanel rows = new();
     private readonly ScrollViewer scroller = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Focusable = false };
     private readonly List<(Entry Entry, FrameworkElement Element, int Number)> painted = [];
+    private readonly List<int> selectable = [];
     private List<Entry> entries = [];
     private int selected = -1;
+    private FrameworkElement? layout;
+    private Frost.Shot? backdrop;
+    private Pop.Core.Rect workArea;
+    private double monitorScale = 1, panelWidth;
+    private int anchorX, anchorY;
 
     protected Theme Palette { get; private set; } = Theme.Current();
     protected string SearchText { get; private set; } = "";
@@ -32,6 +38,16 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
         root.RenderTransform = scale;
         Content = root;
         scroller.Content = rows;
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible) return;
+            // 浮窗长期复用；隐藏时拆开视觉树，释放上一批文本、图片和毛玻璃屏幕快照。
+            rows.Children.Clear(); painted.Clear(); entries.Clear(); selectable.Clear(); selected = -1;
+            root.Children.Clear(); query.Text = ""; SearchText = "";
+            layout = null; backdrop = null;
+            if (query.Parent is Panel queryParent) queryParent.Children.Remove(query);
+            if (scroller.Parent is Panel scrollerParent) scrollerParent.Children.Remove(scroller);
+        };
     }
 
     /// 内容区域的宽和列表区域的高（DIP）
@@ -60,39 +76,71 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
     {
         Palette = Theme.Current();
         SearchText = "";
-        var width = PanelWidth;
-        var body = Layout();
-        body.Measure(new Size(width, double.PositiveInfinity));
-        var height = Math.Ceiling(body.DesiredSize.Height);
-
-        var (work, monitorScale) = Native.MonitorAt(x, y);
-        var w = (int)Math.Ceiling(width * monitorScale);
-        var h = (int)Math.Ceiling(height * monitorScale);
-        var left = (int)Math.Clamp(x - w / 2.0, work.Left, Math.Max(work.Left, work.Right - w));
-        var top = (int)Math.Clamp(y - 28 * monitorScale, work.Top, Math.Max(work.Top, work.Bottom - h));
-        var shot = Frost.Capture(left, top, w, h, monitorScale);
-
-        var panel = Frost.Panel(shot, left, top, width, height, Theme.OverlayRadius, Palette, body);
-        panel.Margin = new Thickness(Theme.ShadowPad);
+        anchorX = x; anchorY = y;
+        (workArea, monitorScale) = WorkAreaAt(x, y);
+        panelWidth = Math.Min(PanelWidth, Math.Max(1, workArea.Width / monitorScale - 2 * Theme.ShadowPad));
+        var maxHeight = Math.Max(1, workArea.Height / monitorScale - 2 * Theme.ShadowPad);
         root.Children.Clear();
-        root.Children.Add(panel);
+        layout = Layout();
+        scroller.Height = 0;
+        layout.Measure(new Size(panelWidth, double.PositiveInfinity));
+        var chrome = Math.Ceiling(layout.DesiredSize.Height);
+        scroller.Height = double.NaN;
+        scroller.MaxHeight = Math.Min(ListHeight, Math.Max(0, maxHeight - chrome));
+        layout.MaxHeight = maxHeight;
+        var fullHeight = Math.Min(maxHeight, chrome + scroller.MaxHeight);
+        var (left, top, w, h) = BoundsFor(fullHeight);
+        // 一次捕获可展开到的完整范围；搜索、删除后调整尺寸时复用，不把窗口自己截进背景。
+        backdrop = Frost.Capture(left, top, w, h, monitorScale);
         Refresh();
-
-        var pad = (int)Math.Round(Theme.ShadowPad * monitorScale);
-        Width = width + 2 * Theme.ShadowPad;
-        Height = height + 2 * Theme.ShadowPad;
         MarkShowing();
         root.BeginAnimation(OpacityProperty, null);
         root.Opacity = 0;
-        PlacePhysical(left - pad, top - pad, w + 2 * pad, h + 2 * pad);
         Show();
-        Dispatcher.BeginInvoke(() => PlacePhysical(left - pad, top - pad, w + 2 * pad, h + 2 * pad), System.Windows.Threading.DispatcherPriority.Loaded);
+        Dispatcher.BeginInvoke(() => { if (IsVisible) Reflow(); }, System.Windows.Threading.DispatcherPriority.Loaded);
         scale.CenterX = Width / 2;
         scale.CenterY = Theme.ShadowPad;
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
         scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.96, 1, Ms(180)) { EasingFunction = ease });
         scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.96, 1, Ms(180)) { EasingFunction = ease });
         root.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, Ms(130)));
+    }
+
+    protected virtual (Pop.Core.Rect WorkArea, double Scale) WorkAreaAt(int x, int y) => Native.MonitorAt(x, y);
+
+    private (int Left, int Top, int Width, int Height) BoundsFor(double height)
+    {
+        var pad = (int)Math.Ceiling(Theme.ShadowPad * monitorScale);
+        var width = (int)Math.Ceiling(panelWidth * monitorScale);
+        var h = (int)Math.Ceiling(height * monitorScale);
+        var left = (int)Math.Clamp(anchorX - width / 2d, workArea.Left + pad, Math.Max(workArea.Left + pad, workArea.Right - width - pad));
+        var top = (int)Math.Clamp(anchorY - 28 * monitorScale, workArea.Top + pad, Math.Max(workArea.Top + pad, workArea.Bottom - h - pad));
+        return (left, top, width, h);
+    }
+
+    private void Reflow()
+    {
+        if (layout is null) return;
+        // ScrollViewer 会延后更新内容范围，直接读它的 DesiredSize 可能沿用上一次视口高度。
+        // 先独立测量列表，再明确设置视口高度，让连续筛选与清除搜索在同一轮布局中生效。
+        // 测量时保持连接：从视觉树移除会暂停整个子树的布局，Measure 也只返回旧尺寸。
+        var rowWidth = Math.Max(1, panelWidth - 16);
+        rows.Measure(new Size(rowWidth, double.PositiveInfinity));
+        if (rows.DesiredSize.Height > scroller.MaxHeight)
+            rows.Measure(new Size(Math.Max(1, rowWidth - SystemParameters.VerticalScrollBarWidth), double.PositiveInfinity));
+        scroller.Height = Math.Min(scroller.MaxHeight, Math.Ceiling(rows.DesiredSize.Height));
+        scroller.InvalidateMeasure(); layout.InvalidateMeasure();
+        layout.Measure(new Size(panelWidth, double.PositiveInfinity));
+        var height = Math.Ceiling(layout.DesiredSize.Height);
+        var (left, top, width, h) = BoundsFor(height);
+        if (layout.Parent is Panel old) old.Children.Remove(layout);
+        root.Children.Clear();
+        var panel = Frost.Panel(backdrop, left, top, panelWidth, height, Theme.OverlayRadius, Palette, layout);
+        panel.Margin = new Thickness(Theme.ShadowPad); root.Children.Add(panel);
+        Width = panelWidth + 2 * Theme.ShadowPad; Height = height + 2 * Theme.ShadowPad;
+        var pad = (int)Math.Ceiling(Theme.ShadowPad * monitorScale);
+        PlacePhysical(left - pad, top - pad, width + 2 * pad, h + 2 * pad);
+        EnsureSelectedVisible();
     }
 
     public void Dismiss()
@@ -117,10 +165,14 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
 
     public void Move(int delta)
     {
-        var selectable = Enumerable.Range(0, entries.Count).Where(i => entries[i].Item is not null && entries[i].Enabled).ToList();
         if (selectable.Count == 0) return;
-        var position = selectable.IndexOf(selected);
-        position = position < 0 ? 0 : (position + delta + selectable.Count) % selectable.Count;
+        var position = selectable.BinarySearch(selected);
+        if (position < 0) position = 0;
+        else
+        {
+            var next = (position + (long)delta) % selectable.Count;
+            position = (int)(next < 0 ? next + selectable.Count : next);
+        }
         Select(selectable[position]);
     }
 
@@ -138,10 +190,10 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
     /// 第 n 个可以选的（Ctrl+数字）
     public void ChooseNth(int n)
     {
-        var items = entries.Where(e => e.Item is not null && e.Enabled).ToList();
-        if (n < 0 || n >= items.Count) return;
+        if (n < 0 || n >= selectable.Count) return;
+        var item = entries[selectable[n]].Item!;
         Dismiss();
-        OnChosen(items[n].Item!);
+        OnChosen(item);
     }
 
     /// 内容变了（删除、固定），保持选中同一项
@@ -194,7 +246,6 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
         layout.Children.Add(searchBox);
         layout.Children.Add(hints);
         if (scroller.Parent is Panel oldScroller) oldScroller.Children.Remove(scroller);
-        scroller.Height = ListHeight;
         layout.Children.Add(scroller);
         return layout;
     }
@@ -217,8 +268,12 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
         query.Text = SearchText.Length == 0 ? Placeholder : SearchText + "▏";
         query.Foreground = theme.Brush(SearchText.Length == 0 ? theme.TertiaryText : theme.Text);
         entries = Query(SearchText).ToList();
-        selected = entries.FindIndex(e => e.Item is not null && e.Enabled);
+        selectable.Clear();
+        for (var i = 0; i < entries.Count; i++)
+            if (entries[i].Item is not null && entries[i].Enabled) selectable.Add(i);
+        selected = selectable.Count > 0 ? selectable[0] : -1;
         Paint();
+        Reflow();
     }
 
     private void Select(int index)
@@ -332,11 +387,13 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
         {
             // 让选中的那一行留在可见范围里
             rows.UpdateLayout();
+            var viewport = scroller.ViewportHeight;
+            if (viewport <= 0 || double.IsInfinity(viewport)) return;
             var element = painted[selected].Element;
             var top = element.TranslatePoint(new Point(0, 0), rows).Y;
             var bottom = top + element.ActualHeight;
             if (top < scroller.VerticalOffset) scroller.ScrollToVerticalOffset(Math.Max(0, top - 24));
-            else if (bottom > scroller.VerticalOffset + scroller.Height) scroller.ScrollToVerticalOffset(bottom - scroller.Height + 4);
+            else if (bottom > scroller.VerticalOffset + viewport) scroller.ScrollToVerticalOffset(bottom - viewport + 4);
         }
     }
 }

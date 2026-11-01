@@ -21,7 +21,7 @@ internal sealed class SnippetWindow : SearchOverlay<Snippet>
     {
         var panel = new StackPanel { Margin = new Thickness(3, 7, 3, 7) };
         panel.Children.Add(new TextBlock { Text = item.DisplayTitle, FontSize = Theme.Body, Foreground = Palette.Brush(selected ? Palette.Accent : Palette.Text), TextTrimming = TextTrimming.CharacterEllipsis });
-        panel.Children.Add(new TextBlock { Text = item.Text.Replace("\r", "").Replace("\n", " ↵ "), Margin = new Thickness(0, 4, 0, 0),
+        panel.Children.Add(new TextBlock { Text = item.DisplayPreview, Margin = new Thickness(0, 4, 0, 0),
             FontSize = Theme.Caption, Foreground = Palette.Brush(Palette.SecondaryText), TextTrimming = TextTrimming.CharacterEllipsis });
         return panel;
     }

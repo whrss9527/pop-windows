@@ -12,12 +12,34 @@ public sealed record Snippet(string Id, string Title, string Text)
         get
         {
             if (!string.IsNullOrWhiteSpace(Title)) return Title.Trim();
-            var first = Text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "（空）";
-            return first.Length > 40 ? first[..40] + "…" : first;
+            var start = Text.AsSpan().IndexOfAnyExcept('\r', '\n');
+            if (start < 0) return "（空）";
+            // 40 字符标题只多读一个码点，不扫描首行余下的大段正文。
+            var first = Text.AsSpan(start, Math.Min(Text.Length - start, 42));
+            var end = first.IndexOfAny('\r', '\n');
+            if (end >= 0) first = first[..end];
+            return TextPreview.Truncate(first, 40);
         }
     }
-    public bool Matches(string query) => string.IsNullOrWhiteSpace(query)
-        || (DisplayTitle + "\n" + Text).Contains(query.Trim(), StringComparison.OrdinalIgnoreCase);
+    [JsonIgnore]
+    public string DisplayPreview => TextPreview.WithLineBreaks(Text, 160);
+
+    public bool Matches(string query)
+    {
+        var keyword = query.AsSpan().Trim();
+        if (keyword.IsEmpty || Text.AsSpan().Contains(keyword, StringComparison.OrdinalIgnoreCase)) return true;
+        var title = DisplayTitle.AsSpan();
+        if (title.Contains(keyword, StringComparison.OrdinalIgnoreCase)) return true;
+        // 保留原来「标题 + 换行 + 正文」的跨边界匹配，但不创建整段拼接副本。
+        for (var i = 0; i < keyword.Length; i++)
+        {
+            var suffix = keyword.Length - i - 1;
+            if (keyword[i] == '\n' && i <= title.Length && suffix <= Text.Length
+                && title[^i..].Equals(keyword[..i], StringComparison.OrdinalIgnoreCase)
+                && Text.AsSpan(0, suffix).Equals(keyword[(i + 1)..], StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
     public static IReadOnlyList<Snippet> Examples =>
     [new("example-date", "今天的日期", "{date}"), new("example-signature", "邮件结尾", "祝好！\n\n{date}")];
     public static List<Snippet> Normalize(IEnumerable<Snippet> values)

@@ -1,7 +1,7 @@
 namespace Pop.Core;
 
 /// 读发布信息、下载文件。地址可以是网址，也可以是本机文件（测试时用假的发布）
-public sealed class UpdateClient(HttpClient http)
+public sealed class UpdateClient(HttpClient http, ReleasePackage package = ReleasePackage.Portable)
 {
     public const string DefaultFeed = "https://api.github.com/repos/whrss9527/pop-windows/releases?per_page=20";
 
@@ -43,7 +43,7 @@ public sealed class UpdateClient(HttpClient http)
     public async Task<ReleaseInfo?> CheckAsync(string feed, SemVersion current, bool includePrerelease, CancellationToken ct)
     {
         var json = await GetStringAsync(feed, ct);
-        return ReleaseFeed.PickUpdate(ReleaseFeed.Parse(json), current, includePrerelease);
+        return ReleaseFeed.PickUpdate(ReleaseFeed.Parse(json, package), current, includePrerelease);
     }
 
     /// 下载安装包和校验和，校验后解压，返回新 Pop.exe 的路径

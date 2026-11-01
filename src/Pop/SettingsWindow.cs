@@ -524,9 +524,11 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             System.Windows.Automation.AutomationProperties.SetName(more, $"{manifest.DisplayName}：更多");
             more.Click += (_, _) => PluginMenu(manifest, more);
             var toggle = EnableToggle(manifest.Id);
+            toggle.IsEnabled = PluginRunner.IsSupported(manifest.Action.Type);
             toggle.Margin = new Thickness(0, 0, 16, 0);
             var detail = manifest.Summary.Length > 0 ? manifest.Summary : string.Join("、", manifest.Match.Kinds.Select(PluginKinds.Title));
             var subtitle = detail.Length == 0 ? PluginNames.Title(manifest.Action.Type) : $"{PluginNames.Title(manifest.Action.Type)} · {detail}";
+            if (!toggle.IsEnabled) subtitle = $"{PluginNames.Title(manifest.Action.Type)}暂时无法在 Windows 上运行，可保留、编辑或导出";
             rows.Add(Row(Icons.Parse(PluginGlyphs.Resolve(manifest), Symbol.PuzzlePiece24), manifest.DisplayName, subtitle, Horizontal(toggle, edit, more)));
         }
         foreach (var (file, problem) in store.LoadErrors.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase))
@@ -562,6 +564,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.Bottom };
         foreach (var template in PluginTemplates.All)
         {
+            if (!PluginRunner.IsSupported(template.Manifest.Action.Type)) continue;
             var item = new MenuItem
             {
                 Header = template.Title,

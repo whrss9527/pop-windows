@@ -50,18 +50,38 @@ internal static class Demo
         }
 
         if (Want("performance"))
+        {
             await Scene("performance", async () =>
             {
                 foreach (var line in await Task.Run(PerformanceChecks.Run)) SmokeTest.Report(line);
                 PerformanceChecks.VerifyNavigation(x, y); SmokeTest.Report("list-navigation=ok rows=100 updated=6 moves=3");
+                SmokeTest.Report("list-selection=ok filtered=ok shortcuts=ok empty=ok");
+                SmokeTest.Report("overlay-release=ok reopen=ok");
+                await ClipboardPerformanceChecks.VerifyAsync();
+                SmokeTest.Report("clipboard-thumbnails=ok bounded=256 pixels=96 workers=2 cancellation=ok");
             });
+            // 独立报告，某一项失败时仍检查其余原生接口与真实界面。
+            await Scene("native-tray", async () =>
+            {
+                await NativeExperienceChecks.VerifyAsync(); SmokeTest.Report("native-tray=ok keyboard=ok restart=ok dispose=ok monitors=ok");
+            });
+            await Scene("list-sizing", async () =>
+            {
+                await PerformanceChecks.VerifySizingAsync(x, y); SmokeTest.Report("list-sizing=ok compact=ok workarea=ok scroll=ok");
+            });
+            await Scene("plugin-editor", async () =>
+            {
+                await PluginExperienceChecks.VerifyAsync(app); SmokeTest.Report("plugin-editor=ok restart=ok stop=ok copy-full=ok close=ok length=ok pending-numbers=ok");
+            });
+        }
 
         var text = ContentClassifier.Classify("Pop makes selected text useful");
 
         if (Want("snippets"))
             await Scene("snippets", async () =>
             {
-                var snippets = new SnippetWindow(); snippets.ShowAt(Snippet.Examples, x, y);
+                var snippets = new SnippetWindow();
+                snippets.ShowAt([.. Snippet.Examples, new Snippet("example-long", "多行模板", string.Concat(Enumerable.Repeat("第一段内容\r\n下一段内容与说明\n", 1000)))], x, y);
                 await Wait(400); Shot("snippets"); snippets.Close(); await Wait(150);
             });
         if (Want("utilities"))
@@ -169,7 +189,8 @@ internal static class Demo
                     var now = DateTimeOffset.Now;
                     using (var picture = ScreenCapture.Capture(new Drawing.Rectangle(screen.Left + screen.Width / 4, screen.Top + screen.Height / 5, 320, 200)))
                         store.Add(ClipboardCapture.Image(ScreenCapture.Png(picture), "mspaint"), now.AddMinutes(-50));
-                    store.Add(ClipboardCapture.Files([@"C:\Users\Pop\Documents\季度报告.docx", @"C:\Users\Pop\Pictures\封面.png"], "explorer"), now.AddMinutes(-35));
+                    store.Add(ClipboardCapture.Files(new[] { @"C:\Users\Pop\Documents\季度报告.docx", @"C:\Users\Pop\Pictures\封面.png" }
+                        .Concat(Enumerable.Range(3, 9998).Select(i => $@"C:\文档\附件-{i}.txt")), "explorer"), now.AddMinutes(-35));
                     store.Add(new ClipboardCapture(ClipboardKind.Text, "https://github.com/whrss9527/pop-windows", SourceApp: "chrome"), now.AddMinutes(-20));
                     store.Add(new ClipboardCapture(ClipboardKind.Text, "会议改到周四下午三点，地点不变。", SourceApp: "WeChat"), now.AddMinutes(-9));
                     var pinned = store.Add(new ClipboardCapture(ClipboardKind.Text, "hello@example.com", SourceApp: "Outlook"), now.AddMinutes(-3));
@@ -254,6 +275,13 @@ internal static class Demo
                     }
                 if (window is not null)
                 {
+                    var constrained = new PluginManifest { Name = "长度条件", Match = new() { MinLength = 2, MaxLength = 8 },
+                        Action = new() { Type = PluginActionType.JavaScript, Script = "input" } };
+                    var editor = new PluginEditorWindow(app, constrained, isNew: false) { Owner = window, TestInput = "👩‍💻" };
+                    editor.Show(); await Wait(500); await editor.RunTestAsync(); await Wait(400);
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(editor).Handle, out var e);
+                    Shot("plugin-editor-match", new Drawing.Rectangle(e.Left - 16, e.Top - 16, e.Right - e.Left + 32, e.Bottom - e.Top + 32));
+                    editor.Close(); await Wait(150);
                     var snippetEditor = window.PreviewSnippetEditor(); await Wait(500); Shot("snippet-editor"); snippetEditor.Close();
                 }
                 window?.Close();

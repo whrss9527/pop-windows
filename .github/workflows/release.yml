@@ -48,16 +48,28 @@ jobs:
         run: dotnet test tests/Pop.Core.Tests -c Release
 
       - name: Publish
-        run: dotnet publish src/Pop -c Release -p:Version=${{ steps.v.outputs.version }} -o out/publish
+        run: |
+          dotnet publish src/Pop -c Release -p:Version=${{ steps.v.outputs.version }} -o out/publish
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish src/Pop -c Release --self-contained false -p:Version=${{ steps.v.outputs.version }} -o out/lightweight
 
       - name: Package
         run: |
           $version = '${{ steps.v.outputs.version }}'
           New-Item -ItemType Directory -Force dist | Out-Null
-          $zip = "dist/Pop-$version-win-x64.zip"
-          Compress-Archive -Path out/publish/Pop.exe -DestinationPath $zip
-          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          [IO.File]::WriteAllText("dist/SHA256SUMS.txt", "$hash  Pop-$version-win-x64.zip`n")
+          $sums = foreach ($package in @(
+            @{ Folder = 'publish'; Suffix = '' },
+            @{ Folder = 'lightweight'; Suffix = '-lightweight' }
+          )) {
+            $name = "Pop-$version-win-x64$($package.Suffix).zip"
+            $zip = Join-Path dist $name
+            $exe = "out/$($package.Folder)/Pop.exe"
+            Compress-Archive -Path $exe -DestinationPath $zip
+            $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Host "$name : $((Get-Item $zip).Length) 字节，Pop.exe : $((Get-Item $exe).Length) 字节"
+            "$hash  $name"
+          }
+          [IO.File]::WriteAllText("dist/SHA256SUMS.txt", ($sums -join "`n") + "`n")
           Get-Content dist/SHA256SUMS.txt
 
       - name: Release notes
@@ -83,6 +95,8 @@ jobs:
             '2. 放到一个自己的文件夹里，例如 `%LOCALAPPDATA%\Programs\Pop`（一键更新需要能写入这个文件夹，不要放在 Program Files 里）；',
             '3. 双击运行。安装包还没有代码签名，第一次运行时 Windows 可能提示「已保护你的电脑」，点「更多信息」→「仍要运行」。',
             '',
+            '已安装 .NET 8 桌面运行时（x64）的电脑也可下载 `Pop-${{ steps.v.outputs.version }}-win-x64-lightweight.zip`，功能相同、下载更小。没有运行时请使用上面的便携版，或先从 https://dotnet.microsoft.com/zh-cn/download/dotnet/8.0 安装 .NET Desktop Runtime x64。轻量版不会减少运行时本身的磁盘占用；两种版本一键更新时保持原来的包型。',
+            '',
             '已经装了旧版本的话，点任务栏右下角的 Pop 图标，在弹出的面板上点「更新」即可（0.6.0 及更早的版本是在菜单里选「更新到 ${{ steps.v.outputs.version }}」）。'
           )
           $notes -join "`n" | Set-Content dist/notes.md -Encoding UTF8
@@ -95,5 +109,5 @@ jobs:
           $version = '${{ steps.v.outputs.version }}'
           $flags = @()
           if ('${{ inputs.beta }}' -eq 'true') { $flags += '--prerelease' } else { $flags += '--latest' }
-          gh release create "v$version" "dist/Pop-$version-win-x64.zip" dist/SHA256SUMS.txt `
+          gh release create "v$version" "dist/Pop-$version-win-x64.zip" "dist/Pop-$version-win-x64-lightweight.zip" dist/SHA256SUMS.txt `
             --title "Pop $version" --notes-file dist/notes.md --target $env:GITHUB_SHA @flags

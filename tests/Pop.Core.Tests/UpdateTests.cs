@@ -92,6 +92,30 @@ public class ReleaseFeedTests
         Assert.Null(ReleaseFeed.PickUpdate(ReleaseFeed.Parse(json), SemVersion.Parse("0.1.0"), true));
         Assert.Empty(ReleaseFeed.Parse("{\"message\":\"rate limited\"}"));
     }
+
+    [Theory]
+    [InlineData(ReleasePackage.Portable, "Pop-0.2.0-win-x64.zip")]
+    [InlineData(ReleasePackage.Lightweight, "Pop-0.2.0-win-x64-lightweight.zip")]
+    public void UpdatesKeepTheInstalledPackage(ReleasePackage package, string expected)
+    {
+        const string json = """
+            [{"tag_name":"v0.2.0","assets":[
+            {"name":"Pop-0.2.0-win-x64.zip","browser_download_url":"https://x/portable.zip"},
+            {"name":"Pop-0.2.0-win-x64-lightweight.zip","browser_download_url":"https://x/lightweight.zip"},
+            {"name":"SHA256SUMS.txt","browser_download_url":"https://x/sums"}]}]
+            """;
+        var release = Assert.Single(ReleaseFeed.Parse(json, package));
+        Assert.Equal(expected, release.PackageName);
+        Assert.Equal(package == ReleasePackage.Lightweight ? "https://x/lightweight.zip" : "https://x/portable.zip", release.PackageUrl);
+    }
+
+    [Fact]
+    public void MissingLightweightPackageDoesNotSwitchToPortable()
+    {
+        Assert.Empty(ReleaseFeed.Parse($"[{Release("v0.2.0")}]", ReleasePackage.Lightweight));
+        Assert.Equal("Pop-0.3.0-beta.1-win-x64-lightweight.zip",
+            ReleaseFeed.PackageName(SemVersion.Parse("0.3.0-beta.1"), ReleasePackage.Lightweight));
+    }
 }
 
 public sealed class UpdatePackageTests : IDisposable
@@ -187,19 +211,22 @@ public sealed class UpdatePackageTests : IDisposable
         Assert.False(File.Exists(ExecutableSwap.OldPath(current)));
     }
 
-    [Fact]
-    public async Task ClientReadsLocalFeed()
+    [Theory]
+    [InlineData(ReleasePackage.Portable)]
+    [InlineData(ReleasePackage.Lightweight)]
+    public async Task ClientReadsLocalFeed(ReleasePackage package)
     {
-        var zip = MakeZip("Pop-0.2.0-win-x64.zip", ("Pop.exe", "new"));
+        var packageName = ReleaseFeed.PackageName(SemVersion.Parse("0.2.0"), package);
+        var zip = MakeZip(packageName, ("Pop.exe", "new"));
         var sumsPath = Path.Combine(dir, "SHA256SUMS.txt");
-        File.WriteAllText(sumsPath, $"{Checksums.Sha256File(zip)}  Pop-0.2.0-win-x64.zip\n");
+        File.WriteAllText(sumsPath, $"{Checksums.Sha256File(zip)}  {packageName}\n");
         var feed = Path.Combine(dir, "feed.json");
         var zipUrl = new Uri(zip).AbsoluteUri;
         var sumsUrl = new Uri(sumsPath).AbsoluteUri;
-        File.WriteAllText(feed, $$"""[{"tag_name":"v0.2.0","assets":[{"name":"Pop-0.2.0-win-x64.zip","browser_download_url":"{{zipUrl}}"},{"name":"SHA256SUMS.txt","browser_download_url":"{{sumsUrl}}"}]}]""");
+        File.WriteAllText(feed, $$"""[{"tag_name":"v0.2.0","assets":[{"name":"{{packageName}}","browser_download_url":"{{zipUrl}}"},{"name":"SHA256SUMS.txt","browser_download_url":"{{sumsUrl}}"}]}]""");
 
         using var http = new HttpClient();
-        var client = new UpdateClient(http);
+        var client = new UpdateClient(http, package);
         var release = await client.CheckAsync(feed, SemVersion.Parse("0.1.0"), false, CancellationToken.None);
         Assert.NotNull(release);
         var exe = await client.DownloadAndPrepareAsync(release, Path.Combine(dir, "work"), null, CancellationToken.None);

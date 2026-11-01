@@ -14,8 +14,8 @@ internal sealed class InputHook : IDisposable
     private readonly SelectionGestureTracker selectionGesture = new();
     private readonly MouseApplicationFilter applications = new();
     private IntPtr leftTarget, triggerTarget;
-    private readonly int doubleClickTime = System.Windows.Forms.SystemInformation.DoubleClickTime;
-    private readonly double doubleClickTolerance = System.Windows.Forms.SystemInformation.DoubleClickSize.Width / 2d;
+    private readonly int doubleClickTime = DesktopInfo.DoubleClickTime;
+    private readonly double doubleClickTolerance = DesktopInfo.DoubleClickTolerance;
     private double selectionScale = 1;
     private long activityVersion;
     private volatile bool selectionToolbar;

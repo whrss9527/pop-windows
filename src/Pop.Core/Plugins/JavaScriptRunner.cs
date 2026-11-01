@@ -65,10 +65,15 @@ public static partial class JavaScriptRunner
     /// 兜底：解释器卡在一次很长的内置调用里、没机会检查时间时，也不让调用方一直等下去
     private static async Task<PluginRunResult> WithFallbackAsync(Task<PluginRunResult> run, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        var fallback = Task.Delay(timeout + TimeSpan.FromSeconds(1), cancellationToken);
-        if (await Task.WhenAny(run, fallback).ConfigureAwait(false) == run) return await run.ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-        return PluginRunResult.Failure("运行超时");
+        using var pending = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var fallback = Task.Delay(timeout + TimeSpan.FromSeconds(1), pending.Token);
+        try
+        {
+            if (await Task.WhenAny(run, fallback).ConfigureAwait(false) == run) return await run.ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return PluginRunResult.Failure("运行超时");
+        }
+        finally { pending.Cancel(); }
     }
 
     /// 在当前线程上运行
