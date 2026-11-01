@@ -287,6 +287,18 @@ internal static class Demo
                 await Wait(250);
             });
 
+        if (Want("tray-controls"))
+            await Scene("tray-controls", async () =>
+            {
+                await TrayControlsChecks.VerifyAsync(app, (int)work.Right - 160, (int)Math.Max(work.Bottom, bounds.Bottom - 20),
+                    (name, flyout) =>
+                    {
+                        Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(flyout).Handle, out var rect);
+                        Shot(name, new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                    });
+                SmokeTest.Report("tray-controls=ok state=visible toggle=real tab=working focus=preserved scroll=preserved short=visible rows=invoke settings=opened mode=restored preferences=restored");
+            });
+
         if (Want("settings"))
             await Scene("settings", async () =>
             {
