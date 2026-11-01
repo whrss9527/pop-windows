@@ -28,7 +28,7 @@ internal sealed partial class SettingsWindow
                 if (await confirm.ShowDialogAsync() != Wpf.Ui.Controls.MessageBoxResult.Primary) return;
                 Update(s => s.Snippets.RemoveAll(v => v.Id == snippet.Id)); ShowPage(false);
             }));
-            page.Children.Add(Card(Symbol.TextBulletList24, snippet.DisplayTitle, ShortPreview(snippet.Text), row));
+            page.Children.Add(Card(Symbol.TextBulletListLtr24, snippet.DisplayTitle, ShortPreview(snippet.Text), row));
         }
         page.Children.Add(Section("模板占位符"));
         page.Children.Add(Note("{date} 日期 · {time} 时间 · {datetime} 日期和时间 · {weekday} 星期\n{clipboard} 唤起时的剪贴板文字 · {selection} 唤起时的原始选区\n占位符只展开一次，剪贴板和选区中的花括号保持原样。"));

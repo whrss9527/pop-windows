@@ -76,6 +76,13 @@ internal static class Demo
         }
 
         var text = ContentClassifier.Classify("Pop makes selected text useful");
+        if (Want("icon-compatibility"))
+            await Scene("icon-compatibility", () =>
+            {
+                IconExperienceChecks.Verify();
+                SmokeTest.Report("icons-compatible=ok pages=ok legacy=ok fallback=ok");
+                return Task.CompletedTask;
+            });
         if (Want("clipboard-ownership"))
             await Scene("clipboard-ownership", () =>
             {

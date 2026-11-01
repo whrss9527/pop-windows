@@ -144,7 +144,7 @@ public static partial class Actions
         _ => new ActionResult(ActionEffect.PickColor), Category: Screen, Summary: "定格屏幕，放大指针处像素，点击查看 HEX、RGB、HSL");
     public static readonly PopAction Ruler = new("ruler", "屏幕标尺", "Ruler24", "pmbc pingmu biaochi ruler measure size", ContentKind.None,
         _ => new ActionResult(ActionEffect.MeasureScreen), Category: Screen, Summary: "移动寻找像素边界，点击测量；也可拖动框选宽高和对角线");
-    public static readonly PopAction Snippets = new("snippets", "常用短语", "TextBulletList24", "cydy changyong duanyu snippet phrase template", ContentKind.None,
+    public static readonly PopAction Snippets = new("snippets", "常用短语", "TextBulletListLtr24", "cydy changyong duanyu snippet phrase template", ContentKind.None,
         _ => new ActionResult(ActionEffect.ShowSnippets), Category: Common, Summary: "选一条短语粘贴，支持日期、时间、剪贴板和原选区占位符", OptionalInput: true);
     public static readonly PopAction Awake = new("keepAwake", "保持唤醒", "WeatherSunny24", "bc hx baochi huanxing sleep awake caffeine", ContentKind.None,
         _ => new ActionResult(ActionEffect.KeepAwake), Category: Common, Summary: "临时防止屏幕和电脑自动休眠，可定时结束或手动停止");

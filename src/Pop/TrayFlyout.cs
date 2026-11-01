@@ -205,7 +205,7 @@ internal sealed class TrayFlyout : Window
         body.Children.Add(Tiles());
         body.Children.Add(Divider());
         body.Children.Add(Row(WpfUi.SymbolRegular.ClipboardTextLtr24, "剪贴板历史", app.HistoryHotKey, () => Then(app.ShowClipboardHistory)));
-        body.Children.Add(Row(WpfUi.SymbolRegular.TextBulletList24, "常用短语", app.ShortcutText("snippets"), () => Then(app.ShowSnippets)));
+        body.Children.Add(Row(WpfUi.SymbolRegular.TextBulletListLtr24, "常用短语", app.ShortcutText("snippets"), () => Then(app.ShowSnippets)));
         var awake = Row(WpfUi.SymbolRegular.WeatherSunny24, app.IsKeepingAwake ? "保持唤醒 · 已开启" : "保持唤醒", app.ShortcutText("keepAwake"), () => Then(app.ShowKeepAwake));
         awake.ToolTip = app.AwakeStatus; body.Children.Add(awake);
         body.Children.Add(Row(WpfUi.SymbolRegular.ScanText24, "截图识字", app.OcrHotKey, () => Then(app.CaptureText)));

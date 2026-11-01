@@ -12,7 +12,19 @@ internal static class Icons
     /// 按名称找图标（不分大小写），找不到用 fallback。
     /// SymbolIcon 只显示得了 0xFFFF 以内的码位，更大的（比如 Calendar24、LinkMultiple24）会变成别的字，也当作找不到
     public static SymbolRegular Parse(string? name, SymbolRegular fallback = SymbolRegular.Apps24) =>
-        name is { Length: > 0 } && Enum.TryParse<SymbolRegular>(name, ignoreCase: true, out var symbol) && Displayable(symbol) ? symbol : fallback;
+        name is { Length: > 0 } && Enum.TryParse<SymbolRegular>(name, ignoreCase: true, out var symbol) && Displayable(Compatible(symbol))
+            ? Compatible(symbol) : Safe(fallback);
+
+    // 兼容已有插件里使用的名称，同时保留原本的列表与导出含义。
+    private static SymbolRegular Compatible(SymbolRegular symbol) => symbol switch
+    {
+        SymbolRegular.TextBulletList24 => SymbolRegular.TextBulletListLtr24,
+        SymbolRegular.ArrowExport24 => SymbolRegular.ArrowExportLtr24,
+        _ => symbol,
+    };
+
+    private static SymbolRegular Safe(SymbolRegular symbol) =>
+        Displayable(Compatible(symbol)) ? Compatible(symbol) : SymbolRegular.Apps24;
 
     /// 常规和实心两种样式都在 0xFFFF 以内（选中的图标用实心）
     private static bool Displayable(SymbolRegular symbol) =>
@@ -30,7 +42,7 @@ internal static class Icons
 
     public static SymbolIcon Make(SymbolRegular symbol, double size, Brush foreground, bool filled = false) => new()
     {
-        Symbol = symbol,
+        Symbol = Safe(symbol),
         FontSize = size,
         Foreground = foreground,
         Filled = filled,

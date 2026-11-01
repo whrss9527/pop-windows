@@ -31,7 +31,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         ("actions", "功能", Symbol.Apps24),
         ("translate", "翻译", Symbol.Translate24),
         ("clipboard", "剪贴板", Symbol.ClipboardTextLtr24),
-        ("snippets", "常用短语", Symbol.TextBulletList24),
+        ("snippets", "常用短语", Symbol.TextBulletListLtr24),
         ("backup", "备份与迁移", Symbol.Save24),
         ("about", "关于", Symbol.Info24),
     ];
@@ -605,7 +605,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             item.Click += (_, _) => action();
             menu.Items.Add(item);
         }
-        Add("导出…", Symbol.ArrowExport24, () => ExportPlugin(manifest));
+        Add("导出…", Symbol.ArrowExportLtr24, () => ExportPlugin(manifest));
         Add("在文件夹中显示", Symbol.FolderOpen24, () => RevealPlugin(manifest));
         menu.Items.Add(new Separator());
         Add("删除", Symbol.Delete24, async () => await DeletePlugin(manifest));
