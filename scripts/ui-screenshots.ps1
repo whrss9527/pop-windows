@@ -47,6 +47,7 @@ foreach ($appearance in 'light', 'dark') {
     if (-not ($lines -match 'settings-targets=ok')) { $failures.Add("演示模式（${appearance}）具体设置定位、键盘接续、条件区域及原配置保护验证没有完成") }
     if (-not ($lines -match 'result-reading=ok')) { $failures.Add("演示模式（${appearance}）长结果有限排版、全文复制替换、分页及关闭释放验证没有完成") }
     if (-not ($lines -match 'tools-settings=ok')) { $failures.Add("演示模式（${appearance}）功能开关计数与批量状态验证没有完成") }
+    if (-not ($lines -match 'window-workarea=ok')) { $failures.Add("演示模式（${appearance}）工作区适配、移动结束、焦点和窗口状态保护验证没有完成") }
     if (-not ($lines -match 'usage-guide=ok')) { $failures.Add("演示模式（${appearance}）使用指南状态、配置保护与跳转验证没有完成") }
     if (-not ($lines -match 'icons-compatible=ok')) { $failures.Add("演示模式（${appearance}）图标兼容性与回退验证没有完成") }
     if (-not ($lines -match 'clipboard-ownership=ok')) { $failures.Add("演示模式（${appearance}）原剪贴板恢复与新复制内容保护验证没有完成") }

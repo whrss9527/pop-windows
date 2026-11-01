@@ -546,6 +546,17 @@ internal static class Demo
                 SmokeTest.Report("tools-settings=ok counter=live bulk=live filter=readonly scope=matched focus=preserved scroll=preserved locked=on esc=clear");
             });
 
+        if (Want("window-workarea"))
+            await Scene("window-workarea", async () =>
+            {
+                await WindowWorkAreaChecks.VerifyAsync(app, (name, window) =>
+                {
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var rect);
+                    Shot(name, new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                });
+                SmokeTest.Report("window-workarea=ok moved=fit moving=free minimum=restored foreground=preserved normal=only closed=cancelled settings=unchanged");
+            });
+
         if (Want("usage-guide"))
             await Scene("usage-guide", async () =>
             {

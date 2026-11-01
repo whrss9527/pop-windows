@@ -15,7 +15,7 @@ internal sealed class TextDiffWindow : ToolWindow
 
     public TextDiffWindow(string original, string comparison) : base("Pop 文字对比", 1000, 720)
     {
-        MinWidth = 720; MinHeight = 500; SettingsUi.FitToWorkArea(this);
+        MinWidth = 720; MinHeight = 500;
         var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition());

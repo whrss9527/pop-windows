@@ -212,6 +212,9 @@ internal static unsafe class Native
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT value, int size);
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool OpenClipboard(IntPtr hWndNewOwner);
 
