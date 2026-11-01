@@ -31,6 +31,7 @@ internal sealed partial class ResultCard : OverlayWindow
 
     private WpfUi.Button? copyButton;
     private bool copyPreviewTruncated;
+    private bool primaryCopyFailed;
     public bool CopyFailed { get; private set; }
 
     public bool CopyPrimary()
@@ -50,10 +51,17 @@ internal sealed partial class ResultCard : OverlayWindow
     private void SetCopyState(bool copied)
     {
         CopyFailed = !copied;
+        if (reading is null || string.Equals(PrimaryText, shownContent?.PrimaryText, StringComparison.Ordinal))
+            primaryCopyFailed = CopyFailed;
+        UpdateCopyButton();
+    }
+
+    private void UpdateCopyButton()
+    {
         if (copyButton is not null)
         {
-            copyButton.Content = copied ? reading is null ? "复制" : "复制全文" : "重试复制";
-            copyButton.ToolTip = copied ? reading is null ? "复制主要结果（Enter），包含全部内容" : "复制当前阅读项的全文（Enter），包含所有页" : copyPreviewTruncated
+            copyButton.Content = !CopyFailed ? reading is null ? "复制" : "复制全文" : "重试复制";
+            copyButton.ToolTip = !CopyFailed ? reading is null ? "复制主要结果（Enter），包含全部内容" : "复制当前阅读项的全文（Enter），包含所有页" : copyPreviewTruncated
                 ? "尚未复制。点击或按 Enter 重试，会复制完整结果"
                 : "剪贴板暂时不可写，尚未复制；再次点击或按 Enter 重试";
         }
@@ -91,7 +99,7 @@ internal sealed partial class ResultCard : OverlayWindow
         IsVisibleChanged += (_, _) =>
         {
             if (IsVisible) return;
-            PrimaryText = null; copyButton = null; copyPreviewTruncated = false; CopyFailed = false;
+            PrimaryText = null; copyButton = null; copyPreviewTruncated = false; CopyFailed = false; primaryCopyFailed = false;
             shownContent = null; reading = null; cardScroller = null; readingTitle = "";
             root.Children.Clear(); shot = null;
         };
@@ -110,6 +118,7 @@ internal sealed partial class ResultCard : OverlayWindow
         autoClose.Stop();
         MarkShowing();
         CopyFailed = false;
+        primaryCopyFailed = false;
         copyPreviewTruncated = false;
         copyButton = null;
         readingActionsEnabled = true;
@@ -132,6 +141,7 @@ internal sealed partial class ResultCard : OverlayWindow
         shownContent = null; reading = null; cardScroller = null; readingTitle = "";
         copyButton = null;
         CopyFailed = false;
+        primaryCopyFailed = false;
         copyPreviewTruncated = false;
         var theme = Theme.Current();
         var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(14, 9, 16, 9) };
@@ -436,7 +446,8 @@ internal sealed partial class ResultCard : OverlayWindow
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
         row.MouseLeftButtonUp += (_, _) =>
         {
-            var copied = TryCopy(line.Value);
+            // 行内反馈只属于这一项，不能把底部主要结果的按钮改成重试其他内容。
+            var copied = CopyRequested?.Invoke(line.Value) == true;
             label.Text = copied ? "已复制 ✓" : "未复制，请重试";
             label.Foreground = theme.Brush(copied ? theme.Accent : theme.SecondaryText);
         };

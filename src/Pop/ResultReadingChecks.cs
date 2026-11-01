@@ -65,12 +65,17 @@ internal static class ResultReadingChecks
             var row = Find<Border>("card-result-line-25"); row.BringIntoView(); await Task.Delay(45);
             row.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
             if (copied != last) throw new InvalidOperationException("后续结果行没有复制自己的全文");
+            if (card.CopyFailed || Find<ButtonBase>("card-copy-result").Content?.ToString() != "复制")
+                throw new InvalidOperationException("行内失败把主要结果误标为重试其他内容");
             var readLine = Find<ButtonBase>("card-read-line-25"); readLine.BringIntoView(); await Task.Delay(60);
             var returnOffset = card.BodyScrollOffset;
             await Click("card-read-line-25");
             if (card.PrimaryText != last) throw new InvalidOperationException("后续结果行阅读了其他项");
+            if (card.CopyPrimary() || !card.CopyFailed || copied != last) throw new InvalidOperationException("阅读项重试未对应当前全文");
             await Click("card-read-back");
             if (Find<Border>("card-result-line-25") is null || card.PrimaryText != full) throw new InvalidOperationException("返回阅读后未保留结果分组");
+            if (card.CopyFailed || Find<ButtonBase>("card-copy-result").Content?.ToString() != "复制")
+                throw new InvalidOperationException("返回主要结果后仍显示其他阅读项的失败状态");
             await Task.Delay(350);
             if (Math.Abs(card.BodyScrollOffset - returnOffset) > 1) throw new InvalidOperationException("返回阅读后未恢复原滚动位置");
             shot("result-many-items", card);

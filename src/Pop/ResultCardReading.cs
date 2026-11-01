@@ -32,6 +32,7 @@ internal sealed partial class ResultCard
         {
             if (!readingActionsEnabled || !ReferenceEquals(content, shownContent) || content.Loading) return;
             readingReturnOffset = cardScroller?.VerticalOffset ?? 0;
+            CopyFailed = string.Equals(text, shownContent.PrimaryText, StringComparison.Ordinal) && primaryCopyFailed;
             reading = new TextPages(text);
             readingTitle = ResultPreview.Text(title, 80);
             RefreshReading();
@@ -69,6 +70,7 @@ internal sealed partial class ResultCard
     {
         if (!readingActionsEnabled || reading is null) return;
         var offset = readingReturnOffset;
+        CopyFailed = primaryCopyFailed;
         reading = null; readingTitle = ""; RefreshReading();
         cardScroller?.UpdateLayout();
         cardScroller?.ScrollToVerticalOffset(offset);
@@ -87,7 +89,7 @@ internal sealed partial class ResultCard
                     + (reading.Current.SplitOversizedElement ? " · 过长字符组已分段显示，复制保留全文" : ""), Icon: shownContent.Icon);
         copyButton = null;
         Present(anchor.X, anchor.Y, Card(display, theme), theme, Theme.OverlayRadius, updating: true);
-        SetCopyState(!CopyFailed);
+        UpdateCopyButton();
     }
 
     private UIElement ResultNavigation(CardContent content, int first, int count, Theme theme)
