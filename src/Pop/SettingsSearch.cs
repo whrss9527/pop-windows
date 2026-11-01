@@ -61,6 +61,8 @@ internal sealed partial class SettingsWindow
 
     private void ShowSearchResults(string query)
     {
+        ClearSearchTarget();
+        searchTargets.Clear();
         beforeSearchOffset ??= scroller.VerticalOffset;
         foreach (var (_, (button, pill, glyph)) in nav)
         {
@@ -74,8 +76,8 @@ internal sealed partial class SettingsWindow
         foreach (var entry in matches)
         {
             var target = Pages.First(p => p.Id == entry.Page);
-            var button = ActionButton("打开", null, () => Navigate(entry.Page));
-            System.Windows.Automation.AutomationProperties.SetName(button, "打开" + entry.Title);
+            var button = ActionButton("定位", null, () => OpenSearchResult(entry));
+            System.Windows.Automation.AutomationProperties.SetName(button, "定位到" + entry.Title);
             searchResults.Add(button);
             button.PreviewKeyDown += (_, e) =>
             {
@@ -94,6 +96,8 @@ internal sealed partial class SettingsWindow
     }
 
     internal string CurrentPage => current;
+    internal bool SettingsSearchFocused => settingsSearch?.IsKeyboardFocusWithin == true;
+    internal int FocusedSearchResult => searchResults.FindIndex(button => button.IsKeyboardFocused);
 
     internal bool OpenFirstSearchResult()
     {
