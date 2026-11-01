@@ -102,7 +102,7 @@ internal static class Demo
             await Scene("selection-copy", async () =>
             {
                 await SelectionCopyChecks.VerifyAsync(app);
-                SmokeTest.Report("selection-copy=ok real-copy=ok normal=restored late=restored user-copy=preserved history=recorded owner=checked foreign-process=preserved lock=checked snapshot=required newer-read=cancelled dispose=cancelled");
+                SmokeTest.Report("selection-copy=ok real-copy=ok normal=restored late=restored user-copy=preserved menu=preserved history=recorded owner=checked foreign-process=preserved lock=checked snapshot=required newer-read=cancelled dispose=cancelled");
             });
 
         if (Want("snippets"))

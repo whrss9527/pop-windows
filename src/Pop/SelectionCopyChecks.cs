@@ -19,9 +19,9 @@ internal static class SelectionCopyChecks
         var original = writer.Save() ?? throw new InvalidOperationException("无法保留检查前的剪贴板");
         var text = new TextBox { Text = "guard-real-selection", Margin = new Thickness(16) };
         var target = new Window { Title = "Pop 选区复制检查", Width = 420, Height = 160, Content = text, ShowInTaskbar = false };
-        long activity = 0;
+        var activity = new CopyInputVersion();
         Func<bool> response = () => InputInjector.CtrlChord(0x43);
-        using var reader = new SelectionReader(access, () => Interlocked.Read(ref activity), () => response());
+        using var reader = new SelectionReader(access, () => activity.Version, () => response());
         using var monitor = new ClipboardMonitor();
         var captured = new ConcurrentQueue<ClipboardCapture>();
         monitor.Captured += (capture, current) => { if (current()) captured.Enqueue(capture); };
@@ -56,13 +56,22 @@ internal static class SelectionCopyChecks
             response = () =>
             {
                 Copy("guard-selected");
-                newer = Later(10, () => { Interlocked.Increment(ref activity); Copy("guard-new-user"); });
+                newer = Later(10, () => { activity.Key(handledByPop: false); Copy("guard-new-user"); });
                 return true;
             };
             if (await Read() is not null) throw new InvalidOperationException("用户新复制仍被当作本次选区");
             await newer!;
             if (writer.GetText() != "guard-new-user") throw new InvalidOperationException("正常读取恢复覆盖了同应用新复制");
             await Until(() => captured.Any(c => c.Text == "guard-new-user"));
+
+            Reset();
+            response = () =>
+            {
+                _ = Later(60, () => { activity.Key(handledByPop: true); activity.Pointer(overPopInterface: true); Copy("guard-menu-selection"); });
+                return true;
+            };
+            if (await Read(300) != "guard-menu-selection" || writer.GetText() != "guard-original")
+                throw new InvalidOperationException("Pop 菜单内的操作取消了有效读取");
 
             Reset(); Task? delayed = null;
             response = () => { delayed = Later(180, () => Copy("guard-late-target")); return true; };
@@ -72,7 +81,7 @@ internal static class SelectionCopyChecks
 
             Reset(); response = () => true;
             await Read(30);
-            Interlocked.Increment(ref activity); Copy("guard-after-timeout");
+            activity.Key(handledByPop: false); Copy("guard-after-timeout");
             await reader.PendingLateCopy;
             if (writer.GetText() != "guard-after-timeout") throw new InvalidOperationException("超时守卫覆盖了用户新复制");
             await Until(() => captured.Any(c => c.Text == "guard-after-timeout"));

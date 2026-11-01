@@ -18,6 +18,9 @@ internal sealed class InputHook : IDisposable
     private readonly double doubleClickTolerance = DesktopInfo.DoubleClickTolerance;
     private double selectionScale = 1;
     private long activityVersion;
+    private readonly CopyInputVersion copyActivity = new();
+    private static readonly uint OwnProcess = (uint)Environment.ProcessId;
+    public long ClipboardActivityVersion => copyActivity.Version;
     private volatile bool selectionToolbar;
     public bool SelectionToolbar { get => selectionToolbar; set => selectionToolbar = value; }
     public long ActivityVersion => Interlocked.Read(ref activityVersion);
@@ -148,6 +151,8 @@ internal sealed class InputHook : IDisposable
             if (message is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN or WM_MOUSEWHEEL or WM_MOUSEHWHEEL)
             {
                 Interlocked.Increment(ref activityVersion);
+                GetWindowThreadProcessId(WindowFromPoint(info.pt), out var pointProcess);
+                copyActivity.Pointer(overPopInterface: pointProcess == OwnProcess);
                 PointerActivity?.Invoke(x, y, message is WM_MOUSEWHEEL or WM_MOUSEHWHEEL);
             }
             if (message == WM_LBUTTONDOWN)
@@ -287,11 +292,14 @@ internal sealed class InputHook : IDisposable
                 Interlocked.Increment(ref activityVersion);
                 try
                 {
-                    if (filter((int)info.vkCode)) return new IntPtr(1);
+                    var handled = filter((int)info.vkCode);
+                    copyActivity.Key(handledByPop: handled);
+                    if (handled) return new IntPtr(1);
                 }
                 catch (Exception e)
                 {
                     Log.Error("键盘钩子出错", e);
+                    copyActivity.Key(handledByPop: false);
                 }
             }
         }

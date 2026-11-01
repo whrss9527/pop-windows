@@ -2,6 +2,8 @@
 
 UI Automation 无法读取时，Pop 会模拟复制并保留原剪贴板。恢复必须能确认仍是本次操作：目标仍在前台、用户没有新的按键或点击、没有更新的读取任务、当前所有者属于目标进程。未知所有者或其他进程的数据会保留，不作为选区执行功能。
 
+复制专用输入计数只包括传给原应用的按键和 Pop 界面外的指针操作；菜单消费的方向键、数字键、回车及菜单内点击不会取消尚未完成的读取。原有用于自动工具条的活动计数保持原行为。
+
 快照在持有剪贴板访问权时记录最终序列。正常读取和还原在同一次打开期间完成，成功取得访问权后再次检查来源与序列；读取触发延迟呈现时允许锁内序列变化，还原前仍要再次检查交互和来源。迟到响应也要在打开之后核对，不能只在等待占用之前判断。
 
 Windows 的序列在内容变化或清空时改变，延迟呈现时可能等到内容呈现才改变，详见 [GetClipboardSequenceNumber](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getclipboardsequencenumber)。所有者可能为空但仍有内容，不能据此清空或覆盖，详见 [GetClipboardOwner](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getclipboardowner)。

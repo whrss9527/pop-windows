@@ -51,6 +51,9 @@ internal static unsafe class Native
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT { public int X, Y; }
 
+    [DllImport("user32.dll")]
+    public static extern IntPtr WindowFromPoint(POINT point);
+
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
 
