@@ -47,8 +47,8 @@ internal static class SettingsSearchExperienceChecks
             AssertReadOnly();
             if (!window.OpenFirstSearchResult() || !await window.PendingSearchNavigation)
                 throw new InvalidOperationException("应用圆盘搜索未完成");
-            await Task.Delay(60);
-            if (window.SearchTargetPosition().Height < 100)
+            await Task.Delay(450);
+            if (window.SearchTargetPosition().Height < 100 || !window.ApplicationRingEditorIsAvailable)
                 throw new InvalidOperationException("定位应用圆盘未展开管理区");
             AssertVisible("app-ring");
             shot("settings-search-app-ring", window);
@@ -121,7 +121,7 @@ internal static class SettingsSearchExperienceChecks
             var position = window.SearchTargetPosition();
             if (window.CurrentSearchTarget != id || position.Height <= 0 || !double.IsFinite(position.Top)
                 || position.Top < -1 || position.Top + Math.Min(64, position.Height) > position.Viewport + 1
-                || !position.Focused || !position.Highlighted)
+                || !position.Focused || !position.Highlighted || !window.SelectedNavigationIsVisible)
                 throw new InvalidOperationException($"设置定位不可见或未聚焦：{id} {position}");
         }
         void AssertReadOnly()

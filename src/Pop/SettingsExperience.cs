@@ -12,6 +12,7 @@ internal sealed partial class SettingsWindow
     private bool shortcutRecording;
     private string? ringApplication;
     private string shortcutQuery = "";
+    private TextBox? applicationRingInput;
 
     public void EditApplicationRing(string application)
     {
@@ -44,6 +45,7 @@ internal sealed partial class SettingsWindow
         page.Children.Add(Card(Symbol.Apps24, "正在编辑", "唤起时自动使用当前应用的布局；其他应用继承默认圆盘", scope));
         var management = new StackPanel();
         var appName = new TextBox { Width = 140, ToolTip = "程序名，例如 Code.exe", VerticalContentAlignment = VerticalAlignment.Center };
+        applicationRingInput = appName;
         var message = Label("", Theme.Caption, "TextFillColorSecondaryBrush");
         void Add(string input)
         {

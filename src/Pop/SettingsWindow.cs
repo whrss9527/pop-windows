@@ -42,6 +42,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
     private readonly App app;
     private readonly StartupPreference startupPreference;
     private readonly Dictionary<string, (WpfUi.Button Button, Border Pill, WpfUi.SymbolIcon Icon)> nav = [];
+    private ScrollViewer? navigationScroll;
     private readonly ScrollViewer scroller = new()
     {
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -156,7 +157,8 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
 
     private UIElement Navigation()
     {
-        var panel = new StackPanel { Margin = new Thickness(12, 4, 12, 12) };
+        var panel = new DockPanel { Margin = new Thickness(12, 4, 12, 12) };
+        var fixedHeader = new StackPanel();
         var identity = new Grid { Margin = new Thickness(8, 12, 0, 24) };
         identity.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         identity.ColumnDefinitions.Add(new ColumnDefinition());
@@ -168,8 +170,11 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         names.Children.Add(Label($"版本 {Updater.CurrentVersion}", Theme.Caption, "TextFillColorSecondaryBrush"));
         Grid.SetColumn(names, 1);
         identity.Children.Add(names);
-        panel.Children.Add(identity);
-        panel.Children.Add(SearchInput());
+        fixedHeader.Children.Add(identity);
+        fixedHeader.Children.Add(SearchInput());
+        DockPanel.SetDock(fixedHeader, Dock.Top);
+        panel.Children.Add(fixedHeader);
+        var links = new StackPanel();
 
         foreach (var (id, title, symbol) in Pages)
         {
@@ -205,9 +210,11 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             System.Windows.Automation.AutomationProperties.SetName(button, title);
             button.Click += (_, _) => Navigate(id);
             nav[id] = (button, pill, glyph);
-            panel.Children.Add(button);
+            links.Children.Add(button);
         }
-        return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        navigationScroll = new ScrollViewer { Content = links, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        panel.Children.Add(navigationScroll);
+        return panel;
     }
 
     /// 打开某一页（Pages 里的 ID）
@@ -227,6 +234,10 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             glyph.Filled = selected;
         }
         ShowPage(animate);
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (IsVisible && current == id) nav[id].Button.BringIntoView();
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
         Log.Info($"设置：{Pages.First(p => p.Id == id).Title}");
     }
 

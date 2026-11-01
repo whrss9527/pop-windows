@@ -111,6 +111,31 @@ internal sealed partial class SettingsWindow
     }
 
     internal double SettingsScrollOffset => scroller.VerticalOffset;
+    internal bool SelectedNavigationIsVisible
+    {
+        get
+        {
+            if (!app.IsDemo || navigationScroll is null) return false;
+            var button = nav[current].Button;
+            var top = button.TranslatePoint(new Point(), navigationScroll).Y;
+            return top >= -1 && top + button.ActualHeight <= navigationScroll.ViewportHeight + 1;
+        }
+    }
+    internal bool ApplicationRingEditorIsAvailable
+    {
+        get
+        {
+            if (!app.IsDemo || current != "ring" || applicationRingInput is not { IsVisible: true, ActualWidth: > 0, ActualHeight: > 0 } input) return false;
+            var center = input.TranslatePoint(new Point(input.ActualWidth / 2, input.ActualHeight / 2), this);
+            var hit = InputHitTest(center) as DependencyObject;
+            while (hit is not null)
+            {
+                if (ReferenceEquals(hit, input)) return true;
+                hit = VisualTreeHelper.GetParent(hit);
+            }
+            return false;
+        }
+    }
     internal void PreviewSettingsScroll(double offset)
     {
         if (app.IsDemo) scroller.ScrollToVerticalOffset(offset);
