@@ -440,6 +440,21 @@ internal static class Demo
                 if (!card.CopyFailed || card.PrimaryText != original) throw new InvalidOperationException("复制失败恢复卡片没有保留原内容");
                 await Wait(250); Shot("copy-action-recovery");
                 if (!card.CopyPrimary() || copied != original) throw new InvalidOperationException("普通复制恢复入口无法重试");
+                var large = new string('x', 2_000_000);
+                card.ShowCopyFailure(x, y, "长结果复制恢复", large);
+                if (card.PrimaryText != large || LongestRenderedText(card) > 10_000)
+                    throw new InvalidOperationException("长结果没有保留完整复制值，或界面载入了整段正文");
+                await Wait(250); Shot("copy-action-large-recovery");
+                if (!card.CopyPrimary() || copied != large) throw new InvalidOperationException("长结果重试只复制了预览");
+                var hiddenDeadline = DateTime.UtcNow.AddSeconds(5);
+                while (card.IsVisible)
+                {
+                    if (DateTime.UtcNow > hiddenDeadline) throw new InvalidOperationException("复制成功后卡片没有关闭");
+                    await Task.Delay(50);
+                }
+                if (card.PrimaryText is not null || LongestRenderedText(card) > 0)
+                    throw new InvalidOperationException("关闭卡片后仍保留上一张结果的显示缓存");
+                SmokeTest.Report("copy-feedback-large=ok full=2000000 preview=bounded hidden=cleared");
                 card.Close();
                 SmokeTest.Report("copy-feedback=ok");
 
@@ -515,6 +530,14 @@ internal static class Demo
     }
 
     private static Task Wait(int milliseconds) => Task.Delay(TimeSpan.FromMilliseconds(milliseconds * Motion.Scale));
+
+    private static int LongestRenderedText(DependencyObject element)
+    {
+        var maximum = element is System.Windows.Controls.TextBlock text ? text.Text.Length : 0;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(element); index++)
+            maximum = Math.Max(maximum, LongestRenderedText(VisualTreeHelper.GetChild(element, index)));
+        return maximum;
+    }
 
     /// 演示用的背景：一张彩色的桌面上摆着一页文档，其中一句是选中的样子
     private sealed class Backdrop : Window

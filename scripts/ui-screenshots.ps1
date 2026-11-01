@@ -41,6 +41,7 @@ foreach ($appearance in 'light', 'dark') {
     if ($null -ne $p -and $p.HasExited -and $p.ExitCode -ne 0) { $failures.Add("演示模式（${appearance}）退出码 $($p.ExitCode)") }
     if (-not ($lines -match 'demo-done')) { $failures.Add("演示模式（${appearance}）没有跑完") }
     if (-not ($lines -match 'copy-feedback=ok')) { $failures.Add("演示模式（${appearance}）复制失败与重试验证没有完成") }
+    if (-not ($lines -match 'copy-feedback-large=ok')) { $failures.Add("演示模式（${appearance}）长结果完整复制与显示缓存释放验证没有完成") }
     if (-not ($lines -match 'settings-save-feedback=ok')) { $failures.Add("演示模式（${appearance}）设置保存反馈验证没有完成") }
     if (-not ($lines -match 'settings-search=ok')) { $failures.Add("演示模式（${appearance}）设置搜索与跳转验证没有完成") }
     if (-not ($lines -match 'clipboard-ownership=ok')) { $failures.Add("演示模式（${appearance}）原剪贴板恢复与新复制内容保护验证没有完成") }
