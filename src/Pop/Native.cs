@@ -212,6 +212,9 @@ internal static unsafe class Native
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT value, int size);
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool OpenClipboard(IntPtr hWndNewOwner);
 
@@ -307,8 +310,24 @@ internal static unsafe class Native
     public static (Pop.Core.Rect Bounds, Pop.Core.Rect WorkArea, double Scale) MonitorDetailsAt(int x, int y)
     {
         var monitor = MonitorFromPoint(new POINT { X = x, Y = y }, MONITOR_DEFAULTTONEAREST);
+        return MonitorDetails(monitor);
+    }
+
+    /// 采用 Windows 对整个窗口的显示器归属判断，和窗口当前 DPI 保持一致。
+    public static (Pop.Core.Rect WorkArea, double Scale) WindowWorkArea(IntPtr hwnd)
+    {
+        var (_, work, scale) = MonitorDetails(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST));
+        var dpi = GetDpiForWindow(hwnd);
+        return (work, dpi > 0 ? dpi / 96d : scale);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    private static (Pop.Core.Rect Bounds, Pop.Core.Rect WorkArea, double Scale) MonitorDetails(IntPtr monitor)
+    {
         var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
-        GetMonitorInfo(monitor, ref info);
+        if (!GetMonitorInfo(monitor, ref info)) return (default, default, 1);
         double scale = 1;
         if (GetDpiForMonitor(monitor, 0, out var dpiX, out _) == 0 && dpiX > 0) scale = dpiX / 96.0;
         var w = info.rcWork;

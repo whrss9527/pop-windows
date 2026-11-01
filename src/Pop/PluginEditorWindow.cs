@@ -556,7 +556,13 @@ internal sealed class PluginEditorWindow : WpfUi.FluentWindow
         testResult.Text = text.Length == 0 ? "（没有输出）" : TextPreview.Truncate(text, 4000);
         testResult.SetResourceReference(TextBlock.ForegroundProperty, failed ? "SystemFillColorCriticalBrush" : "TextFillColorPrimaryBrush");
         // 输出出现后再滚动，使运行按钮和结果一起留在视野内，避免被底部保存栏挡住。
-        Dispatcher.BeginInvoke(() => { if (!closed && IsVisible) testCard.BringIntoView(); }, System.Windows.Threading.DispatcherPriority.Loaded);
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (closed || !IsVisible) return;
+            testCard.BringIntoView();
+            // 矮视口放不下整张卡片时，至少完整显示结果自身的滚动区域。
+            testResults.BringIntoView();
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     internal bool CopyTestResult()
