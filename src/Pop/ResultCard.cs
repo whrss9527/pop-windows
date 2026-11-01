@@ -30,6 +30,7 @@ internal sealed class ResultCard : OverlayWindow
     public event Func<string, bool>? CopyRequested;
 
     private WpfUi.Button? copyButton;
+    private bool copyPreviewTruncated;
     public bool CopyFailed { get; private set; }
 
     public bool CopyPrimary()
@@ -52,13 +53,20 @@ internal sealed class ResultCard : OverlayWindow
         if (copyButton is not null)
         {
             copyButton.Content = copied ? "复制" : "重试复制";
-            copyButton.ToolTip = copied ? "复制结果（Enter）" : "剪贴板暂时不可写，尚未复制；再次点击或按 Enter 重试";
+            copyButton.ToolTip = copied ? "复制结果（Enter）" : copyPreviewTruncated
+                ? "尚未复制。点击或按 Enter 重试，会复制完整结果"
+                : "剪贴板暂时不可写，尚未复制；再次点击或按 Enter 重试";
         }
     }
 
     public void ShowCopyFailure(int x, int y, string title, string text, string? instruction = null)
     {
-        ShowResult(x, y, new CardContent(title, [], Body: text, Caption: "未复制 · 可重试", Source: instruction ?? "剪贴板暂时不可写，完整结果已保留。"));
+        var preview = TextPreview.Truncate(text, 4000);
+        var truncated = !string.Equals(preview, text, StringComparison.Ordinal);
+        var message = instruction ?? "剪贴板暂时不可写，完整结果已保留。";
+        if (truncated) message += "仅显示部分预览，重试会复制全部内容。";
+        ShowResult(x, y, new CardContent(title, [], Body: preview, Caption: "未复制 · 可重试", Source: message));
+        PrimaryText = text; copyPreviewTruncated = truncated;
         SetCopyState(false);
     }
 
@@ -81,6 +89,12 @@ internal sealed class ResultCard : OverlayWindow
             autoClose.Stop();
             Dismiss();
         };
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible) return;
+            PrimaryText = null; copyButton = null; copyPreviewTruncated = false; CopyFailed = false;
+            root.Children.Clear(); shot = null;
+        };
     }
 
     public bool IsOpen => IsVisible && root.Opacity > 0;
@@ -93,6 +107,7 @@ internal sealed class ResultCard : OverlayWindow
     public void ShowResult(int x, int y, CardContent content)
     {
         CopyFailed = false;
+        copyPreviewTruncated = false;
         copyButton = null;
         PrimaryText = content.Loading ? null : content.PrimaryText;
         var theme = Theme.Current();
@@ -107,6 +122,7 @@ internal sealed class ResultCard : OverlayWindow
         PrimaryText = null;
         copyButton = null;
         CopyFailed = false;
+        copyPreviewTruncated = false;
         var theme = Theme.Current();
         var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(14, 9, 16, 9) };
         var icon = Icons.Make(Wpf.Ui.Controls.SymbolRegular.CheckmarkCircle20, 16, theme.Brush(theme.Accent), filled: true);
