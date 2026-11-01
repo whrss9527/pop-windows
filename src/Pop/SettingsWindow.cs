@@ -877,7 +877,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
     {
         var s = Settings;
         page.Children.Add(Section("剪贴板历史", first: true));
-        page.Children.Add(Card(Symbol.History24, "记录剪贴板历史", "复制过的文字、图片和文件都记下来，只存在这台电脑上",
+        page.Children.Add(Card(Symbol.History24, "记录剪贴板历史", "只保存在这台电脑。关闭后暂停读取与记录，已有历史仍可查看",
             Toggle(s.ClipboardHistory, v => Update(x => x.ClipboardHistory = v))));
         page.Children.Add(Card(Symbol.Keyboard24, "打开剪贴板历史",
             app.HistoryHotKey is null ? "快捷键被别的程序占用了，可以从托盘面板或「全部功能」里打开" : "在任意位置按下这组快捷键，打字搜索，回车粘贴",

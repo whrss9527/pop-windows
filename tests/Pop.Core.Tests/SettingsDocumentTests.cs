@@ -52,6 +52,61 @@ public sealed class SettingsDocumentTests : IDisposable
         Assert.False(Directory.Exists(document.RecoveryDirectory));
     }
 
+    [Theory]
+    [InlineData("utf8")]
+    [InlineData("utf8-bom")]
+    [InlineData("utf16-le")]
+    [InlineData("utf16-be")]
+    [InlineData("utf32-le")]
+    [InlineData("utf32-be")]
+    public void ValidUnicodeEncodingsRemainCompatible(string name)
+    {
+        var encoding = TestEncoding(name);
+        const string language = "中文 👨‍👩‍👧‍👦";
+        var json = "{\"holdMilliseconds\":450,\"translateTarget\":\"" + language + "\"}";
+        File.WriteAllBytes(FilePath, [.. encoding.GetPreamble(), .. encoding.GetBytes(json)]);
+        var document = SettingsDocument.Open(FilePath);
+        Assert.Equal(SettingsReadState.Loaded, document.State);
+        Assert.Equal(language, document.Settings.TranslateTarget);
+        document.Save(document.Settings);
+        Assert.Null(document.RecoveryPath);
+        Assert.Equal(language, SettingsDocument.Open(FilePath).Settings.TranslateTarget);
+    }
+
+    [Theory]
+    [InlineData("utf8")]
+    [InlineData("utf16-le")]
+    [InlineData("utf16-be")]
+    [InlineData("utf32-le")]
+    [InlineData("utf32-be")]
+    public void InvalidEncodedCharactersPreserveTheRawFileInsteadOfSilentlyReplacingData(string name)
+    {
+        var encoding = TestEncoding(name);
+        const string prefix = "{\"translateTarget\":\"";
+        var bytes = encoding.GetPreamble().Concat(encoding.GetBytes(prefix + "X\"}")).ToArray();
+        var at = encoding.GetPreamble().Length + encoding.GetByteCount(prefix);
+        byte[] damaged = name switch
+        {
+            "utf8" => [0xff], "utf16-le" => [0x00, 0xd8], "utf16-be" => [0xd8, 0x00],
+            "utf32-le" => [0x00, 0x00, 0x11, 0x00], _ => [0x00, 0x11, 0x00, 0x00],
+        };
+        damaged.CopyTo(bytes, at); File.WriteAllBytes(FilePath, bytes);
+        var document = SettingsDocument.Open(FilePath);
+        Assert.Equal(SettingsReadState.Invalid, document.State);
+        Assert.False(document.Settings.ClipboardHistory);
+        Assert.Equal(bytes, File.ReadAllBytes(FilePath));
+        document.Save(document.Settings);
+        Assert.Equal(bytes, File.ReadAllBytes(document.RecoveryPath!));
+        Assert.Equal(SettingsReadState.Loaded, SettingsDocument.Open(FilePath).State);
+    }
+
+    private static Encoding TestEncoding(string name) => name switch
+    {
+        "utf8" => new UTF8Encoding(false), "utf8-bom" => new UTF8Encoding(true),
+        "utf16-le" => new UnicodeEncoding(false, true), "utf16-be" => new UnicodeEncoding(true, true),
+        "utf32-le" => new UTF32Encoding(false, true), _ => new UTF32Encoding(true, true),
+    };
+
     [Fact]
     public void SavePreservesExactOriginalBytesThenWritesNewSettingsOnce()
     {
