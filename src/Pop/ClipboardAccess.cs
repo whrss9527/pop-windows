@@ -31,6 +31,7 @@ internal sealed class ClipboardAccess : IDisposable
 
     /// 剪贴板的主人窗口会收到 WM_RENDERFORMAT、WM_DESTROYCLIPBOARD 这些消息
     public void AddHook(HwndSourceHook hook) => window.AddHook(hook);
+    public void RemoveHook(HwndSourceHook hook) => window.RemoveHook(hook);
 
     /// 正在清空剪贴板：原来的主人（可能就是自己）这时收到的 WM_DESTROYCLIPBOARD 不是别人复制了东西
     public bool Emptying { get; private set; }
@@ -161,14 +162,22 @@ internal sealed class ClipboardAccess : IDisposable
 
     /// 先说剪贴板里有文字，等有程序来读的时候再给（延迟提供）：来读时主人窗口收到 WM_RENDERFORMAT，这时调用 RenderText。
     /// 不进剪贴板历史
-    public bool PromiseText()
+    public bool PromiseText() => PromiseText(temporary: true);
+
+    internal bool PromisePublicTextForDemo()
+    {
+        if (System.Windows.Application.Current is not App { IsDemo: true }) throw new InvalidOperationException("公开延迟剪贴板样例仅用于独立演示");
+        return PromiseText(temporary: false);
+    }
+
+    private bool PromiseText(bool temporary)
     {
         if (!Open()) return false;
         try
         {
             Empty();
             SetClipboardData(CF_UNICODETEXT, IntPtr.Zero);
-            MarkPrivate();
+            if (temporary) MarkPrivate();
             return true;
         }
         finally

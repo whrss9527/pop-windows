@@ -102,7 +102,7 @@ internal static class Demo
             await Scene("clipboard-policy", async () =>
             {
                 await ClipboardReadPolicyChecks.VerifyAsync(app);
-                SmokeTest.Report("clipboard-policy=ok private-replacement=unread");
+                SmokeTest.Report("clipboard-policy=ok private-replacement=unread excluded=unread policy=cancelled equivalent=preserved delayed=complete reenabled=fresh");
             });
 
         if (Want("selection-copy"))

@@ -18,7 +18,8 @@ internal sealed class ClipboardHistory : IDisposable
     public ClipboardHistory(Func<AppSettings> settings)
     {
         this.settings = settings;
-        Monitor = new ClipboardMonitor(settings().ClipboardHistory);
+        var current = settings();
+        Monitor = new ClipboardMonitor(current.ClipboardHistory, current.ClipboardExcludedApps);
         Store = new ClipboardStore(ClipboardStore.DefaultDirectory);
         if (Store.OpenError is { } error) Log.Error($"打不开剪贴板历史数据库：{error}");
         // 监听线程读到内容就交过来，存储和设置都在界面线程上
@@ -44,6 +45,12 @@ internal sealed class ClipboardHistory : IDisposable
         var s = settings();
         var removed = ClipboardRetentionPolicy.For(s).Cleanup(Store, DateTimeOffset.Now);
         if (removed > 0) Log.Info($"剪贴板历史：清理了 {removed} 条");
+    }
+
+    public void ApplyRecordingPolicy()
+    {
+        var current = settings();
+        Monitor.Configure(current.ClipboardHistory, current.ClipboardExcludedApps);
     }
 
     private async Task RecognizePendingImages()
