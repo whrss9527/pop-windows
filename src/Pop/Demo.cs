@@ -509,6 +509,9 @@ internal static class Demo
                 try
                 {
                     await Wait(400);
+                    if (guide.FindName("GuideFooterTip") is not TextBlock footer || !footer.IsVisible || footer.ActualHeight <= 0
+                        || footer.TranslatePoint(new Point(), guide).Y + footer.ActualHeight > guide.ActualHeight - 12)
+                        throw new InvalidOperationException("使用指南底部提示被裁切");
                     Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(guide).Handle, out var rect);
                     Shot("usage-guide", new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
                     if (app.Settings.ToJson() != before) throw new InvalidOperationException("打开使用指南改动了设置");

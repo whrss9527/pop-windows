@@ -21,7 +21,9 @@ internal sealed partial class SettingsWindow
         var footer = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 14, 0, 0) };
         var done = ActionButton("知道了", null, guide.Close, WpfUi.ControlAppearance.Primary);
         DockPanel.SetDock(done, Dock.Right); footer.Children.Add(done);
-        footer.Children.Add(Note("指南不会修改设置，可以随时重新打开。"));
+        var footerHint = Note("在设置中按 Ctrl+F 搜索功能，改动会自动保存。\n指南不会修改设置，可以随时重新打开。");
+        footerHint.FontSize = Theme.Caption; footerHint.LineHeight = 18; footerHint.Margin = new Thickness(0, 0, 12, 0);
+        guide.RegisterName("GuideFooterTip", footerHint); footer.Children.Add(footerHint);
         DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
         var body = new StackPanel { Margin = new Thickness(0, 0, 8, 0) };
         body.Children.Add(Label("让选中的内容直接可用", Theme.Subtitle, "TextFillColorPrimaryBrush", FontWeights.SemiBold));
@@ -70,7 +72,6 @@ internal sealed partial class SettingsWindow
             Go("GuideOpenRules", "调整直达规则", "rules"));
         Step(Symbol.ClipboardTextLtr24, "03  找回内容与调整偏好", clipboard,
             Go("GuideOpenClipboard", "剪贴板设置", "clipboard"), Go("GuideOpenBackup", "备份与迁移", "backup"));
-        body.Children.Add(Note("在设置中按 Ctrl+F，输入用途或中英文关键词查找功能。改动立即生效，窗口底部显示保存状态。"));
         root.Children.Add(new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
         guide.BodyContent(root);
