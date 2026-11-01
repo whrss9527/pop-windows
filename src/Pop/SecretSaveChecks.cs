@@ -23,6 +23,7 @@ internal static class SecretSaveChecks
         const string original = "ci-original-placeholder";
         const string replacement = "ci-replacement-placeholder";
         SecretStore.Set(SecretStore.AzureTranslatorKey, original);
+        SecretStore.Set("futureCredential", original);
         var before = File.ReadAllBytes(file);
         app.UpdateSettings(s => s.TranslationEngine = TranslationEngine.Azure);
         var window = app.ShowSettings("translate");
@@ -48,7 +49,25 @@ internal static class SecretSaveChecks
             if (key.Password.Length != 0 || status.Text != "Key 已保存" || SecretStore.Get(SecretStore.AzureTranslatorKey) != replacement)
                 throw new InvalidOperationException("解除占用后重试未真正保存凭据");
             if (File.ReadAllText(file).Contains(replacement, StringComparison.Ordinal)) throw new InvalidOperationException("凭据以明文写入磁盘");
+            if (SecretStore.Get("futureCredential") != original) throw new InvalidOperationException("保存当前 Key 覆盖了其他凭据");
+            if (Directory.EnumerateFiles(directory, "*.tmp").Any()) throw new InvalidOperationException("保存失败遗留了本次临时文件");
             await Task.Delay(200); shot("secret-save-saved", window);
+
+            window.Close();
+            var damaged = System.Text.Encoding.UTF8.GetBytes("{\"azureTranslatorKey\": invalid-json");
+            File.WriteAllBytes(file, damaged);
+            window = app.ShowSettings("translate");
+            await Dispatcher.Yield(DispatcherPriority.ContextIdle);
+            key = Find<WpfUi.PasswordBox>("translation-key");
+            save = Find<WpfUi.Button>("translation-key-save");
+            status = Find<TextBlock>("translation-key-status");
+            if (!status.Text.Contains("无法读取", StringComparison.Ordinal)) throw new InvalidOperationException("损坏凭据被错误显示为尚未保存");
+            await Task.Delay(200); shot("secret-read-unavailable", window);
+            key.Password = replacement;
+            await InvokeSave();
+            if (key.Password != replacement || !status.Text.Contains("保存失败", StringComparison.Ordinal)
+                || !File.ReadAllBytes(file).SequenceEqual(damaged))
+                throw new InvalidOperationException("损坏凭据保存时丢失输入或改写了原文件");
 
             async Task InvokeSave()
             {

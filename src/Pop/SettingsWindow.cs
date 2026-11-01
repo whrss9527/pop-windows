@@ -726,9 +726,14 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         page.Children.Add(SearchTarget("translation", Card(Symbol.Translate24, "用哪个翻译服务", "必应翻译直接就能用；有 Azure 账号的话可以用自己的翻译资源", engine)));
 
         // Microsoft Translator 的 Key 和区域
-        var hasKey = !string.IsNullOrEmpty(SecretStore.Get(SecretStore.AzureTranslatorKey));
-        var key = new WpfUi.PasswordBox { PlaceholderText = hasKey ? "已保存。输入新的 Key 可以替换" : "粘贴 Key", Width = 260 };
-        var keyStatus = Label(hasKey ? "Key 已保存" : "还没有保存 Key", Theme.Caption, "TextFillColorSecondaryBrush");
+        var savedKey = SecretStore.Read(SecretStore.AzureTranslatorKey);
+        var hasKey = !string.IsNullOrEmpty(savedKey.Value);
+        var key = new WpfUi.PasswordBox { PlaceholderText = savedKey.Error is not null ? "无法读取旧 Key，可输入后重试" : hasKey ? "已保存。输入新的 Key 可以替换" : "粘贴 Key", Width = 260 };
+        var keyStatus = Label(savedKey.Error is not null ? "无法读取已保存的 Key" : hasKey ? "Key 已保存" : "还没有保存 Key", Theme.Caption,
+            savedKey.Error is null ? "TextFillColorSecondaryBrush" : "TextFillColorPrimaryBrush");
+        keyStatus.TextWrapping = TextWrapping.Wrap;
+        keyStatus.MaxWidth = 320;
+        keyStatus.ToolTip = savedKey.Error;
         var save = ActionButton("保存", null, () =>
         {
             var value = key.Password.Trim();
@@ -739,11 +744,15 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
                 key.Password = "";
                 key.PlaceholderText = "已保存。输入新的 Key 可以替换";
                 keyStatus.Text = "Key 已保存";
+                keyStatus.ToolTip = null;
+                keyStatus.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
                 Log.Info("保存了 Microsoft Translator 的 Key");
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
             {
-                keyStatus.Text = $"保存失败：{e.Message}";
+                keyStatus.Text = "保存失败，输入已保留。请检查凭据文件或权限后重试";
+                keyStatus.ToolTip = e.Message;
+                keyStatus.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorPrimaryBrush");
                 Log.Error("保存 Key 失败", e);
             }
         });
