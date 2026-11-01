@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
+using Pop.Core;
 
 namespace Pop;
 
@@ -9,46 +9,62 @@ namespace Pop;
 internal static class SecretStore
 {
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("io.github.whrss9527.pop");
-    private static string FilePath => Path.Combine(Paths.RoamingData, "secrets.json");
+    private static string? fileForDemo;
+    private static string FilePath => fileForDemo ?? Path.Combine(Paths.RoamingData, "secrets.json");
 
-    public static string? Get(string name)
+    internal static IDisposable UseFileForDemo(string path)
+    {
+        if (System.Windows.Application.Current is not App { IsDemo: true })
+            throw new InvalidOperationException("临时凭据路径仅用于演示回归");
+        var full = Path.GetFullPath(path);
+        var temporary = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (!full.StartsWith(temporary, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("演示凭据必须使用临时目录");
+        var previous = fileForDemo; fileForDemo = full;
+        return new DemoFileScope(() => fileForDemo = previous);
+    }
+
+    private sealed class DemoFileScope(Action restore) : IDisposable
+    {
+        private Action? restorePath = restore;
+        public void Dispose() => Interlocked.Exchange(ref restorePath, null)?.Invoke();
+    }
+
+    internal sealed record ReadResult(string? Value, string? Error);
+
+    public static string? Get(string name) => Read(name).Value;
+
+    public static string? GetTranslationKey(TranslationEngine engine)
+    {
+        if (engine != TranslationEngine.Azure) return null;
+        var saved = Read(AzureTranslatorKey);
+        if (saved.Error is not null)
+            throw new TranslationException("无法读取已保存的翻译 Key，请在设置 → 翻译中检查并重试保存");
+        return saved.Value;
+    }
+
+    internal static ReadResult Read(string name)
     {
         try
         {
-            var all = Load();
-            if (!all.TryGetValue(name, out var encrypted)) return null;
+            var encrypted = new EncryptedSecretFile(FilePath).Read(name);
+            if (encrypted is null) return new(null, null);
             var bytes = ProtectedData.Unprotect(Convert.FromBase64String(encrypted), Entropy, DataProtectionScope.CurrentUser);
-            return Encoding.UTF8.GetString(bytes);
+            return new(new UTF8Encoding(false, true).GetString(bytes), null);
         }
-        catch (Exception e) when (e is CryptographicException or FormatException or IOException or JsonException)
+        catch (Exception e) when (e is CryptographicException or FormatException or IOException or UnauthorizedAccessException or DecoderFallbackException)
         {
             Log.Error($"读取保存的 {name} 失败", e);
-            return null;
+            return new(null, e.Message);
         }
     }
 
     public static void Set(string name, string? value)
     {
-        try
-        {
-            var all = Load();
-            if (string.IsNullOrEmpty(value)) all.Remove(name);
-            else all[name] = Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(value), Entropy, DataProtectionScope.CurrentUser));
-            Directory.CreateDirectory(Paths.RoamingData);
-            var temp = FilePath + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(all));
-            File.Move(temp, FilePath, overwrite: true);
-        }
-        catch (Exception e) when (e is CryptographicException or IOException or UnauthorizedAccessException)
-        {
-            Log.Error($"保存 {name} 失败", e);
-        }
+        var encrypted = string.IsNullOrEmpty(value) ? null
+            : Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(value), Entropy, DataProtectionScope.CurrentUser));
+        // 由界面处理失败；只有写入成功才能清空输入并显示已保存。
+        new EncryptedSecretFile(FilePath).Set(name, encrypted);
     }
-
-    private static Dictionary<string, string> Load() =>
-        File.Exists(FilePath)
-            ? JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(FilePath)) ?? []
-            : [];
 
     public const string AzureTranslatorKey = "azureTranslatorKey";
 }

@@ -985,7 +985,7 @@ internal sealed partial class Coordinator : IDisposable
             try
             {
                 var translated = await translator.TranslateAsync(text, to, s.TranslationEngine,
-                    SecretStore.Get(SecretStore.AzureTranslatorKey), s.AzureTranslatorRegion, cancellation);
+                    SecretStore.GetTranslationKey(s.TranslationEngine), s.AzureTranslatorRegion, cancellation);
                 Log.Info($"翻译完成：{translated.Provider}（{translated.Via}），{translated.From} → {translated.To}，{translated.Text.Length} 个字符，用时 {watch.ElapsedMilliseconds} ms{(LogSelection ? $"，译文「{Abbreviate(translated.Text)}」" : "")}");
                 return TranslationCards.Result(text, translated);
             }

@@ -726,9 +726,14 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         page.Children.Add(SearchTarget("translation", Card(Symbol.Translate24, "用哪个翻译服务", "必应翻译直接就能用；有 Azure 账号的话可以用自己的翻译资源", engine)));
 
         // Microsoft Translator 的 Key 和区域
-        var hasKey = !string.IsNullOrEmpty(SecretStore.Get(SecretStore.AzureTranslatorKey));
-        var key = new WpfUi.PasswordBox { PlaceholderText = hasKey ? "已保存。输入新的 Key 可以替换" : "粘贴 Key", Width = 260 };
-        var keyStatus = Label(hasKey ? "Key 已保存" : "还没有保存 Key", Theme.Caption, "TextFillColorSecondaryBrush");
+        var savedKey = SecretStore.Read(SecretStore.AzureTranslatorKey);
+        var hasKey = !string.IsNullOrEmpty(savedKey.Value);
+        var key = new WpfUi.PasswordBox { PlaceholderText = savedKey.Error is not null ? "无法读取旧 Key，可输入后重试" : hasKey ? "已保存。输入新的 Key 可以替换" : "粘贴 Key", Width = 260 };
+        var keyStatus = Label(savedKey.Error is not null ? "无法读取已保存的 Key" : hasKey ? "Key 已保存" : "还没有保存 Key", Theme.Caption,
+            savedKey.Error is null ? "TextFillColorSecondaryBrush" : "TextFillColorPrimaryBrush");
+        keyStatus.TextWrapping = TextWrapping.Wrap;
+        keyStatus.MaxWidth = 320;
+        keyStatus.ToolTip = savedKey.Error;
         var save = ActionButton("保存", null, () =>
         {
             var value = key.Password.Trim();
@@ -739,14 +744,21 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
                 key.Password = "";
                 key.PlaceholderText = "已保存。输入新的 Key 可以替换";
                 keyStatus.Text = "Key 已保存";
+                keyStatus.ToolTip = null;
+                keyStatus.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
                 Log.Info("保存了 Microsoft Translator 的 Key");
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
             {
-                keyStatus.Text = $"保存失败：{e.Message}";
+                keyStatus.Text = "保存失败，输入已保留。请检查凭据文件或权限后重试";
+                keyStatus.ToolTip = e.Message;
+                keyStatus.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorPrimaryBrush");
                 Log.Error("保存 Key 失败", e);
             }
         });
+        System.Windows.Automation.AutomationProperties.SetAutomationId(key, "translation-key");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(save, "translation-key-save");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(keyStatus, "translation-key-status");
         save.Margin = new Thickness(8, 0, 0, 0);
         var keyControl = new StackPanel();
         keyControl.Children.Add(Horizontal(key, save));
@@ -799,6 +811,8 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
     {
         var input = new WpfUi.TextBox { Text = "Select any text, then press and hold the right mouse button.", TextWrapping = TextWrapping.Wrap };
         var output = Label("", Theme.BodyLarge, "TextFillColorPrimaryBrush");
+        output.TextWrapping = TextWrapping.Wrap;
+        System.Windows.Automation.AutomationProperties.SetAutomationId(output, "translation-test-result");
         output.Margin = new Thickness(2, 14, 0, 0);
         output.Visibility = Visibility.Collapsed;
         var caption = Label("", Theme.Caption, "TextFillColorSecondaryBrush");
@@ -816,10 +830,11 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             output.Visibility = Visibility.Visible;
             caption.Visibility = Visibility.Collapsed;
             output.Text = "正在翻译…";
+            RevealTranslationOutput(go, output);
             try
             {
                 http ??= new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                var result = await new Translator(http).TranslateAsync(text, to, engine, SecretStore.Get(SecretStore.AzureTranslatorKey), s.AzureTranslatorRegion);
+                var result = await new Translator(http).TranslateAsync(text, to, engine, SecretStore.GetTranslationKey(engine), s.AzureTranslatorRegion);
                 output.Text = result.Text;
                 caption.Text = $"{Languages.Name(result.From)} → {Languages.Name(result.To)} · {result.Provider}";
                 caption.Visibility = Visibility.Visible;
@@ -835,8 +850,10 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             finally
             {
                 go.IsEnabled = true;
+                RevealTranslationOutput(go, output);
             }
         }, WpfUi.ControlAppearance.Primary);
+        System.Windows.Automation.AutomationProperties.SetAutomationId(go, "translation-test-run");
         go.Margin = new Thickness(8, 0, 0, 0);
         go.VerticalAlignment = VerticalAlignment.Top;
         var line = new Grid();
@@ -850,6 +867,19 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         stack.Children.Add(output);
         stack.Children.Add(caption);
         return CardBorder(stack);
+    }
+
+    private void RevealTranslationOutput(WpfUi.Button button, TextBlock output)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (!IsVisible || current != "translate" || !output.IsVisible
+                || !scroller.IsAncestorOf(button) || !scroller.IsAncestorOf(output)) return;
+            var origin = button.TranslatePoint(new Point(), scroller);
+            // 只接续仍在查看的试译区域；用户已滚到其他位置时不打断。
+            if (origin.Y + button.ActualHeight > 0 && origin.Y < scroller.ActualHeight)
+                output.BringIntoView();
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     // ── 剪贴板 ──────────────────────────────────────────
