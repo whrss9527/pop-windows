@@ -34,6 +34,10 @@ internal sealed partial class SettingsWindow
     private bool SearchKey(KeyEventArgs e)
     {
         if (shortcutRecording || settingsSearch is null) return false;
+        if (e.Key == Key.Escape && toolsQueryBox is { IsKeyboardFocusWithin: true, Text.Length: > 0 })
+        {
+            toolsQueryBox.Clear(); return true;
+        }
         if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control)
         {
             settingsSearch.Focus(); settingsSearch.SelectAll(); settingsSearch.BringIntoView(); return true;
@@ -61,6 +65,7 @@ internal sealed partial class SettingsWindow
 
     private void ShowSearchResults(string query)
     {
+        ClearToolView();
         ClearSearchTarget();
         searchTargets.Clear();
         beforeSearchOffset ??= scroller.VerticalOffset;

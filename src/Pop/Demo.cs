@@ -543,7 +543,7 @@ internal static class Demo
                     Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var rect);
                     Shot(name, new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
                 });
-                SmokeTest.Report("tools-settings=ok counter=live bulk=live");
+                SmokeTest.Report("tools-settings=ok counter=live bulk=live filter=readonly scope=matched focus=preserved scroll=preserved locked=on esc=clear");
             });
 
         if (Want("usage-guide"))
