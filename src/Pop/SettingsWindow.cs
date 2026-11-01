@@ -830,6 +830,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             output.Visibility = Visibility.Visible;
             caption.Visibility = Visibility.Collapsed;
             output.Text = "正在翻译…";
+            RevealTranslationOutput(go, output);
             try
             {
                 http ??= new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
@@ -849,6 +850,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             finally
             {
                 go.IsEnabled = true;
+                RevealTranslationOutput(go, output);
             }
         }, WpfUi.ControlAppearance.Primary);
         System.Windows.Automation.AutomationProperties.SetAutomationId(go, "translation-test-run");
@@ -865,6 +867,19 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         stack.Children.Add(output);
         stack.Children.Add(caption);
         return CardBorder(stack);
+    }
+
+    private void RevealTranslationOutput(WpfUi.Button button, TextBlock output)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (!IsVisible || current != "translate" || !output.IsVisible
+                || !scroller.IsAncestorOf(button) || !scroller.IsAncestorOf(output)) return;
+            var origin = button.TranslatePoint(new Point(), scroller);
+            // 只接续仍在查看的试译区域；用户已滚到其他位置时不打断。
+            if (origin.Y + button.ActualHeight > 0 && origin.Y < scroller.ActualHeight)
+                output.BringIntoView();
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     // ── 剪贴板 ──────────────────────────────────────────

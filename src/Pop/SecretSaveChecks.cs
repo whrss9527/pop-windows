@@ -76,6 +76,16 @@ internal static class SecretSaveChecks
             var translated = Find<TextBlock>("translation-test-result");
             if (!translated.IsVisible || !translated.Text.Contains("无法读取已保存的翻译 Key", StringComparison.Ordinal))
                 throw new InvalidOperationException("实际翻译没有明确报告凭据读取失败");
+            await Dispatcher.Yield(DispatcherPriority.ContextIdle);
+            var ancestor = System.Windows.Media.VisualTreeHelper.GetParent(translated);
+            while (ancestor is not null && ancestor is not ScrollViewer) ancestor = System.Windows.Media.VisualTreeHelper.GetParent(ancestor);
+            if (ancestor is not ScrollViewer viewport) throw new InvalidOperationException("试译反馈不在可检查的视口中");
+            var feedback = translated.TransformToAncestor(viewport).TransformBounds(new System.Windows.Rect(0, 0, translated.ActualWidth, translated.ActualHeight));
+            if (translated.ActualHeight <= 0 || feedback.Top < -1 || feedback.Bottom > viewport.ActualHeight + 1)
+            {
+                shot("secret-translation-clipped-problem", window);
+                throw new InvalidOperationException($"试译反馈被窗口底部遮挡：top={feedback.Top} bottom={feedback.Bottom} viewport={viewport.ActualHeight}");
+            }
             await Task.Delay(200); shot("secret-translation-unavailable", window);
 
             Task InvokeSave() => InvokeButton(save);
