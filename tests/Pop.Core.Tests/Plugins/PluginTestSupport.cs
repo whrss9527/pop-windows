@@ -61,7 +61,11 @@ public sealed class TempFolder : IDisposable
     {
         try
         {
-            if (Directory.Exists(Path)) Directory.Delete(Path, recursive: true);
+            var target = System.IO.Path.GetFullPath(Path);
+            var relative = System.IO.Path.GetRelativePath(System.IO.Path.GetFullPath(System.IO.Path.GetTempPath()), target);
+            if (!string.IsNullOrEmpty(System.IO.Path.GetDirectoryName(relative)) || !relative.StartsWith("pop-plugins-", StringComparison.Ordinal))
+                throw new InvalidOperationException("测试目录超出临时目录范围");
+            if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
         }
         catch (IOException)
         {

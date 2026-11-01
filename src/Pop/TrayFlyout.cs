@@ -28,6 +28,9 @@ internal sealed class TrayFlyout : Window
     private readonly ScrollViewer viewport = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, CanContentScroll = false };
     private double maxPanelHeight = 650;
     private bool closing;
+    private FrameworkElement? recoveryEntry;
+
+    internal bool RecoveryNoticeIsVisible => recoveryEntry is { IsVisible: true, ActualHeight: > 0 };
 
     /// 截背景时多截的高度（DIP），够放下更新提示
     private const double ExtraHeight = 96;
@@ -199,6 +202,13 @@ internal sealed class TrayFlyout : Window
     {
         body.Children.Clear();
         body.Children.Add(Header());
+        recoveryEntry = null;
+        if (app.SettingsReadProblem)
+        {
+            recoveryEntry = Row(WpfUi.SymbolRegular.Warning24, "原设置需要处理", "查看", () => Then(app.ShowSettings));
+            recoveryEntry.ToolTip = "原设置未能读取。打开设置查看恢复方法，保存前会先保留原文件副本。";
+            body.Children.Add(recoveryEntry);
+        }
         if (app.SettingsSaveError is not null)
             body.Children.Add(Row(WpfUi.SymbolRegular.Warning24, "设置尚未保存", "重试", () => app.RetrySaveSettings()));
         if (UpdateBanner() is { } banner) body.Children.Add(banner);

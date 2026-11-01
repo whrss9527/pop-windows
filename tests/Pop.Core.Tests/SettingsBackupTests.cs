@@ -75,4 +75,34 @@ public sealed class SettingsBackupTests : IDisposable
         Assert.False(File.Exists(folder.File("plugins/new.json"))); Assert.Equal(0, changed);
         Assert.False(store.Reload());
     }
+
+    [Fact]
+    public void ImportUsesProtectedSettingsWriterAndPreservesInvalidOriginal()
+    {
+        var path = folder.File("settings.json");
+        File.WriteAllText(path, "broken original");
+        var document = SettingsDocument.Open(path);
+        using var store = new PluginStore(folder.File("plugins"));
+        var backup = new SettingsBackup(new() { HoldMilliseconds = 700 }, [Plugin("imported")]);
+        backup.Restore(path, store, document.Save);
+        Assert.Equal(700, AppSettings.Load(path).HoldMilliseconds);
+        Assert.Equal("broken original", File.ReadAllText(document.RecoveryPath!));
+        Assert.NotNull(store.Find("imported"));
+    }
+
+    [Fact]
+    public void SourceConflictDuringImportRollsPluginsBackAndKeepsRepairedSettings()
+    {
+        var path = folder.File("settings.json");
+        File.WriteAllText(path, "broken original");
+        var document = SettingsDocument.Open(path);
+        using var store = new PluginStore(folder.File("plugins"));
+        store.Save(Plugin("old", "原名"));
+        const string repaired = "{\"holdMilliseconds\":650}";
+        File.WriteAllText(path, repaired);
+        var backup = new SettingsBackup(new() { HoldMilliseconds = 700 }, [Plugin("old", "新名"), Plugin("new")]);
+        Assert.Throws<SettingsFileChangedException>(() => backup.Restore(path, store, document.Save));
+        Assert.Equal(repaired, File.ReadAllText(path));
+        Assert.Equal("原名", store.Find("old")!.Name); Assert.Null(store.Find("new"));
+    }
 }

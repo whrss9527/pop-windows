@@ -51,6 +51,22 @@ public sealed class AtomicFileTests : IDisposable
         Assert.Equal("relative", File.ReadAllText(path));
     }
 
+    [Fact]
+    public void GuardRunsAfterStagingAndFailurePreservesTheTarget()
+    {
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "settings.json");
+        File.WriteAllText(path, "original");
+        Assert.Throws<IOException>(() => AtomicFile.WriteAllText(path, "new", () =>
+        {
+            Assert.Single(Directory.GetFiles(directory, "*.tmp"));
+            Assert.Equal("original", File.ReadAllText(path));
+            throw new IOException("文件已变化");
+        }));
+        Assert.Equal("original", File.ReadAllText(path));
+        Assert.Empty(Directory.GetFiles(directory, "*.tmp"));
+    }
+
     public void Dispose()
     {
         var target = Path.GetFullPath(directory);
