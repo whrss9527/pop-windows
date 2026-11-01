@@ -879,7 +879,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             app.HistoryHotKey is null ? "快捷键被别的程序占用了，可以从托盘面板或「全部功能」里打开" : "在任意位置按下这组快捷键，打字搜索，回车粘贴",
             Keys(app.HistoryHotKey)));
 
-        int[] dayChoices = [1, 7, 30, 90, 365];
+        var dayChoices = new[] { 1, 7, 30, 90, 365, s.ClipboardRetentionDays }.Distinct().Order().ToArray();
         var days = new ComboBox { MinWidth = 140 };
         foreach (var d in dayChoices) days.Items.Add($"{d} 天");
         days.SelectedIndex = Math.Max(0, Array.IndexOf(dayChoices, s.ClipboardRetentionDays));
@@ -887,7 +887,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         {
             if (days.SelectedIndex >= 0) Update(x => x.ClipboardRetentionDays = dayChoices[days.SelectedIndex]);
         };
-        page.Children.Add(Card(Symbol.Clock24, "保存时间", "超过这个时间的记录自动删除，固定的除外", days));
+        page.Children.Add(Card(Symbol.Clock24, "保存时间", "自动清理开启后，超过这个时间的记录删除，固定的除外", days));
 
         var max = new WpfUi.NumberBox
         {
@@ -904,7 +904,10 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         {
             if (e.NewValue is { } v) Update(x => x.ClipboardMaxItems = (int)Math.Clamp(v, 10, 100_000));
         };
-        page.Children.Add(Card(Symbol.Stack24, "最多保存", "超过这个条数时删掉最早的，固定的不算在内", max));
+        page.Children.Add(Card(Symbol.Stack24, "最多保存", "自动清理开启后，超出条数时删除最早的记录，固定的不算在内", max));
+        var automaticCleanup = Toggle(s.ClipboardAutomaticCleanup, v => { Update(x => x.ClipboardAutomaticCleanup = v); ShowPage(animate: false); });
+        System.Windows.Automation.AutomationProperties.SetName(automaticCleanup, "自动清理剪贴板历史");
+        page.Children.Add(Card(Symbol.Clock24, "自动清理历史", "先确认上方天数与条数。开启后会立即按所选规则清理；关闭时保留记录，仍可手动删除", automaticCleanup));
 
         page.Children.Add(Section("隐私"));
         var excluded = new WpfUi.TextBox

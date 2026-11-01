@@ -41,24 +41,26 @@ internal sealed class ClipboardHistory : IDisposable
     public void Cleanup()
     {
         var s = settings();
-        var removed = Store.Cleanup(s.ClipboardRetentionDays, s.ClipboardMaxItems, DateTimeOffset.Now);
+        var removed = ClipboardRetentionPolicy.For(s).Cleanup(Store, DateTimeOffset.Now);
         if (removed > 0) Log.Info($"剪贴板历史：清理了 {removed} 条");
     }
 
     private async Task RecognizePendingImages()
     {
-        if (recognizing) return;
+        if (recognizing || !settings().ClipboardHistory) return;
         recognizing = true;
         try
         {
             foreach (var item in Store.ImagesWithoutRecognizedText(3))
             {
+                if (!settings().ClipboardHistory) return;
                 if (Store.ImagePath(item) is not { } path || !File.Exists(path))
                 {
                     Store.SetRecognizedText("", item.Id);
                     continue;
                 }
                 var text = await TextRecognizer.RecognizeAsync(await File.ReadAllBytesAsync(path));
+                if (!settings().ClipboardHistory) return;
                 Store.SetRecognizedText(text, item.Id);
             }
         }

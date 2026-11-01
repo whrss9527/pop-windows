@@ -560,6 +560,78 @@ internal static class Demo
                 window.Close(); SmokeTest.Report("backup-preview=ok cancel=ok unchanged=ok");
             });
 
+        if (Want("settings-recovery"))
+            await Scene("settings-recovery", async () =>
+            {
+                var original = AppSettings.FromJson(app.Settings.ToJson());
+                var directory = Path.Combine(Path.GetTempPath(), $"pop-settings-recovery-{Guid.NewGuid():N}");
+                Directory.CreateDirectory(directory);
+                var path = Path.Combine(directory, "settings.json");
+                var blockedRecovery = Path.Combine(directory, "Recovery");
+                SettingsWindow? window = null;
+                try
+                {
+                    const string raw = "{原来的配置还没有修复";
+                    File.WriteAllText(path, raw);
+                    app.PreviewSettingsFile(path);
+                    window = app.ShowSettings("general"); await Wait(450);
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var rect);
+                    var area = new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32);
+                    if (!app.SettingsReadProblem || app.Settings.Enabled || app.Settings.ClipboardHistory || app.Settings.ClipboardAutomaticCleanup || !window.RecoveryNoticeIsVisible
+                        || File.ReadAllText(path) != raw)
+                        throw new InvalidOperationException("设置异常未准确显示、提示被裁切或原文件已修改");
+                    Shot("settings-recovery-needed", area);
+                    File.WriteAllText(blockedRecovery, "阻止创建副本目录");
+                    app.UpdateSettings(s => s.HoldMilliseconds = 600);
+                    if (app.RetrySaveSettings() || File.ReadAllText(path) != raw || !app.SettingsReadProblem)
+                        throw new InvalidOperationException("保留副本失败时覆盖了原设置");
+                    await Wait(200); Shot("settings-recovery-blocked", area);
+                    File.Delete(blockedRecovery);
+                    if (!app.RetrySaveSettings() || app.SettingsReadProblem || app.SettingsRecoveryPath is not { } preserved
+                        || File.ReadAllText(preserved) != raw || AppSettings.Load(path).HoldMilliseconds != 600 || AppSettings.Load(path).ClipboardAutomaticCleanup)
+                        throw new InvalidOperationException("重试没有先保留原文件再保存当前设置");
+                    await Wait(200);
+                    if (!window.RecoveryNoticeIsVisible) throw new InvalidOperationException("保留副本后的说明不可见");
+                    Shot("settings-recovery-saved", area);
+
+                    File.WriteAllText(path, "second broken file"); app.PreviewSettingsFile(path);
+                    var imported = new AppSettings { HoldMilliseconds = 750, Enabled = false, ClipboardHistory = false };
+                    var bundle = app.ImportBackup(new SettingsBackup(imported, []));
+                    if (app.SettingsReadProblem || !File.Exists(bundle) || app.SettingsRecoveryPath is not { } importedOriginal
+                        || File.ReadAllText(importedOriginal) != "second broken file" || AppSettings.Load(path).HoldMilliseconds != 750)
+                        throw new InvalidOperationException("导入设置绕过了原文件保留");
+
+                    File.WriteAllText(path, "third broken file"); app.PreviewSettingsFile(path);
+                    var repaired = new AppSettings { HoldMilliseconds = 700, Enabled = false, ClipboardHistory = false }.ToJson();
+                    File.WriteAllText(path, repaired); app.UpdateSettings(s => s.HoldMilliseconds = 500);
+                    if (app.RetrySaveSettings() || File.ReadAllText(path) != repaired)
+                        throw new InvalidOperationException("临时配置覆盖了外部已修复的文件");
+                    await Wait(200); Shot("settings-recovery-conflict", area);
+                    if (!app.ReloadSettings() || app.SettingsReadProblem || app.SettingsSavePending
+                        || app.Settings.HoldMilliseconds != 700 || File.ReadAllText(path) != repaired)
+                        throw new InvalidOperationException("重新读取没有加载修复后的设置");
+                    File.WriteAllText(path, "fourth broken file"); app.PreviewSettingsFile(path);
+                    app.UpdateSettings(s => s.HoldMilliseconds = 550);
+                    var current = app.Settings.ToJson(); File.Delete(path);
+                    if (app.ReloadSettings() || File.Exists(path) || app.Settings.ToJson() != current || app.SettingsSavePending)
+                        throw new InvalidOperationException("原文件消失时重新读取丢弃了当前改动或擅自新建文件");
+                    await Wait(200); Shot("settings-recovery-missing", area);
+                    if (!app.RetrySaveSettings() || AppSettings.Load(path).HoldMilliseconds != 550)
+                        throw new InvalidOperationException("原文件消失后的明确保存未生成当前配置");
+                    SmokeTest.Report("settings-recovery=ok preserve=ok retry=ok import=ok conflict=ok reload=ok missing=preserved");
+                }
+                finally
+                {
+                    app.PreviewSettingsFile(null, original);
+                    if (window?.IsVisible == true) window.Close();
+                    var target = Path.GetFullPath(directory);
+                    var relative = Path.GetRelativePath(Path.GetFullPath(Path.GetTempPath()), target);
+                    if (!string.IsNullOrEmpty(Path.GetDirectoryName(relative)) || !relative.StartsWith("pop-settings-recovery-", StringComparison.Ordinal))
+                        throw new InvalidOperationException("设置恢复检查目录超出临时范围");
+                    Directory.Delete(target, recursive: true);
+                }
+            });
+
         if (Want("settings-batching"))
             await Scene("settings-batching", async () =>
             {

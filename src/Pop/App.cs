@@ -7,7 +7,7 @@ using WindowBackdropType = Wpf.Ui.Controls.WindowBackdropType;
 
 namespace Pop;
 
-internal sealed class App : Application
+internal sealed partial class App : Application
 {
     private readonly StartupOptions options;
     private InputHook? hook;
@@ -21,14 +21,15 @@ internal sealed class App : Application
     private readonly Dictionary<string, string?> activeShortcuts = new(StringComparer.OrdinalIgnoreCase);
     private bool notifiedVersion;
     private System.Windows.Threading.DispatcherTimer? settingsSaveTimer;
-    private (int Days, int Maximum)? appliedClipboardPolicy;
+    private ClipboardRetentionPolicy? appliedClipboardPolicy;
 
     public App(StartupOptions options)
     {
         this.options = options;
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         // 演示模式用默认设置，也不保存，不影响真正的设置
-        Settings = options.DemoShots is null ? AppSettings.Load(Paths.Settings) : new AppSettings();
+        settingsDocument = options.DemoShots is null ? SettingsDocument.Open(Paths.Settings) : null;
+        Settings = settingsDocument?.Settings ?? new AppSettings();
         Updater = new Updater(() => Settings);
     }
 
@@ -85,7 +86,7 @@ internal sealed class App : Application
         hook.Start();
         NativeAutomation.WarmUp();
         history = new ClipboardHistory(() => Settings);
-        appliedClipboardPolicy = (Settings.ClipboardRetentionDays, Settings.ClipboardMaxItems);
+        appliedClipboardPolicy = ClipboardRetentionPolicy.For(Settings);
         coordinator = new Coordinator(Dispatcher, hook, () => Settings, history, () => Plugins, PluginRunner);
         watchdog = new UiWatchdog(Dispatcher);
         ConfigureHotKeys();
@@ -99,6 +100,12 @@ internal sealed class App : Application
         else if (!options.Silent && !System.IO.File.Exists(Paths.Settings))
             tray.Notify("Pop 已在运行", "在任意 App 里选中文字，长按鼠标右键试试。点任务栏右下角的 Pop 图标可以打开面板和设置。");
         if (!System.IO.File.Exists(Paths.Settings)) SaveSettings();
+
+        if (SettingsReadProblem)
+        {
+            Log.Info($"设置读取异常：{settingsDocument?.State}");
+            tray.Notify("原设置需要处理", "已暂停鼠标唤起、历史记录和自动清理，请在设置查看恢复入口。", warning: true);
+        }
 
         if (options.ShowSettings) ShowSettings();
         if (!SmokeTest.ExitAfterStart) _ = Dispatcher.BeginInvoke(() => coordinator.WarmUp(), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
@@ -156,7 +163,7 @@ internal sealed class App : Application
             hook.ExcludeApplications(Settings.TriggerExcludedApps);
         }
         coordinator?.SettingsUpdated();
-        var policy = (Settings.ClipboardRetentionDays, Settings.ClipboardMaxItems);
+        var policy = ClipboardRetentionPolicy.For(Settings);
         if (history is not null && appliedClipboardPolicy != policy)
         {
             history.Cleanup(); appliedClipboardPolicy = policy;
@@ -169,18 +176,22 @@ internal sealed class App : Application
 
     public string ImportBackup(SettingsBackup backup)
     {
-        var directory = Path.Combine(Paths.RoamingData, "Backups");
+        if (IsDemo && settingsDocument is null) throw new InvalidOperationException("演示导入需要独立的设置文件");
+        var directory = Path.Combine(Path.GetDirectoryName(SettingsFilePath)!, "Backups");
         Directory.CreateDirectory(directory);
-        var recovery = Path.Combine(directory, $"导入前-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..6]}.json");
-        File.WriteAllText(recovery, new SettingsBackup(Settings, Plugins.Manifests, Updater.CurrentVersion.ToString()).ToJson());
-        backup.Restore(Paths.Settings, Plugins);
-        Settings = AppSettings.FromJson(backup.Settings.ToJson());
-        settingsSaveTimer?.Stop(); SettingsSavePending = false;
-        SettingsSaveError = null;
-        SettingsHaveBeenSaved = true;
-        SettingsSaveStateChanged?.Invoke();
-        ApplySettings();
-        return recovery;
+        var recovery = Path.Combine(directory, $"导入前-{DateTime.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.json");
+        AtomicFile.WriteAllText(recovery, new SettingsBackup(Settings, Plugins.Manifests, Updater.CurrentVersion.ToString()).ToJson());
+        try
+        {
+            backup.Restore(SettingsFilePath, Plugins, settingsDocument is null ? null : settingsDocument.Save);
+            Settings = AppSettings.FromJson(backup.Settings.ToJson());
+            settingsSaveTimer?.Stop(); SettingsSavePending = false;
+            SettingsSaveError = null;
+            SettingsHaveBeenSaved = true;
+            ApplySettings();
+            return recovery;
+        }
+        finally { SettingsSaveStateChanged?.Invoke(); }
     }
 
     // ── 插件 ──────────────────────────────────────────
@@ -423,7 +434,8 @@ internal sealed class App : Application
         SettingsHaveBeenSaved = false;
         try
         {
-            if (!IsDemo) Settings.Save(Paths.Settings);
+            if (settingsDocument is not null) settingsDocument.Save(Settings);
+            else if (!IsDemo) Settings.Save(Paths.Settings);
             SettingsSaveError = null;
             SettingsHaveBeenSaved = true;
         }

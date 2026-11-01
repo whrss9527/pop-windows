@@ -67,6 +67,6 @@ public sealed record SettingsBackup(AppSettings Settings, IReadOnlyList<PluginMa
     }
 
     /// 全部验证通过才保存。插件同 ID 覆盖，其他已有插件保留，设置保存失败时回滚插件。
-    public void Restore(string settingsPath, PluginStore store) =>
-        store.ImportBatch(Plugins, () => Settings.Save(settingsPath));
+    public void Restore(string settingsPath, PluginStore store, Action<AppSettings>? saveSettings = null) =>
+        store.ImportBatch(Plugins, () => { if (saveSettings is null) Settings.Save(settingsPath); else saveSettings(Settings); });
 }

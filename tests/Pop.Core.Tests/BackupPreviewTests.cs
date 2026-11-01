@@ -4,6 +4,16 @@ namespace Pop.Core.Tests;
 
 public sealed class BackupPreviewTests
 {
+    [Fact]
+    public void AutomaticCleanupChangeIsVisibleWithoutChangingRetentionNumbers()
+    {
+        var current = new AppSettings();
+        var incoming = AppSettings.FromJson(current.ToJson()); incoming.ClipboardAutomaticCleanup = false;
+        var change = Assert.Single(BackupPreview.Compare(new(incoming, []), current, []).Settings);
+        Assert.Equal("剪贴板偏好", change.Title);
+        Assert.Contains("自动清理开", change.Before); Assert.Contains("自动清理关", change.After);
+    }
+
     private static PluginManifest Plugin(string id, string name = "搜索") => new()
     { Id = id, Name = name, Action = new PluginAction { Type = PluginActionType.Url, Template = "https://example.com/?q={text}" } };
 

@@ -62,12 +62,7 @@ public class TextPreviewTests
         var large = string.Concat(Enumerable.Repeat("line\r\n", 200_000));
         var trailing = "hello" + new string(' ', 1_000_000);
         TextPreview.SingleLine(small, 120); TextPreview.SingleLine(large, 120);
-        long Allocation(string text)
-        {
-            var before = GC.GetAllocatedBytesForCurrentThread();
-            TextPreview.SingleLine(text, 120);
-            return GC.GetAllocatedBytesForCurrentThread() - before;
-        }
+        long Allocation(string text) => MedianAllocation(() => TextPreview.SingleLine(text, 120));
         Assert.Equal(TextPreview.SingleLine(small, 120), TextPreview.SingleLine(large, 120));
         Assert.InRange(Allocation(large), 0, Allocation(small) + 4096);
         Assert.Equal("hello", TextPreview.SingleLine(trailing, 120));
@@ -90,12 +85,27 @@ public class TextPreviewTests
     {
         var large = string.Concat(Enumerable.Repeat("段落\r\n正文\n", 100_000));
         TextPreview.WithLineBreaks(large, 70);
-        var before = GC.GetAllocatedBytesForCurrentThread();
         var preview = TextPreview.WithLineBreaks(large, 70);
-        var allocation = GC.GetAllocatedBytesForCurrentThread() - before;
+        var allocation = MedianAllocation(() => TextPreview.WithLineBreaks(large, 70));
         var legacy = large.Replace("\r", "").Replace("\n", " ↵ ");
         Assert.Equal(legacy[..70] + "…", preview);
         Assert.InRange(allocation, 0, 8192);
         Assert.Throws<ArgumentOutOfRangeException>(() => TextPreview.WithLineBreaks("text", -1));
+    }
+
+    private static long MedianAllocation(Func<string> preview)
+    {
+        // 预热相同输入，取中位数避开运行时一次性分配；整段分配仍会使样本超出原门槛。
+        for (var n = 0; n < 3; n++) GC.KeepAlive(preview());
+        var samples = new long[5];
+        for (var n = 0; n < samples.Length; n++)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            var result = preview();
+            samples[n] = GC.GetAllocatedBytesForCurrentThread() - before;
+            GC.KeepAlive(result);
+        }
+        Array.Sort(samples);
+        return samples[samples.Length / 2];
     }
 }

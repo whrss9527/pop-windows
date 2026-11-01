@@ -22,7 +22,7 @@ public static class SettingsCatalog
         new("tools", "actions", "内置工具开关", "启用或停用文字、编码、截图、取色等功能", "功能 大写 小写 JSON 编码 截图 OCR 取色 标尺 哈希 base64 hash tools actions"),
         new("plugins", "actions", "我的插件", "新建、导入、编辑和试运行网址或脚本插件", "功能 插件 脚本 网址 扩展 plugin javascript shell powershell cj"),
         new("translation", "translate", "翻译服务", "选择必应或 Microsoft Translator，设置目标语言并测试", "翻译 密钥 语言 中文 英语 译文 fy fanyi translation bing azure key"),
-        new("history", "clipboard", "剪贴板历史", "调整记录开关、保存天数、条数及清理方式", "剪贴板 历史 清空 保存 天数 数量 保留 clipboard history jtb"),
+        new("history", "clipboard", "剪贴板历史", "调整记录开关、保存天数、条数及自动清理", "剪贴板 历史 清空 保存 天数 数量 保留 自动清理 cleanup clipboard history jtb"),
         new("privacy", "clipboard", "不记录哪些应用", "为密码管理器等应用设置剪贴板记录排除项", "剪贴板 密码 隐私 排除 安全 clipboard privacy password exclude"),
         new("snippets", "snippets", "常用短语", "保存常用回复、邮件签名和带日期的模板", "短语 模板 常用 回复 邮件 日期 时间 snippet template phrase dy"),
         new("backup", "backup", "备份与迁移", "导出、预览导入和恢复设置及自定义插件", "备份 迁移 导入 导出 恢复 backup import export restore bf"),

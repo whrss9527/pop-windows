@@ -56,6 +56,9 @@ public sealed class AppSettings
     /// 记录剪贴板历史
     public bool ClipboardHistory { get; set; } = true;
 
+    /// 按保存天数和条数自动清理；关闭后保留已有记录，仍可手动删除。
+    public bool ClipboardAutomaticCleanup { get; set; } = true;
+
     /// 剪贴板历史保存多少天
     public int ClipboardRetentionDays { get; set; } = 30;
 
@@ -182,6 +185,9 @@ public sealed class AppSettings
                         break;
                     case "clipboardhistory" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False:
                         settings.ClipboardHistory = p.Value.GetBoolean();
+                        break;
+                    case "clipboardautomaticcleanup" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False:
+                        settings.ClipboardAutomaticCleanup = p.Value.GetBoolean();
                         break;
                     case "clipboardretentiondays" when p.Value.ValueKind == JsonValueKind.Number && p.Value.TryGetInt32(out var days):
                         settings.ClipboardRetentionDays = Math.Clamp(days, 1, 3650);
