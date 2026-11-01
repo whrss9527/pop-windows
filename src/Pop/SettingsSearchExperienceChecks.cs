@@ -13,6 +13,7 @@ internal static class SettingsSearchExperienceChecks
         if (!app.IsDemo) throw new InvalidOperationException("设置定位检查仅用于演示回归");
         var before = app.Settings.ToJson();
         var mode = app.Settings.TriggerMode;
+        var originalExcluded = app.Settings.ClipboardExcludedApps;
         var pending = app.SettingsSavePending;
         var window = new SettingsWindow(app) { Height = 520 };
         window.Show();
@@ -60,6 +61,19 @@ internal static class SettingsSearchExperienceChecks
             app.Settings.TriggerMode = mode;
             AssertReadOnly();
 
+            // 老配置中的扩展名、顺序与重复项，未经编辑时不应因浏览而被规范化。
+            app.Settings.ClipboardExcludedApps = ["Legacy.exe", "Legacy", "KeePass"];
+            var legacy = app.Settings.ToJson();
+            await Open("privacy");
+            if (Keyboard.FocusedElement is not UIElement legacyFocus || !legacyFocus.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next))
+                || Keyboard.FocusedElement is not TextBox)
+                throw new InvalidOperationException("无法聚焦旧隐私排除项");
+            await FocusSearch();
+            if (app.Settings.ToJson() != legacy || app.SettingsSavePending != pending)
+                throw new InvalidOperationException("未编辑的旧排除项被浏览操作更改");
+            app.Settings.ClipboardExcludedApps = originalExcluded;
+            AssertReadOnly();
+
             // 同一轮布局等待期间再搜索，旧任务不得把焦点抢回旧页面。
             window.PreviewSettingsSearch("不记录哪些应用");
             window.OpenFirstSearchResult();
@@ -91,7 +105,7 @@ internal static class SettingsSearchExperienceChecks
                 throw new InvalidOperationException("关闭窗口后旧定位仍在继续");
             AssertReadOnly();
         }
-        finally { app.Settings.TriggerMode = mode; window.Close(); }
+        finally { app.Settings.TriggerMode = mode; app.Settings.ClipboardExcludedApps = originalExcluded; window.Close(); }
 
         async Task Open(string id)
         {

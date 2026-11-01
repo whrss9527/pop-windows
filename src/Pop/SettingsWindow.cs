@@ -931,13 +931,16 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             PlaceholderText = "一行一个程序名",
             Margin = new Thickness(56, 0, 16, 16),
         };
+        var lastCommittedExclusions = excluded.Text;
         excluded.LostFocus += (_, _) =>
         {
+            if (excluded.Text == lastCommittedExclusions) return;
             var values = excluded.Text.Split(['\r', '\n', ',', '，'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(n => n.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? n[..^4] : n)
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (!Settings.ClipboardExcludedApps.SequenceEqual(values, StringComparer.OrdinalIgnoreCase))
                 Update(x => x.ClipboardExcludedApps = values);
+            lastCommittedExclusions = excluded.Text;
         };
         var privacy = new StackPanel();
         privacy.Children.Add(Row(Symbol.ShieldLock24, "不记录这些 App 复制的内容", "一行一个程序名，不带 .exe。密码管理器标了「不要记录」的内容本来就不会记", null));
