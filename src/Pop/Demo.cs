@@ -574,6 +574,16 @@ internal static class Demo
                     const string raw = "{原来的配置还没有修复";
                     File.WriteAllText(path, raw);
                     app.PreviewSettingsFile(path);
+                    var recoveryFlyout = new TrayFlyout(app);
+                    try
+                    {
+                        recoveryFlyout.ShowNear((int)work.Right - 160, (int)Math.Max(work.Bottom, bounds.Bottom - 20));
+                        await Wait(450);
+                        if (!recoveryFlyout.RecoveryNoticeIsVisible) throw new InvalidOperationException("托盘中缺少设置恢复入口");
+                        Shot("settings-recovery-tray");
+                    }
+                    finally { recoveryFlyout.Close(); }
+                    await Wait(200);
                     window = app.ShowSettings("general"); await Wait(450);
                     Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var rect);
                     var area = new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32);
