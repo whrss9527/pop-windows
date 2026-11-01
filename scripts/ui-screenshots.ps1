@@ -64,6 +64,7 @@ foreach ($appearance in 'light', 'dark') {
     if (-not ($lines -match 'list-selection=ok')) { $failures.Add("演示模式（${appearance}）列表搜索与快捷选择验证没有完成") }
     if (-not ($lines -match 'list-content=ok')) { $failures.Add("演示模式（${appearance}）文件与短语性能验证没有完成") }
     if (-not ($lines -match 'native-tray=ok')) { $failures.Add("演示模式（${appearance}）原生托盘与显示器验证没有完成") }
+    if (-not ($lines -match 'tray-controls=ok')) { $failures.Add("演示模式（${appearance}）托盘开关状态、辅助切换、键盘接续与设置入口验证没有完成") }
     if (-not ($lines -match 'list-sizing=ok')) { $failures.Add("演示模式（${appearance}）列表尺寸与滚动验证没有完成") }
     if (-not ($lines -match 'plugin-editor=ok')) { $failures.Add("演示模式（${appearance}）插件试运行验证没有完成") }
     if (-not ($lines -match 'plugin-match=ok')) { $failures.Add("演示模式（${appearance}）插件长度匹配性能验证没有完成") }

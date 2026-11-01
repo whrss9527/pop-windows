@@ -28,6 +28,8 @@ internal sealed class TrayFlyout : Window
     private readonly ScrollViewer viewport = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, CanContentScroll = false };
     private double maxPanelHeight = 650;
     private bool closing;
+    private long refillVersion;
+    private string? pendingFocus;
     private FrameworkElement? recoveryEntry;
 
     internal bool RecoveryNoticeIsVisible => recoveryEntry is { IsVisible: true, ActualHeight: > 0 };
@@ -60,18 +62,21 @@ internal sealed class TrayFlyout : Window
         root.RenderTransform = slide;
         Content = root;
         viewport.Content = body;
+        KeyboardNavigation.SetTabNavigation(body, KeyboardNavigationMode.Cycle);
+        KeyboardNavigation.SetDirectionalNavigation(body, KeyboardNavigationMode.Cycle);
         Native.AddExStyle(new WindowInteropHelper(this).EnsureHandle(), Native.WS_EX_TOOLWINDOW);
 
         Deactivated += (_, _) => CloseAnimated();
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Escape) CloseAnimated();
+            if (e.Key == Key.Escape) { e.Handled = true; CloseAnimated(); }
         };
         app.SettingsChanged += Refill;
         app.SettingsSaveStateChanged += OnSettingsSaved;
         app.Updater.Changed += Refill;
         Closed += (_, _) =>
         {
+            refillVersion++;
             app.SettingsChanged -= Refill;
             app.SettingsSaveStateChanged -= OnSettingsSaved;
             app.Updater.Changed -= Refill;
@@ -81,11 +86,13 @@ internal sealed class TrayFlyout : Window
     private void OnSettingsSaved() { if (!app.SettingsSavePending) Refill(); }
 
     /// 在任务栏图标旁边弹出来；x、y 是点击的位置（物理像素）
-    public void ShowNear(int x, int y)
+    public void ShowNear(int x, int y, double? heightLimitForDemo = null)
     {
+        if (heightLimitForDemo is not null && !app.IsDemo) throw new InvalidOperationException("受控托盘高度仅用于独立演示");
         Fill();
         var (bounds, work, monitorScale) = Native.MonitorDetailsAt(x, y);
         maxPanelHeight = Math.Max(120, (work.Bottom - work.Top) / monitorScale - 2 * (Gap + Theme.ShadowPad));
+        if (heightLimitForDemo is { } limit) maxPanelHeight = Math.Min(maxPanelHeight, Math.Max(120, limit));
         var height = Measure();
         scale = monitorScale;
         var w = (int)Math.Ceiling(PanelWidth * scale);
@@ -130,6 +137,7 @@ internal sealed class TrayFlyout : Window
         Show();
         Layout(height);
         Activate();
+        Dispatcher.BeginInvoke(() => { if (!closing && IsActive) FindControl("tray-toggle-mouse")?.Focus(); }, System.Windows.Threading.DispatcherPriority.Loaded);
 
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
         slide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(fromX, 0, Motion.Ms(220)) { EasingFunction = ease });
@@ -194,8 +202,22 @@ internal sealed class TrayFlyout : Window
     private void Refill()
     {
         if (closing) return;
+        if (Keyboard.FocusedElement is DependencyObject focused && IsAncestorOf(focused))
+        {
+            var id = System.Windows.Automation.AutomationProperties.GetAutomationId(focused);
+            if (id.Length > 0) pendingFocus = id;
+        }
+        var offset = viewport.VerticalOffset;
+        var version = ++refillVersion;
         Fill();
         if (IsVisible) Layout(Measure());
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (closing || !IsActive || version != refillVersion) return;
+            var id = pendingFocus; pendingFocus = null;
+            if (id is not null) FindControl(id)?.Focus();
+            viewport.ScrollToVerticalOffset(offset);
+        }, System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
 
     private void Fill()
@@ -205,29 +227,29 @@ internal sealed class TrayFlyout : Window
         recoveryEntry = null;
         if (app.SettingsReadProblem)
         {
-            recoveryEntry = Row(WpfUi.SymbolRegular.Warning24, "原设置需要处理", "查看", () => Then(app.ShowSettings));
+            recoveryEntry = Row(WpfUi.SymbolRegular.Warning24, "原设置需要处理", "查看", () => Then(app.ShowSettings), "recovery");
             recoveryEntry.ToolTip = "原设置未能读取。打开设置查看恢复方法，保存前会先保留原文件副本。";
             body.Children.Add(recoveryEntry);
         }
         if (app.SettingsSaveError is not null)
-            body.Children.Add(Row(WpfUi.SymbolRegular.Warning24, "设置尚未保存", "重试", () => app.RetrySaveSettings()));
+            body.Children.Add(Row(WpfUi.SymbolRegular.Warning24, "设置尚未保存", "重试", () => app.RetrySaveSettings(), "retry-save"));
         if (UpdateBanner() is { } banner) body.Children.Add(banner);
         body.Children.Add(Tiles());
         body.Children.Add(Divider());
-        body.Children.Add(Row(WpfUi.SymbolRegular.ClipboardTextLtr24, "剪贴板历史", app.HistoryHotKey, () => Then(app.ShowClipboardHistory)));
-        body.Children.Add(Row(WpfUi.SymbolRegular.TextBulletListLtr24, "常用短语", app.ShortcutText("snippets"), () => Then(app.ShowSnippets)));
-        var awake = Row(WpfUi.SymbolRegular.WeatherSunny24, app.IsKeepingAwake ? "保持唤醒 · 已开启" : "保持唤醒", app.ShortcutText("keepAwake"), () => Then(app.ShowKeepAwake));
+        body.Children.Add(Row(WpfUi.SymbolRegular.ClipboardTextLtr24, "剪贴板历史", app.HistoryHotKey, () => Then(app.ShowClipboardHistory), "history"));
+        body.Children.Add(Row(WpfUi.SymbolRegular.TextBulletListLtr24, "常用短语", app.ShortcutText("snippets"), () => Then(app.ShowSnippets), "snippets"));
+        var awake = Row(WpfUi.SymbolRegular.WeatherSunny24, app.IsKeepingAwake ? "保持唤醒 · 已开启" : "保持唤醒", app.ShortcutText("keepAwake"), () => Then(app.ShowKeepAwake), "awake");
         awake.ToolTip = app.AwakeStatus; body.Children.Add(awake);
-        body.Children.Add(Row(WpfUi.SymbolRegular.ScanText24, "截图识字", app.OcrHotKey, () => Then(app.CaptureText)));
-        body.Children.Add(Row(WpfUi.SymbolRegular.Pin24, "截图贴图", app.PinHotKey, () => Then(app.CapturePin)));
-        body.Children.Add(Row(WpfUi.SymbolRegular.Edit24, "截图标注", app.AnnotateHotKey, () => Then(app.CaptureAnnotate)));
-        body.Children.Add(Row(WpfUi.SymbolRegular.Color24, "屏幕取色", app.ColorHotKey, () => Then(app.PickColor)));
-        body.Children.Add(Row(WpfUi.SymbolRegular.Ruler24, "屏幕标尺", null, () => Then(app.MeasureScreen)));
+        body.Children.Add(Row(WpfUi.SymbolRegular.ScanText24, "截图识字", app.OcrHotKey, () => Then(app.CaptureText), "ocr"));
+        body.Children.Add(Row(WpfUi.SymbolRegular.Pin24, "截图贴图", app.PinHotKey, () => Then(app.CapturePin), "pin"));
+        body.Children.Add(Row(WpfUi.SymbolRegular.Edit24, "截图标注", app.AnnotateHotKey, () => Then(app.CaptureAnnotate), "annotate"));
+        body.Children.Add(Row(WpfUi.SymbolRegular.Color24, "屏幕取色", app.ColorHotKey, () => Then(app.PickColor), "color"));
+        body.Children.Add(Row(WpfUi.SymbolRegular.Ruler24, "屏幕标尺", null, () => Then(app.MeasureScreen), "measure"));
         if (PinWindow.Count > 0)
-            body.Children.Add(Row(WpfUi.SymbolRegular.PinOff24, $"关闭所有贴图（{PinWindow.Count}）", null, () => Then(PinWindow.CloseAll)));
+            body.Children.Add(Row(WpfUi.SymbolRegular.PinOff24, $"关闭所有贴图（{PinWindow.Count}）", null, () => Then(PinWindow.CloseAll), "close-pins"));
         body.Children.Add(Divider());
-        body.Children.Add(Row(WpfUi.SymbolRegular.Settings24, "设置", null, () => Then(app.ShowSettings)));
-        body.Children.Add(Row(WpfUi.SymbolRegular.Power24, "退出 Pop", null, () => Then(app.Quit)));
+        body.Children.Add(Row(WpfUi.SymbolRegular.Settings24, "设置", null, () => Then(app.ShowSettings), "settings"));
+        body.Children.Add(Row(WpfUi.SymbolRegular.Power24, "退出 Pop", null, () => Then(app.Quit), "quit"));
     }
 
     private UIElement Header()
@@ -268,6 +290,7 @@ internal sealed class TrayFlyout : Window
             Refill();
         });
         check.IsEnabled = app.Updater.Available is null;
+        System.Windows.Automation.AutomationProperties.SetAutomationId(check, "tray-check-update");
         Grid.SetColumn(check, 2);
         grid.Children.Add(check);
         return grid;
@@ -332,17 +355,17 @@ internal sealed class TrayFlyout : Window
     {
         var grid = new UniformGrid { Columns = 3, Margin = new Thickness(-4, 0, -4, 10) };
         var mouseOn = app.Settings.Enabled && app.Settings.TriggerMode != TriggerMode.Disabled;
-        grid.Children.Add(Tile(WpfUi.SymbolRegular.CursorClick24, "鼠标唤起", mouseOn, () => app.UpdateSettings(s =>
+        grid.Children.Add(Tile("mouse", WpfUi.SymbolRegular.CursorClick24, "鼠标唤起", mouseOn, "控制鼠标唤起，功能仍可从托盘入口打开", value => app.UpdateSettings(s =>
         {
-            s.Enabled = !mouseOn;
-            if (!mouseOn && s.TriggerMode == TriggerMode.Disabled) s.TriggerMode = TriggerMode.LongPressRight;
+            s.Enabled = value;
+            if (value && s.TriggerMode == TriggerMode.Disabled) s.TriggerMode = TriggerMode.LongPressRight;
         })));
-        grid.Children.Add(Tile(WpfUi.SymbolRegular.Flash24, "直接出结果", app.Settings.DirectResults, () => app.UpdateSettings(s => s.DirectResults = !s.DirectResults)));
-        grid.Children.Add(Tile(WpfUi.SymbolRegular.History24, "剪贴板记录", app.Settings.ClipboardHistory, () => app.UpdateSettings(s => s.ClipboardHistory = !s.ClipboardHistory)));
+        grid.Children.Add(Tile("direct", WpfUi.SymbolRegular.Flash24, "直接出结果", app.Settings.DirectResults, "按当前直达规则优先显示结果", value => app.UpdateSettings(s => s.DirectResults = value)));
+        grid.Children.Add(Tile("recording", WpfUi.SymbolRegular.History24, "剪贴板记录", app.Settings.ClipboardHistory, "只控制新内容的记录，已有历史仍可查看", value => app.UpdateSettings(s => s.ClipboardHistory = value)));
         return grid;
     }
 
-    private FrameworkElement Tile(WpfUi.SymbolRegular symbol, string title, bool on, Action toggle)
+    private FrameworkElement Tile(string id, WpfUi.SymbolRegular symbol, string title, bool on, string help, Action<bool> toggle)
     {
         var face = new Border
         {
@@ -355,6 +378,7 @@ internal sealed class TrayFlyout : Window
         };
         ((FrameworkElement)face.Child).HorizontalAlignment = HorizontalAlignment.Center;
         ((FrameworkElement)face.Child).VerticalAlignment = VerticalAlignment.Center;
+        System.Windows.Automation.AutomationProperties.SetAutomationId(face, "tray-face-" + id);
         var label = new TextBlock
         {
             Text = title,
@@ -366,23 +390,32 @@ internal sealed class TrayFlyout : Window
         var stack = new StackPanel { Margin = new Thickness(4, 0, 4, 0), Background = Brushes.Transparent, Cursor = Cursors.Hand };
         stack.Children.Add(face);
         stack.Children.Add(label);
-        AutomationProperties(stack, title, on);
+        var state = new TextBlock
+        {
+            Text = on ? "已开启" : "已暂停", FontSize = Theme.Caption,
+            Foreground = theme.Brush(on ? theme.Accent : theme.SecondaryText),
+            HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 0),
+        };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(state, "tray-state-" + id);
+        stack.Children.Add(state);
+        var button = new ToggleButton { Content = stack, IsChecked = on, ToolTip = help };
+        PrepareControl(button, "tray-toggle-" + id);
+        System.Windows.Automation.AutomationProperties.SetName(button, $"{title}：{state.Text}");
+        System.Windows.Automation.AutomationProperties.SetHelpText(button, help);
         var normal = face.Background;
         var hover = theme.Brush(on ? Mix(theme.Accent, theme.Dark ? Colors.White : Colors.Black, 0.08) : theme.Selected);
-        stack.MouseEnter += (_, _) => face.Background = hover;
-        stack.MouseLeave += (_, _) => face.Background = normal;
-        stack.MouseLeftButtonUp += (_, _) => toggle();
-        return stack;
+        button.MouseEnter += (_, _) => face.Background = hover;
+        button.MouseLeave += (_, _) => face.Background = normal;
+        button.Checked += (_, _) => toggle(true);
+        button.Unchecked += (_, _) => toggle(false);
+        return button;
     }
-
-    private static void AutomationProperties(FrameworkElement element, string name, bool on) =>
-        System.Windows.Automation.AutomationProperties.SetName(element, $"{name}：{(on ? "开" : "关")}");
 
     private static Color Mix(Color a, Color b, double t) => Color.FromArgb(a.A,
         (byte)(a.R + (b.R - a.R) * t), (byte)(a.G + (b.G - a.G) * t), (byte)(a.B + (b.B - a.B) * t));
 
     /// 一行入口：图标、名字，右边是快捷键
-    private FrameworkElement Row(WpfUi.SymbolRegular symbol, string title, string? keys, Action run)
+    private FrameworkElement Row(WpfUi.SymbolRegular symbol, string title, string? keys, Action run, string id)
     {
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -398,6 +431,7 @@ internal sealed class TrayFlyout : Window
         if (keys is not null)
         {
             var hint = new TextBlock { Text = keys, FontSize = Theme.Caption, Foreground = theme.Brush(theme.TertiaryText), VerticalAlignment = VerticalAlignment.Center };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(hint, "tray-shortcut-" + id);
             Grid.SetColumn(hint, 2);
             grid.Children.Add(hint);
         }
@@ -406,17 +440,53 @@ internal sealed class TrayFlyout : Window
             Child = grid,
             Height = 38,
             Padding = new Thickness(8, 0, 8, 0),
-            Margin = new Thickness(-8, 0, -8, 0),
+            Margin = new Thickness(0),
             CornerRadius = new CornerRadius(Theme.ControlRadius),
             Background = Brushes.Transparent,
             Cursor = Cursors.Hand,
         };
-        System.Windows.Automation.AutomationProperties.SetName(row, title);
+        var button = new Button { Content = row, Margin = new Thickness(-8, 0, -8, 0) };
+        PrepareControl(button, "tray-action-" + id);
+        System.Windows.Automation.AutomationProperties.SetName(button, title);
         var hover = theme.Brush(theme.Hover);
-        row.MouseEnter += (_, _) => row.Background = hover;
-        row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
-        row.MouseLeftButtonUp += (_, _) => run();
-        return row;
+        button.MouseEnter += (_, _) => row.Background = hover;
+        button.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+        button.Click += (_, _) => run();
+        return button;
+    }
+
+    private void PrepareControl(ButtonBase control, string id)
+    {
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetBinding(HorizontalAlignmentProperty, new System.Windows.Data.Binding(nameof(Control.HorizontalContentAlignment))
+            { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
+        presenter.SetBinding(VerticalAlignmentProperty, new System.Windows.Data.Binding(nameof(Control.VerticalContentAlignment))
+            { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
+        control.Template = new ControlTemplate(control.GetType()) { VisualTree = presenter };
+        control.Background = Brushes.Transparent; control.BorderThickness = new Thickness(0); control.Padding = new Thickness(0);
+        control.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        control.VerticalContentAlignment = VerticalAlignment.Stretch;
+        control.HorizontalAlignment = HorizontalAlignment.Stretch;
+        control.FontFamily = Theme.TextFont; control.FontWeight = FontWeights.Normal; control.Cursor = Cursors.Hand;
+        System.Windows.Automation.AutomationProperties.SetAutomationId(control, id);
+        var outline = new FrameworkElementFactory(typeof(Border));
+        outline.SetValue(Border.BorderBrushProperty, theme.Brush(theme.Accent));
+        outline.SetValue(Border.BorderThicknessProperty, new Thickness(2));
+        outline.SetValue(Border.CornerRadiusProperty, new CornerRadius(Theme.ControlRadius));
+        outline.SetValue(MarginProperty, new Thickness(-2));
+        control.FocusVisualStyle = new Style(typeof(Control))
+        {
+            Setters = { new Setter(Control.TemplateProperty, new ControlTemplate(typeof(Control)) { VisualTree = outline }) },
+        };
+    }
+
+    private FrameworkElement? FindControl(string id) => Tree(this).OfType<FrameworkElement>()
+        .FirstOrDefault(element => System.Windows.Automation.AutomationProperties.GetAutomationId(element) == id);
+    private static IEnumerable<DependencyObject> Tree(DependencyObject parent)
+    {
+        yield return parent;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            foreach (var child in Tree(VisualTreeHelper.GetChild(parent, i))) yield return child;
     }
 
     private WpfUi.Button IconButton(WpfUi.SymbolRegular symbol, string tip, Action run)
