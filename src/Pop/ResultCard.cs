@@ -27,7 +27,29 @@ internal sealed class ResultCard : OverlayWindow
     private bool toast;
 
     /// 点了「复制」按钮或者某一行
-    public event Action<string>? CopyRequested;
+    public event Func<string, bool>? CopyRequested;
+
+    private WpfUi.Button? copyButton;
+    public bool CopyFailed { get; private set; }
+
+    public bool CopyPrimary()
+    {
+        if (PrimaryText is not { Length: > 0 } text || !TryCopy(text)) return false;
+        Dismiss();
+        return true;
+    }
+
+    private bool TryCopy(string text)
+    {
+        var copied = CopyRequested?.Invoke(text) == true;
+        CopyFailed = !copied;
+        if (copyButton is not null)
+        {
+            copyButton.Content = copied ? "复制" : "重试复制";
+            copyButton.ToolTip = copied ? "复制结果（Enter）" : "剪贴板暂时不可写，尚未复制；再次点击或按 Enter 重试";
+        }
+        return copied;
+    }
 
     /// 点了「替换原文」
     public event Action<string>? ReplaceRequested;
@@ -59,6 +81,8 @@ internal sealed class ResultCard : OverlayWindow
 
     public void ShowResult(int x, int y, CardContent content)
     {
+        CopyFailed = false;
+        copyButton = null;
         PrimaryText = content.Loading ? null : content.PrimaryText;
         var theme = Theme.Current();
         var updating = IsOpen && !toast && anchor == (x, y);
@@ -69,6 +93,9 @@ internal sealed class ResultCard : OverlayWindow
 
     public void ShowToast(int x, int y, string message)
     {
+        PrimaryText = null;
+        copyButton = null;
+        CopyFailed = false;
         var theme = Theme.Current();
         var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(14, 9, 16, 9) };
         var icon = Icons.Make(Wpf.Ui.Controls.SymbolRegular.CheckmarkCircle20, 16, theme.Brush(theme.Accent), filled: true);
@@ -271,11 +298,10 @@ internal sealed class ResultCard : OverlayWindow
         if (!content.Loading && content.PrimaryText.Length > 0)
         {
             var copy = ActionButton("复制", WpfUi.ControlAppearance.Primary, theme);
-            copy.Click += (_, _) =>
-            {
-                CopyRequested?.Invoke(content.PrimaryText);
-                Dismiss();
-            };
+            copy.Width = 88;
+            copy.ToolTip = "复制结果（Enter）";
+            copyButton = copy;
+            copy.Click += (_, _) => CopyPrimary();
             buttons.Children.Add(copy);
         }
         DockPanel.SetDock(buttons, Dock.Right);
@@ -339,9 +365,9 @@ internal sealed class ResultCard : OverlayWindow
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
         row.MouseLeftButtonUp += (_, _) =>
         {
-            CopyRequested?.Invoke(line.Value);
-            label.Text = "已复制 ✓";
-            label.Foreground = theme.Brush(theme.Accent);
+            var copied = TryCopy(line.Value);
+            label.Text = copied ? "已复制 ✓" : "未复制，请重试";
+            label.Foreground = theme.Brush(copied ? theme.Accent : theme.SecondaryText);
         };
         return row;
     }

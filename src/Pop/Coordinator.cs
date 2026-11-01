@@ -413,9 +413,7 @@ internal sealed partial class Coordinator : IDisposable
             // 回车：复制卡片上的结果
             dispatcher.BeginInvoke(() =>
             {
-                if (card.PrimaryText is { Length: > 0 } text) clipboard.SetText(text, temporary: false);
-                Log.Info("回车复制结果");
-                CloseCard();
+                if (card.CopyPrimary()) Log.Info("回车复制结果");
             });
             return true;
         }

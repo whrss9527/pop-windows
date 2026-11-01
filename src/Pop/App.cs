@@ -106,6 +106,17 @@ internal sealed class App : Application
     /// 设置改了（设置窗口和托盘面板都会改，互相刷新）
     public event Action? SettingsChanged;
 
+    public string? SettingsSaveError { get; private set; }
+    public bool SettingsHaveBeenSaved { get; private set; }
+    public event Action? SettingsSaveStateChanged;
+
+    public bool RetrySaveSettings()
+    {
+        var saved = SaveSettings();
+        SettingsChanged?.Invoke();
+        return saved;
+    }
+
     public void UpdateSettings(Action<AppSettings> change)
     {
         change(Settings);
@@ -140,6 +151,9 @@ internal sealed class App : Application
         File.WriteAllText(recovery, new SettingsBackup(Settings, Plugins.Manifests, Updater.CurrentVersion.ToString()).ToJson());
         backup.Restore(Paths.Settings, Plugins);
         Settings = AppSettings.FromJson(backup.Settings.ToJson());
+        SettingsSaveError = null;
+        SettingsHaveBeenSaved = true;
+        SettingsSaveStateChanged?.Invoke();
         ApplySettings();
         return recovery;
     }
@@ -376,17 +390,21 @@ internal sealed class App : Application
         }
     }
 
-    private void SaveSettings()
+    private bool SaveSettings()
     {
-        if (IsDemo) return;
         try
         {
-            Settings.Save(Paths.Settings);
+            if (!IsDemo) Settings.Save(Paths.Settings);
+            SettingsSaveError = null;
+            SettingsHaveBeenSaved = true;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
+            SettingsSaveError = e.Message;
             Log.Error("保存设置失败", e);
         }
+        SettingsSaveStateChanged?.Invoke();
+        return SettingsSaveError is null;
     }
 
     /// 上一次更新留下的 Pop.exe.old：旧进程可能还没退出，隔一会儿再删

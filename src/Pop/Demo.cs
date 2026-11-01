@@ -383,6 +383,42 @@ internal static class Demo
                 ring.Close();
             });
 
+        if (Want("feedback"))
+            await Scene("feedback", async () =>
+            {
+                var card = new ResultCard();
+                const string original = "保存失败或剪贴板忙时，保留结果供重试。";
+                Func<string, bool> busy = _ => false;
+                card.CopyRequested += busy;
+                card.ShowCard(x, y, "复制反馈", original);
+                await Wait(350);
+                if (card.CopyPrimary() || !card.CopyFailed || !card.IsOpen || card.PrimaryText != original)
+                    throw new InvalidOperationException("复制失败后没有保留卡片和原结果");
+                await Wait(180); Shot("card-copy-failed");
+                card.CopyRequested -= busy;
+                string? copied = null;
+                card.CopyRequested += value => { copied = value; return true; };
+                if (!card.CopyPrimary() || card.CopyFailed || copied != original)
+                    throw new InvalidOperationException("复制重试没有返回原结果");
+                await Wait(180);
+                card.ShowToast(x, y, "示例轻提示");
+                if (card.PrimaryText is not null || card.CopyPrimary())
+                    throw new InvalidOperationException("轻提示不应保留上一张卡片的可复制内容");
+                card.Close();
+                SmokeTest.Report("copy-feedback=ok");
+
+                var window = app.ShowSettings("general");
+                window.PreviewSaveFailure(); await Wait(400);
+                Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var rect);
+                Shot("settings-save-failed", new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                app.RetrySaveSettings(); await Wait(300);
+                if (app.SettingsSaveError is not null || !app.SettingsHaveBeenSaved)
+                    throw new InvalidOperationException("保存重试没有恢复成功状态");
+                Shot("settings-save-retried", new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                window.Close();
+                SmokeTest.Report("settings-save-feedback=ok");
+            });
+
         backdrop.Close();
         SmokeTest.Report("demo-done");
     }

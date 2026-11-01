@@ -31,9 +31,7 @@ internal sealed partial class SettingsWindow
         try
         {
             var json = new SettingsBackup(Settings, app.Plugins.Manifests, Updater.CurrentVersion.ToString()).ToJson();
-            var temporary = dialog.FileName + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try { File.WriteAllText(temporary, json); File.Move(temporary, dialog.FileName, overwrite: true); }
-            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            AtomicFile.WriteAllText(dialog.FileName, json);
             _ = ShowMessage("已导出", "设置与插件已保存。文件包含完整的自定义脚本和网址，请只分享给你信任的人。");
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _ = ShowMessage("没有导出", e.Message); }

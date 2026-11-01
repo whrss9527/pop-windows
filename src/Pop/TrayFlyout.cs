@@ -195,6 +195,8 @@ internal sealed class TrayFlyout : Window
     {
         body.Children.Clear();
         body.Children.Add(Header());
+        if (app.SettingsSaveError is not null)
+            body.Children.Add(Row(WpfUi.SymbolRegular.Warning24, "设置尚未保存", "重试", () => app.RetrySaveSettings()));
         if (UpdateBanner() is { } banner) body.Children.Add(banner);
         body.Children.Add(Tiles());
         body.Children.Add(Divider());
