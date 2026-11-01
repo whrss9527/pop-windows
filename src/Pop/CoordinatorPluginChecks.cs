@@ -83,9 +83,14 @@ internal sealed partial class Coordinator
             await AssertClosed();
 
             var failing = Start();
-            await Complete(failing, "", error: "当前插件的受控错误", waitAfter: 200);
-            if (!TextOf(coordinator.card).Contains("当前插件的受控错误", StringComparison.Ordinal))
-                throw new InvalidOperationException("当前插件的真实失败未反馈");
+            await Complete(failing, "", error: "当前插件的受控错误");
+            // 轻提示会在 1.3 秒后收起；在处理完成时核对，额外延时可能被慢机器拖过提示寿命。
+            var failureText = TextOf(coordinator.card);
+            if (!coordinator.card.IsVisible || !failureText.Contains("当前插件的受控错误", StringComparison.Ordinal))
+            {
+                shot("plugin-current-error-problem", coordinator.card);
+                throw new InvalidOperationException($"当前插件的真实失败未反馈，visible={coordinator.card.IsVisible} text={failureText}");
+            }
             coordinator.CloseCard(); await AssertClosed();
 
             var oldTranslation = new TaskCompletionSource<CardContent>(TaskCreationOptions.RunContinuationsAsynchronously);
