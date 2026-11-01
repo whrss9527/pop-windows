@@ -18,7 +18,7 @@ internal static class SelectionCopyChecks
         using var access = new ClipboardAccess("Pop 选区复制检查读取");
         var original = writer.Save() ?? throw new InvalidOperationException("无法保留检查前的剪贴板");
         var text = new TextBox { Text = "guard-real-selection", Margin = new Thickness(16) };
-        var target = new Window { Title = "Pop 选区复制检查", Width = 420, Height = 160, Content = text, ShowInTaskbar = false };
+        var target = new Window { Style = null, Title = "Pop 选区复制检查", Width = 420, Height = 160, Content = text, ShowInTaskbar = false };
         var activity = new CopyInputVersion();
         Func<bool> response = () => InputInjector.CtrlChord(0x43);
         using var reader = new SelectionReader(access, () => activity.Version, () => response());
@@ -85,6 +85,7 @@ internal static class SelectionCopyChecks
             await reader.PendingLateCopy;
             if (writer.GetText() != "guard-after-timeout") throw new InvalidOperationException("超时守卫覆盖了用户新复制");
             await Until(() => captured.Any(c => c.Text == "guard-after-timeout"));
+            SmokeTest.Report("selection-copy-stage=normal late user-history menu");
 
             Reset(); await Read(30); var previous = reader.PendingLateCopy;
             response = () => { Copy("guard-second-read"); return true; };
@@ -101,9 +102,11 @@ internal static class SelectionCopyChecks
             if (await Read() is not null || writer.GetText() != "guard-unowned") throw new InvalidOperationException("未知所有者内容未保留");
 
             await VerifyForeignOwner(reader, writer, hwnd, action => response = action);
+            SmokeTest.Report("selection-copy-stage=foreign-process unknown-owner newer-read");
             await VerifyFocusChange(reader, writer, target, hwnd, action => response = action);
             await Focus();
             await SelectionClipboardLockChecks.VerifyAsync(hwnd);
+            SmokeTest.Report("selection-copy-stage=focus lock snapshot");
 
             Reset(); response = () => false;
             if (await Read() is not null || writer.GetText() != "guard-original") throw new InvalidOperationException("发送失败后仍读取或还原");
@@ -135,7 +138,7 @@ internal static class SelectionCopyChecks
 
     private static async Task VerifyFocusChange(SelectionReader reader, ClipboardAccess writer, Window target, IntPtr hwnd, Action<Func<bool>> setResponse)
     {
-        var other = new Window { Title = "Pop 另一个前台", Width = 240, Height = 100, ShowInTaskbar = false };
+        var other = new Window { Style = null, Title = "Pop 另一个前台", Width = 240, Height = 100, ShowInTaskbar = false };
         Task? change = null;
         try
         {
