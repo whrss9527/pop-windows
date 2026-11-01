@@ -59,8 +59,10 @@ internal sealed partial class Coordinator : IDisposable
     private readonly Func<PluginStore> plugins;
     private readonly PluginRunner pluginRunner;
 
-    /// 正在运行的插件：关掉「正在运行」的卡片时取消
+    /// 插件请求由界面线程拥有；钩子线程只读取是否仍在等待。
     private CancellationTokenSource? pluginRun;
+    private volatile bool pluginPending;
+    private bool disposed;
 
     public Coordinator(Dispatcher dispatcher, InputHook hook, Func<AppSettings> settings, ClipboardHistory history, Func<PluginStore> plugins, PluginRunner pluginRunner)
     {
@@ -73,7 +75,7 @@ internal sealed partial class Coordinator : IDisposable
         deferredCard = new DeferredCard(card, open => cardOpen = open);
         reader = new SelectionReader(clipboard, () => hook.ClipboardActivityVersion);
         reader.CopyStarting += current => history.Monitor.IgnoreChangesFor(SelectionReader.CopyIgnoreWindow, current);
-        PinWindow.RecognizeRequested += async (png, px, py) => await RecognizeAsync(png, px, py);
+        PinWindow.RecognizeRequested += RecognizePin;
         historyWindow.Chosen += async item =>
         {
             historyOpen = false;
@@ -91,7 +93,7 @@ internal sealed partial class Coordinator : IDisposable
             {
                 if (session is { Finished: false, WaitingForClick: true } s && !ring.ContainsPhysical(x, y)) await Finish(s, null);
             });
-            if (cardOpen) dispatcher.BeginInvoke(() => { if (!card.ContainsPhysical(x, y)) CloseCard(); });
+            if (cardOpen || pluginPending) dispatcher.BeginInvoke(() => { if (!cardOpen || !card.ContainsPhysical(x, y)) CloseCard(); });
             if (listOpen) dispatcher.BeginInvoke(() => { if (!actionList.ContainsPhysical(x, y)) CloseList(); });
             if (historyOpen) dispatcher.BeginInvoke(() => { if (!historyWindow.ContainsPhysical(x, y)) CloseHistory(); });
         };
@@ -109,7 +111,7 @@ internal sealed partial class Coordinator : IDisposable
         card.Dismissed += () =>
         {
             cardOpen = false;
-            pluginRun?.Cancel();
+            CancelPlugin();
         };
         actionList.Chosen += async action =>
         {
@@ -130,6 +132,10 @@ internal sealed partial class Coordinator : IDisposable
 
     public void Dispose()
     {
+        if (disposed) return;
+        disposed = true;
+        CancelPlugin();
+        PinWindow.RecognizeRequested -= RecognizePin;
         deferredCard.Dispose();
         http.Dispose();
         reader.Dispose();
@@ -272,6 +278,7 @@ internal sealed partial class Coordinator : IDisposable
 
     private void ShowRing(Session s, ClassifiedContent? content, IReadOnlyList<PopAction>? originalItems = null)
     {
+        CancelPlugin();
         var watch = Stopwatch.StartNew();
         s.Items = originalItems ?? (content is null ? RingFor(s) : RingItems.For(RingFor(s), content));
         s.OriginalItems = s.Items;
@@ -416,7 +423,7 @@ internal sealed partial class Coordinator : IDisposable
             dispatcher.BeginInvoke(() => card.MoveReadingPage(vk == 0x21 ? -1 : 1));
             return true;
         }
-        if (cardOpen && vk == VK_ESCAPE)
+        if ((cardOpen || pluginPending) && vk == VK_ESCAPE)
         {
             dispatcher.BeginInvoke(CloseCard);
             return true;
@@ -568,8 +575,12 @@ internal sealed partial class Coordinator : IDisposable
         await RecognizeAsync(region.Png, region.Area.Left + region.Area.Width / 2, region.Area.Top + region.Area.Height / 2);
     });
 
+    private async void RecognizePin(byte[] png, int x, int y) => await RecognizeAsync(png, x, y);
+
     private async Task RecognizeAsync(byte[] png, int x, int y)
     {
+        if (disposed) return;
+        CancelPlugin();
         try
         {
             await deferredCard.RunAsync(x, y, null, async _ =>
@@ -812,6 +823,8 @@ internal sealed partial class Coordinator : IDisposable
 
     private async Task Run(PopAction action, ClassifiedContent content, int x, int y)
     {
+        if (disposed) return;
+        CancelPlugin();
         if (!action.IsAvailable(content))
         {
             ShowToast(x, y, content.IsEmpty ? "没有读到选中的文字" : "选中的内容用不了这个功能");
@@ -899,37 +912,55 @@ internal sealed partial class Coordinator : IDisposable
     /// 运行用户的插件。脚本可能要跑一会儿：300 毫秒还没结束就先显示「正在运行」，关掉卡片就停止脚本
     private async Task RunPluginAsync(string id, PopAction action, ClassifiedContent content, int x, int y)
     {
+        if (disposed) return;
         if (plugins().Find(id) is not { } manifest)
         {
             ShowToast(x, y, "找不到这个插件，可能已经删掉了");
             return;
         }
-        pluginRun?.Cancel();
+        CancelPlugin();
+        deferredCard.Dismiss(); // 使旧翻译或识别失效，在新请求登记前关闭上一张卡片。
         using var run = new CancellationTokenSource();
         pluginRun = run;
+        pluginPending = true;
+        bool Current() => !disposed && ReferenceEquals(pluginRun, run) && !run.IsCancellationRequested;
         var watch = Stopwatch.StartNew();
-        var task = pluginRunner.RunAsync(manifest, content, run.Token);
-        if (await Task.WhenAny(task, Task.Delay(300)) != task)
-            ShowResult(x, y, new CardContent(manifest.DisplayName, [], Body: "正在运行…", Icon: action.Glyph, Loading: true));
-        ActionResult? result;
         try
         {
-            result = await task;
-        }
-        catch (OperationCanceledException)
-        {
-            Log.Info($"插件 {id}：取消了");
-            return;
+            ActionResult? result;
+            try
+            {
+                var task = pluginRunner.RunAsync(manifest, content, run.Token);
+                if (await Task.WhenAny(task, Task.Delay(300)) != task && Current())
+                    deferredCard.Show(x, y, new CardContent(manifest.DisplayName, [], Body: "正在运行…", Icon: action.Glyph, Loading: true));
+                result = await task;
+            }
+            catch (OperationCanceledException) when (run.IsCancellationRequested)
+            {
+                Log.Info($"插件 {id}：取消了");
+                return;
+            }
+            catch (Exception) when (!Current()) { return; }
+            if (!Current()) return;
+            // 结果已属于当前操作；后续展示或关闭不再取消刚完成的插件。
+            pluginRun = null;
+            pluginPending = false;
+            Log.Info($"插件 {id}（{PluginNames.Name(manifest.Action.Type)}）：{result?.Effect.ToString() ?? "内容用不了"}，用时 {watch.ElapsedMilliseconds} ms");
+            if (cardOpen && result?.Effect is ActionEffect.Replace or ActionEffect.Open or ActionEffect.None) CloseCard();
+            await Handle(result, action, content, x, y);
         }
         finally
         {
-            if (ReferenceEquals(pluginRun, run)) pluginRun = null;
+            if (ReferenceEquals(pluginRun, run)) { pluginRun = null; pluginPending = false; }
         }
-        Log.Info($"插件 {id}（{PluginNames.Name(manifest.Action.Type)}）：{result?.Effect.ToString() ?? "内容用不了"}，用时 {watch.ElapsedMilliseconds} ms");
-        if (run.IsCancellationRequested) return;
-        // 「正在运行」的卡片：结果不是卡片或者轻提示时先关掉它（替换原文要回到原来的 App）
-        if (cardOpen && result?.Effect is ActionEffect.Replace or ActionEffect.Open or ActionEffect.None) CloseCard();
-        await Handle(result, action, content, x, y);
+    }
+
+    private void CancelPlugin()
+    {
+        var previous = pluginRun;
+        pluginRun = null;
+        pluginPending = false;
+        previous?.Cancel(); // 取消源由等待中的 RunPluginAsync 释放。
     }
 
     private readonly System.Net.Http.HttpClient http = new() { Timeout = TimeSpan.FromSeconds(15) };
@@ -938,6 +969,8 @@ internal sealed partial class Coordinator : IDisposable
     /// 在卡片里翻译：先显示「正在翻译」，结果回来后原地换成译文
     private async Task TranslateAsync(string text, int x, int y)
     {
+        if (disposed) return;
+        CancelPlugin();
         var s = settings();
         var to = Languages.TargetFor(text, s.TranslateTarget);
         if (s.TranslationEngine == TranslationEngine.Browser)
@@ -972,6 +1005,7 @@ internal sealed partial class Coordinator : IDisposable
 
     private void ShowResult(int x, int y, CardContent content)
     {
+        CancelPlugin();
         deferredCard.Show(x, y, content);
     }
 
@@ -998,16 +1032,19 @@ internal sealed partial class Coordinator : IDisposable
 
     private void ShowToast(int x, int y, string message)
     {
+        CancelPlugin();
         deferredCard.Toast(x, y, message);
     }
 
     private void ShowCopyFailure(int x, int y, string title, string text, string? instruction = null)
     {
+        CancelPlugin();
         deferredCard.CopyFailure(x, y, title, text, instruction);
     }
 
     private void CloseCard()
     {
+        CancelPlugin();
         deferredCard.Dismiss();
     }
 
