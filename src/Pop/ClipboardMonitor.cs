@@ -65,10 +65,18 @@ internal sealed class ClipboardMonitor : IDisposable
         }
     }
 
-    private long ignoreUntil;
+    private sealed record IgnoreScope(long Until, Func<bool>? Current);
+    private IgnoreScope? ignore;
+
+    private bool IsIgnored()
+    {
+        var scope = Volatile.Read(ref ignore);
+        return scope is not null && DateTime.UtcNow.Ticks < scope.Until && (scope.Current?.Invoke() ?? true);
+    }
 
     /// 接下来一小段时间的变化不记：Pop 读取选中内容时模拟 Ctrl+C，目标 App 写进剪贴板的那一次不是用户复制的
-    public void IgnoreChangesFor(TimeSpan duration) => Interlocked.Exchange(ref ignoreUntil, (DateTime.UtcNow + duration).Ticks);
+    public void IgnoreChangesFor(TimeSpan duration, Func<bool>? current = null) =>
+        Volatile.Write(ref ignore, new IgnoreScope((DateTime.UtcNow + duration).Ticks, current));
 
     public ClipboardMonitor(bool enabled = true)
     {
@@ -119,7 +127,7 @@ internal sealed class ClipboardMonitor : IDisposable
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         var state = Volatile.Read(ref recording);
-        if (msg == WM_CLIPBOARDUPDATE && state.Enabled && DateTime.UtcNow.Ticks >= Interlocked.Read(ref ignoreUntil))
+        if (msg == WM_CLIPBOARDUPDATE && state.Enabled && !IsIgnored())
         {
             queuedRecording = state;
             debounce.Stop();
@@ -132,7 +140,7 @@ internal sealed class ClipboardMonitor : IDisposable
     private void Capture(RecordingState state)
     {
         bool Recording() => state.Enabled && ReferenceEquals(state, Volatile.Read(ref recording));
-        bool Active() => Recording() && DateTime.UtcNow.Ticks >= Interlocked.Read(ref ignoreUntil);
+        bool Active() => Recording() && !IsIgnored();
         try
         {
             if (!Active()) return;

@@ -38,7 +38,7 @@ internal sealed class ClipboardAccess : IDisposable
     public static uint SequenceNumber => GetClipboardSequenceNumber();
     public bool OwnsClipboard => GetClipboardOwner() == window.Handle;
 
-    public sealed record Snapshot(IReadOnlyList<(uint Format, byte[] Data)> Items);
+    public sealed record Snapshot(IReadOnlyList<(uint Format, byte[] Data)> Items, uint Sequence = 0);
 
     public Snapshot? Save()
     {
@@ -67,7 +67,8 @@ internal sealed class ClipboardAccess : IDisposable
                     GlobalUnlock(handle);
                 }
             }
-            return new Snapshot(items);
+            // 延迟呈现可能在读取格式时改变序列，在仍持有锁时记录最终值。
+            return new Snapshot(items, SequenceNumber);
         }
         finally
         {
@@ -75,23 +76,46 @@ internal sealed class ClipboardAccess : IDisposable
         }
     }
 
-    public bool Restore(Snapshot? snapshot, bool onlyIfOwned = false)
+    public bool Restore(Snapshot? snapshot, bool onlyIfOwned = false, Func<bool>? guard = null)
     {
         if (snapshot is null || !Open()) return false;
         try
         {
             // 必须在打开剪贴板之后判断，避免等待占用期间所有者已经改变。
             if (onlyIfOwned && !OwnsClipboard) return false;
-            Empty();
-            var restored = true;
-            foreach (var (format, data) in snapshot.Items) restored &= Put(format, data);
-            MarkPrivate();
-            return restored;
+            if (guard is not null && !guard()) return false;
+            return RestoreOpened(snapshot);
         }
         finally
         {
             CloseClipboard();
         }
+    }
+
+    /// 取得锁后确认来源与序列，在同一次打开期间读取和还原；等待锁时发生的新复制不能被覆盖。
+    public bool TryReadAndRestore(Snapshot snapshot, uint expectedSequence, Func<bool> guard, out string? text)
+    {
+        text = null;
+        if (!Open()) return false;
+        try
+        {
+            if (!guard() || SequenceNumber != expectedSequence) return false;
+            var selected = ReadTextOpened();
+            // GetClipboardData 可能触发目标延迟呈现，锁内序列变化是允许的，交互和来源仍要再查。
+            if (!guard() || !RestoreOpened(snapshot)) return false;
+            text = selected;
+            return true;
+        }
+        finally { CloseClipboard(); }
+    }
+
+    private bool RestoreOpened(Snapshot snapshot)
+    {
+        Empty();
+        var restored = true;
+        foreach (var (format, data) in snapshot.Items) restored &= Put(format, data);
+        MarkPrivate();
+        return restored;
     }
 
     public string? GetText()
@@ -99,23 +123,22 @@ internal sealed class ClipboardAccess : IDisposable
         if (!Open()) return null;
         try
         {
-            var handle = GetClipboardData(CF_UNICODETEXT);
-            if (handle == IntPtr.Zero) return null;
-            var ptr = GlobalLock(handle);
-            if (ptr == IntPtr.Zero) return null;
-            try
-            {
-                return Marshal.PtrToStringUni(ptr);
-            }
-            finally
-            {
-                GlobalUnlock(handle);
-            }
+            return ReadTextOpened();
         }
         finally
         {
             CloseClipboard();
         }
+    }
+
+    private static string? ReadTextOpened()
+    {
+        var handle = GetClipboardData(CF_UNICODETEXT);
+        if (handle == IntPtr.Zero) return null;
+        var ptr = GlobalLock(handle);
+        if (ptr == IntPtr.Zero) return null;
+        try { return Marshal.PtrToStringUni(ptr); }
+        finally { GlobalUnlock(handle); }
     }
 
     /// 写入文字。temporary 为 true 时不进剪贴板历史（替换原文时临时用一下）

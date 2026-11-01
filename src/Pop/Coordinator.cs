@@ -69,8 +69,8 @@ internal sealed partial class Coordinator : IDisposable
         this.history = history;
         this.plugins = plugins;
         this.pluginRunner = pluginRunner;
-        reader = new SelectionReader(clipboard);
-        reader.CopyStarting += () => history.Monitor.IgnoreChangesFor(SelectionReader.CopyIgnoreWindow);
+        reader = new SelectionReader(clipboard, () => hook.ActivityVersion);
+        reader.CopyStarting += current => history.Monitor.IgnoreChangesFor(SelectionReader.CopyIgnoreWindow, current);
         PinWindow.RecognizeRequested += async (png, px, py) => await RecognizeAsync(png, px, py);
         historyWindow.Chosen += async item =>
         {
@@ -138,6 +138,7 @@ internal sealed partial class Coordinator : IDisposable
         actionList.Close();
         historyWindow.Close();
         paster.Dispose();
+        reader.Dispose();
         clipboard.Dispose();
     }
 
