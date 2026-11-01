@@ -54,6 +54,17 @@ internal static class PerformanceChecks
         lines.Add("text-preview=ok");
         lines.Add(string.Create(CultureInfo.InvariantCulture,
             $"performance: preview-chars={sample.Length} split-ms={split.Milliseconds:0.###} prefix-ms={prefix.Milliseconds:0.###} split-managed-bytes={split.Bytes} prefix-managed-bytes={prefix.Bytes}"));
+        var flattened = string.Join(" ", sample.Split(['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+        var legacySettingsPreview = sample.Replace("\r", "").Replace("\n", " ↵ ");
+        if (RingWindow.Preview(sample) != flattened[..36] + "…" || SettingsWindow.ShortPreview(sample) != legacySettingsPreview[..70] + "…")
+            throw new InvalidOperationException("圆盘或短语设置预览改变了普通文本格式");
+        var ringPreview = Measure(() => RingWindow.Preview(sample));
+        var settingsPreview = Measure(() => SettingsWindow.ShortPreview(sample));
+        if (ringPreview.Bytes > 8192 || settingsPreview.Bytes > 8192)
+            throw new InvalidOperationException("圆盘或短语设置预览仍为整段内容分配内存");
+        lines.Add("bounded-settings-preview=ok ring=ok snippets=ok");
+        lines.Add(string.Create(CultureInfo.InvariantCulture,
+            $"performance: additional-preview-chars={sample.Length} ring-managed-bytes={ringPreview.Bytes} snippet-settings-managed-bytes={settingsPreview.Bytes}"));
         var files = string.Join('\n', Enumerable.Range(0, 10_000).Select(i => $@"C:\文档\文件-{i}.txt"));
         int OldFiles()
         {

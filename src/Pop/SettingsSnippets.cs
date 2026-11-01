@@ -33,11 +33,7 @@ internal sealed partial class SettingsWindow
         page.Children.Add(Section("模板占位符"));
         page.Children.Add(Note("{date} 日期 · {time} 时间 · {datetime} 日期和时间 · {weekday} 星期\n{clipboard} 唤起时的剪贴板文字 · {selection} 唤起时的原始选区\n占位符只展开一次，剪贴板和选区中的花括号保持原样。"));
     }
-    private static string ShortPreview(string text)
-    {
-        var line = text.Replace("\r", "").Replace("\n", " ↵ ");
-        return line.Length > 70 ? line[..70] + "…" : line;
-    }
+    internal static string ShortPreview(string text) => TextPreview.WithLineBreaks(text, 70);
     private void MoveSnippet(int index, int delta)
     {
         Update(s => (s.Snippets[index], s.Snippets[index + delta]) = (s.Snippets[index + delta], s.Snippets[index])); ShowPage(false);

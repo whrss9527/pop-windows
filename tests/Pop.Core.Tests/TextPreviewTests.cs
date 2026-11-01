@@ -74,4 +74,28 @@ public class TextPreviewTests
         Assert.InRange(Allocation(trailing), 0, 4096);
         Assert.Throws<ArgumentOutOfRangeException>(() => TextPreview.SingleLine("text", -1));
     }
+
+    [Theory]
+    [InlineData("", 70, "")]
+    [InlineData("a\r\nb\n", 70, "a ↵ b ↵ ")]
+    [InlineData("a\nb", 2, "a …")]
+    [InlineData("ab😀cd", 3, "ab…")]
+    [InlineData("abe\u0301cd", 3, "ab…")]
+    [InlineData("a👩‍💻b", 4, "a…")]
+    public void MarkedLinePreviewPreservesFormattingAndWholeCharacters(string text, int limit, string expected) =>
+        Assert.Equal(expected, TextPreview.WithLineBreaks(text, limit));
+
+    [Fact]
+    public void MarkedLinePreviewDoesNotAllocateWholeLargeSnippet()
+    {
+        var large = string.Concat(Enumerable.Repeat("段落\r\n正文\n", 100_000));
+        TextPreview.WithLineBreaks(large, 70);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var preview = TextPreview.WithLineBreaks(large, 70);
+        var allocation = GC.GetAllocatedBytesForCurrentThread() - before;
+        var legacy = large.Replace("\r", "").Replace("\n", " ↵ ");
+        Assert.Equal(legacy[..70] + "…", preview);
+        Assert.InRange(allocation, 0, 8192);
+        Assert.Throws<ArgumentOutOfRangeException>(() => TextPreview.WithLineBreaks("text", -1));
+    }
 }

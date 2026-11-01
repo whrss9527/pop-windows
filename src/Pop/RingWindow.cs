@@ -179,11 +179,7 @@ internal sealed class RingWindow : OverlayWindow
         RefreshLabels();
     }
 
-    private static string Preview(string text)
-    {
-        var oneLine = string.Join(" ", text.Split((char[])['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)).Trim();
-        return oneLine.Length > 36 ? oneLine[..36] + "…" : oneLine;
-    }
+    internal static string Preview(string text) => TextPreview.SingleLine(text, 36);
 
     private void Build(Frost.Shot? shot, int discLeft, int discTop)
     {
