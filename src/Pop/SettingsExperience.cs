@@ -83,14 +83,7 @@ internal sealed partial class SettingsWindow
         page.Children.Add(Note("选择内容后唤起 Pop：能直接处理的显示结果，其他内容打开圆盘。所有改动立即生效。"));
         page.Children.Add(Card(Symbol.CursorClick24, "鼠标唤起", "暂停鼠标唤起时，已经设置的全局快捷键仍可使用",
             Toggle(Settings.Enabled, v => Update(s => s.Enabled = v))));
-        var autoStart = false;
-        try { autoStart = AutoStart.IsEnabled; } catch (System.Security.SecurityException) { }
-        page.Children.Add(Card(Symbol.Rocket24, "开机时启动", "登录 Windows 后在后台运行",
-            Toggle(autoStart, enabled =>
-            {
-                try { AutoStart.Set(enabled); }
-                catch (Exception e) when (e is UnauthorizedAccessException or System.Security.SecurityException or IOException) { Log.Error("设置开机启动失败", e); }
-            })));
+        page.Children.Add(StartupCard());
         page.Children.Add(Section("操作方式"));
         page.Children.Add(Card(Symbol.CursorClick24, "唤起", "长按右键、修饰键右键或中键，选择适合自己的操作方式",
             ActionButton("设置唤起", null, () => Navigate("triggers"))));

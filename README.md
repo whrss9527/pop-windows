@@ -13,6 +13,8 @@
 
 通用页右上角或关于页的「使用指南」会显示当前唤起方式与实际可用快捷键，并提供相关设置入口；指南可随时重新打开。
 
+如果托盘提示「原设置需要处理」，打开设置查看恢复说明：读取阶段保留原文件，保存前先留存完整副本。临时配置会暂停鼠标唤起、历史记录和自动清理；修复文件后可重新读取，确认保留天数和条数后再开启自动清理。开机启动由 Windows 单独保存，开关失败会显示实际状态并提供重新读取。
+
 ## 现在能做什么
 
 | 模块 | 说明 |
@@ -92,6 +94,7 @@
 | 数据 | 位置 |
 | --- | --- |
 | 设置 | `%APPDATA%\Pop\settings.json` |
+| 异常设置的原文件副本 | `%APPDATA%\Pop\Recovery`；首次成功保存前生成，设置恢复提示可直接打开目录 |
 | 自定义插件 | `%APPDATA%\Pop\Plugins`，每个插件一个 JSON 文件（和 macOS 版格式一样），改了会自动重新载入 |
 | Microsoft Translator 的 Key | `%APPDATA%\Pop\secrets.json`，用 Windows 的数据保护接口（DPAPI）加密，只有当前用户能解开 |
 | 剪贴板历史 | `%LOCALAPPDATA%\Pop\Clipboard\history.sqlite`（WAL 模式），图片存成 PNG 放在旁边的 `Images` 文件夹 |
@@ -132,7 +135,9 @@ dotnet publish src/Pop -c Release --self-contained false -o out/lightweight # �
 
 ## CI 和发版
 
-每次推送，GitHub Actions 会在 Windows 上：跑单元测试、编译 Release 版 Pop.exe；在 Windows Server 2022 和 2025 上真正启动一次，再用模拟的鼠标在记事本、Chrome 和 Edge 里走一遍长按右键（替换原文、结果卡片、翻译、圆心关闭、短按弹出系统右键菜单、浏览器里读取选中文字），然后用演示模式把每个界面在浅色、深色下各截一张图；截图和 Pop 的日志推到 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 两个分支（每次覆盖，界面截图在 `ui` 文件夹里，`git fetch origin ci-screenshots/windows-2022` 就能看到）；最后用本机的假发布把一键更新完整走一遍（校验和不对要拒绝、正常版本要替换并重新启动、已是最新时不更新）。
+合并请求和 main 推送会运行完整检查：核心测试、Release 编译；Windows Server 2022 和 2025 中便携版与轻量版的真实启动、记事本和浏览器手势、交互及明暗界面截图；最后用独立的模拟发布验证一键更新（校验和不对要拒绝、正常版本要替换并重新启动、已是最新时不更新）。分支提交通过合并请求检查，避免重复运行两套矩阵。
+
+合并请求的截图和日志在对应 Actions 运行的 `screenshots-*` artifact 中。main 推送更新 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 分支，界面截图在 `ui` 文件夹；失败的运行另存 `-failed` 分支。审查时先核对运行或截图说明中的提交，避免读取旧结果。
 
 发版：在 `CHANGELOG.md` 最上面加一节新版本，`Directory.Build.props` 里的 `Version` 跟着改，合并进 main、CI 通过后会自动打标签并发布，已安装的 Pop 会提示更新。
 
