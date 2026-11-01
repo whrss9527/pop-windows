@@ -3,6 +3,7 @@
 ## 改完怎么合并、怎么发版
 
 - 在自己的分支上改，推上去开合并请求。合并进 main 之前 CI 要全部通过：版本号检查、单元测试和编译、Windows Server 2022 / 2025 上的启动测试、长按手势测试和界面截图、一键更新的端到端测试。
+- 分支使用合并请求运行完整 CI，main 推送再次运行并按需发布；不再为同一分支提交重复运行 push 和 pull_request 两套矩阵。合并前的完整检查要求保持不变。
 - 要发版本，就在 CHANGELOG.md 最上面加一节新版本，格式：`## 0.2.0（2026-10-15）`，`Directory.Build.props` 里的 `Version` 跟着改（CI 会检查两者一致）。推到 main、CI 通过后，CI 发现这个版本还没有标签，就自动打标签、打包并发布正式版，已安装的 Pop 会提示更新。用户能感觉到的改动都要写进去；只改 CI、文档或测试的可以不加，不加就只合并、不发版。
 - 版本号：新功能升次版本号（0.1.0 升到 0.2.0），只修问题升修订号（0.2.0 升到 0.2.1）。先看 main 上最新的版本和标签，别和别的分支撞号。
 - 想先给少数人试用：在 Actions 页面手动运行 Release 工作流，勾选「作为测试版」，版本号是 `<Version>-beta.<运行编号>`，只有在菜单里打开「接收测试版」的用户会收到。
@@ -21,6 +22,7 @@
 - `dotnet build src/Pop` 能编译（`EnableWindowsTargeting`），但要用微软官方的 .NET SDK：一些发行版自己编译的 SDK 没有 `Microsoft.NET.Sdk.WindowsDesktop`，会报找不到 WindowsDesktop.targets。
 - 运行和界面效果只能在 Windows 上看：CI 的 `launch-smoke` 会把截图（圆盘弹出、高亮、结果卡片、短按弹出的系统菜单、深色外观）和 Pop 的日志推到 `ci-screenshots/windows-2022`、`ci-screenshots/windows-2025` 两个分支（每次覆盖），`git fetch origin ci-screenshots/windows-2022` 就能看到。失败的运行（PR 的也算）另外推到 `ci-screenshots/windows-2022-failed`、`ci-screenshots/windows-2025-failed`，里面有 `failure.png` 和日志；长按手势测试出错时还会打印记事本里的字、哪些浮窗开着、前台窗口和剪贴板。Pop 的日志里「界面线程超过 1 秒没有响应」说明界面线程卡住了。
 - 改了界面就看 `ui` 文件夹里的截图：CI 用演示模式（`Pop.exe --demo-shots 文件夹`）在一张示例文档前面把圆盘、各种卡片、列表、剪贴板历史、托盘面板、设置窗口每一页、贴图、框选依次显示出来，浅色、深色各拍一张（`light-*.png`、`dark-*.png`）。新加的界面要在 `Demo.cs` 里加一个场景。
+- main 推送更新截图分支；成功的合并请求截图从对应运行的 `screenshots-*` artifact 读取。查看截图分支前先核对 README 中的提交，避免把另一轮截图当成本次结果。
 
 ## 界面
 
