@@ -528,10 +528,10 @@ internal static class Demo
                 var window = app.ShowSettings("general");
                 try
                 {
+                    await Wait(450);
                     for (var n = 0; n < 10; n++) app.UpdateSettings(s => s.HoldMilliseconds = 200 + n * 40);
                     if (!app.SettingsSavePending || app.SettingsHaveBeenSaved || completed != 0 || app.Settings.HoldMilliseconds != 560)
                         throw new InvalidOperationException("连续修改没有立即生效或提前写入");
-                    await Task.Delay(80); Shot("settings-pending-save");
                     var deadline = DateTime.UtcNow.AddSeconds(5);
                     while (app.SettingsSavePending)
                     {
@@ -539,6 +539,9 @@ internal static class Demo
                         await Task.Delay(50);
                     }
                     if (completed != 1 || !app.SettingsHaveBeenSaved) throw new InvalidOperationException("连续修改没有合并成一次保存");
+                    // 实际保存与计数已核对；单独定格短暂提示供明暗截图，不延长真实保存调度。
+                    window.PreviewSavePending(true); await Wait(250); Shot("settings-pending-save");
+                    window.PreviewSavePending(false);
                     app.UpdateSettings(s => s.HoldMilliseconds = 600);
                     if (!app.RetrySaveSettings() || app.SettingsSavePending) throw new InvalidOperationException("手动保存未清除待保存任务");
                     await Task.Delay(450);

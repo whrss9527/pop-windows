@@ -42,4 +42,11 @@ internal sealed partial class SettingsWindow
     {
         if (app.IsDemo) ShowSaveState("演示：设置目录暂时不可写", false);
     }
+
+    internal void PreviewSavePending(bool show)
+    {
+        if (!app.IsDemo) return;
+        if (show) ShowSaveState(null, false, pending: true);
+        else OnSettingsSaveStateChanged();
+    }
 }
