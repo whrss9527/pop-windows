@@ -524,6 +524,17 @@ internal static class Demo
                 SmokeTest.Report($"settings-targets=ok entries={SettingsCatalog.Entries.Count} short-window=ok keyboard=ok readonly=ok conditional=ok expand=ok editor=available nav=visible cancel=ok highlight=expired offset=restored");
             });
 
+        if (Want("result-reading"))
+            await Scene("result-reading", async () =>
+            {
+                await ResultReadingChecks.VerifyAsync(app, x, y, (name, card) =>
+                {
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(card).Handle, out var rect);
+                    Shot(name, new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                });
+                SmokeTest.Report("result-reading=ok bounded=ok full-copy=ok full-replace=ok source=ok rows=ok paging=ok small-workarea=ok loading=cancelled close=released focus=preserved");
+            });
+
         if (Want("usage-guide"))
             await Scene("usage-guide", async () =>
             {
