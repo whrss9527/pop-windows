@@ -470,6 +470,31 @@ internal static class Demo
                 window.Close(); SmokeTest.Report("settings-search=ok");
             });
 
+        if (Want("backup-preview"))
+            await Scene("backup-preview", async () =>
+            {
+                var before = app.Settings.ToJson();
+                var settings = AppSettings.FromJson(before);
+                settings.HoldMilliseconds = settings.HoldMilliseconds == 350 ? 400 : 350;
+                settings.ClipboardRetentionDays = 90;
+                settings.TranslateTarget = "ja";
+                settings.Snippets = [new("preview-example", "会议回复", "收到，我会准时参加会议。")];
+                var plugin = PluginTemplates.All.First().Manifest with { Id = "preview-only", Name = "项目搜索" };
+                var backup = new SettingsBackup(settings, [plugin], "0.13.0");
+                var window = app.ShowSettings("backup");
+                var dialog = window.CreateBackupPreview(backup);
+                var showing = dialog.ShowDialogAsync(showAsDialog: false); await Wait(450);
+                if (!SettingsWindow.BackupScopeIsVisible(dialog)) throw new InvalidOperationException("备份导入范围说明被裁切");
+                Shot("backup-preview"); dialog.TemplateButtonCommand.Execute(Wpf.Ui.Controls.MessageBoxButton.Close); await showing;
+                var identical = window.CreateBackupPreview(new(app.Settings, app.Plugins.Manifests));
+                var showingIdentical = identical.ShowDialogAsync(showAsDialog: false); await Wait(300);
+                if (!SettingsWindow.BackupScopeIsVisible(identical)) throw new InvalidOperationException("相同配置预览中的导入范围说明被裁切");
+                Shot("backup-preview-unchanged"); identical.TemplateButtonCommand.Execute(Wpf.Ui.Controls.MessageBoxButton.Close); await showingIdentical;
+                if (app.Settings.ToJson() != before || app.Plugins.Manifests.Any(p => p.Id == "preview-only"))
+                    throw new InvalidOperationException("取消导入预览修改了当前设置或插件");
+                window.Close(); SmokeTest.Report("backup-preview=ok cancel=ok unchanged=ok");
+            });
+
         backdrop.Close();
         SmokeTest.Report("demo-done");
     }

@@ -57,7 +57,8 @@ public sealed record SettingsBackup(AppSettings Settings, IReadOnlyList<PluginMa
                     throw new InvalidDataException("备份中有无效、重复或与内置功能重名的插件，尚未修改任何设置");
                 manifests.Add(manifest);
             }
-            return new(AppSettings.FromJson(settings.GetRawText()), manifests);
+            var appVersion = root.TryGetProperty("appVersion", out var app) && app.ValueKind == JsonValueKind.String ? app.GetString() : null;
+            return new(AppSettings.FromJson(settings.GetRawText()), manifests, appVersion);
         }
         catch (Exception e) when (e is JsonException or InvalidOperationException or FormatException)
         {
