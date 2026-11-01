@@ -72,6 +72,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition());
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.Children.Add(new WpfUi.TitleBar
         {
             Title = "Pop 设置",
@@ -86,6 +87,9 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         body.Children.Add(Navigation());
         Grid.SetColumn(scroller, 1);
         body.Children.Add(scroller);
+        var saveStatus = SaveStatus();
+        Grid.SetRow(saveStatus, 2);
+        root.Children.Add(saveStatus);
         Content = root;
 
         PreviewKeyDown += (_, e) =>
@@ -93,11 +97,13 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             if (!shortcutRecording && e.Key == Key.Escape && !(e.OriginalSource is ComboBoxItem or ComboBox { IsDropDownOpen: true })) Close();
         };
         app.SettingsChanged += OnSettingsChanged;
+        app.SettingsSaveStateChanged += OnSettingsSaveStateChanged;
         app.Updater.Changed += OnUpdaterChanged;
         app.PluginsChanged += OnPluginsChanged;
         Closed += (_, _) =>
         {
             app.SettingsChanged -= OnSettingsChanged;
+            app.SettingsSaveStateChanged -= OnSettingsSaveStateChanged;
             app.Updater.Changed -= OnUpdaterChanged;
             app.PluginsChanged -= OnPluginsChanged;
             http?.Dispose();

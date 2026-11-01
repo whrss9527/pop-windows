@@ -260,9 +260,6 @@ public sealed class AppSettings
 
     public void Save(string path)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temp = path + ".tmp";
-        File.WriteAllText(temp, ToJson());
-        File.Move(temp, path, overwrite: true);
+        AtomicFile.WriteAllText(path, ToJson());
     }
 }
