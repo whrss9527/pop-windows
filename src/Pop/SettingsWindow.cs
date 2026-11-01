@@ -515,7 +515,10 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             ShowPage(animate: false);
         });
         enableAll.IsEnabled = on < builtIn.Count;
-        page.Children.Add(Card(Symbol.Apps24, $"已打开 {on} 个内置功能，共 {builtIn.Count} 个", null, enableAll));
+        System.Windows.Automation.AutomationProperties.SetAutomationId(enableAll, "settings-tools-enable-all");
+        var toolSummary = Card(Symbol.Apps24, $"已打开 {on} 个内置功能，共 {builtIn.Count} 个", null, enableAll);
+        System.Windows.Automation.AutomationProperties.SetAutomationId(toolSummary, "settings-tools-summary");
+        page.Children.Add(toolSummary);
 
         foreach (var category in Actions.Categories.Where(c => c != Actions.PluginCategory))
         {
@@ -535,11 +538,16 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         }
     }
 
-    private WpfUi.ToggleSwitch EnableToggle(string id) => Toggle(Settings.IsEnabled(id), v => Update(x =>
+    private WpfUi.ToggleSwitch EnableToggle(string id)
     {
-        x.DisabledActions.RemoveAll(d => string.Equals(d, id, StringComparison.OrdinalIgnoreCase));
-        if (!v) x.DisabledActions.Add(id);
-    }));
+        var toggle = Toggle(Settings.IsEnabled(id), v => Update(x =>
+        {
+            x.DisabledActions.RemoveAll(d => string.Equals(d, id, StringComparison.OrdinalIgnoreCase));
+            if (!v) x.DisabledActions.Add(id);
+        }));
+        System.Windows.Automation.AutomationProperties.SetAutomationId(toggle, "settings-action-toggle-" + id);
+        return toggle;
+    }
 
     // ── 插件 ────────────────────────────────────────────
 

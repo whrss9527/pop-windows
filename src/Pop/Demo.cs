@@ -535,6 +535,17 @@ internal static class Demo
                 SmokeTest.Report("result-reading=ok bounded=ok full-copy=ok full-replace=ok source=ok rows=ok paging=ok small-workarea=ok loading=cancelled close=released focus=preserved");
             });
 
+        if (Want("tools-settings"))
+            await Scene("tools-settings", async () =>
+            {
+                await ToolSettingsChecks.VerifyAsync(app, (name, window) =>
+                {
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var rect);
+                    Shot(name, new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                });
+                SmokeTest.Report("tools-settings=ok counter=live bulk=live");
+            });
+
         if (Want("usage-guide"))
             await Scene("usage-guide", async () =>
             {
