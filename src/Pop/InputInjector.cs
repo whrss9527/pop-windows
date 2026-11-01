@@ -27,7 +27,7 @@ internal static class InputInjector
     }
 
     /// Ctrl + 某个键。用户按着的 Shift、Alt、Win 先临时松开，不然会变成别的快捷键
-    public static void CtrlChord(ushort key)
+    public static bool CtrlChord(ushort key)
     {
         var held = new[] { VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN }
             .Where(vk => (GetAsyncKeyState(vk) & 0x8000) != 0)
@@ -38,7 +38,7 @@ internal static class InputInjector
         inputs.Add(Key(key, up: false));
         inputs.Add(Key(key, up: true));
         inputs.Add(Key(VK_CONTROL, up: true));
-        Send([.. inputs]);
+        return Send([.. inputs]);
     }
 
     private static INPUT Mouse(uint flags) => new()

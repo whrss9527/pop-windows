@@ -8,32 +8,43 @@ internal sealed record Selection(string Text, string Source, string WindowClass,
 
 /// 读取当前 App 里选中的文字：先问 UI Automation，读不到再模拟 Ctrl+C（会备份并还原剪贴板）。
 /// 在界面线程上调用。
-internal sealed class SelectionReader(ClipboardAccess clipboard)
+internal sealed class SelectionReader(ClipboardAccess clipboard, Func<long> activityVersion, Func<bool>? sendCopy = null) : IDisposable
 {
     /// 马上要模拟 Ctrl+C（剪贴板历史借这个跳过这一次变化）
-    public event Action? CopyStarting;
+    public event Action<Func<bool>>? CopyStarting;
+    private long operation;
+    private volatile bool disposed;
+    private sealed class Scope(CopyReadProof proof, IntPtr target)
+    {
+        public CopyReadProof Proof { get; } = proof;
+        public IntPtr Target { get; } = target;
+        public volatile bool Completed;
+    }
+    internal Task PendingLateCopy { get; private set; } = Task.CompletedTask;
+    public void Dispose() { disposed = true; Interlocked.Increment(ref operation); }
 
     private static readonly TimeSpan AutomationTimeout = TimeSpan.FromMilliseconds(600);
     private static readonly TimeSpan CopyTimeout = TimeSpan.FromMilliseconds(1000);
     // Chromium 内核的窗口（Chrome、Edge、Electron）第一次被 UI Automation 访问时要先建立无障碍树，
     // 这期间对 Ctrl+C 的响应能慢到两秒多
     private static readonly TimeSpan ChromiumCopyTimeout = TimeSpan.FromMilliseconds(2500);
-    // 放弃等待之后再守这么久：App 晚一步写进剪贴板的内容要清掉，把原来的恢复回去
+    // 放弃等待之后再守这么久，只还原仍属于本次操作的迟到响应。
     private static readonly TimeSpan LateCopyGuard = TimeSpan.FromSeconds(3);
 
-    /// 读取期间剪贴板的变化都不是用户复制的，剪贴板历史要跳过这么久
+    /// 忽略窗口的最长时间；新交互、换应用或任务结束时立即失效。
     public static readonly TimeSpan CopyIgnoreWindow = ChromiumCopyTimeout + LateCopyGuard + TimeSpan.FromMilliseconds(500);
 
     public async Task<Selection> ReadAsync()
     {
         var foreground = GetForegroundWindow();
+        var scope = Begin(foreground);
         var windowClass = WindowClass(foreground);
         var process = ProcessNameOf(foreground);
 
         // 读取前先记一笔：如果在读取过程中闪退，日志的最后一行能看出是在哪个窗口
         Log.Info($"读取选中内容：窗口 {windowClass}（{process}）");
         var (supported, text, _) = await ReadWithAutomationAsync();
-        if (GetForegroundWindow() != foreground) return new Selection("", "focus-changed", windowClass, process);
+        if (!IsCurrent(scope)) return new Selection("", "focus-changed", windowClass, process);
         if (!string.IsNullOrEmpty(text)) return new Selection(text, "uia", windowClass, process);
 
         // 支持文字接口、明确说没有选中内容的，就信它；浏览器和 Electron 的接口不一定准，还是再试一次复制
@@ -47,7 +58,7 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         }
 
         var timeout = windowClass.StartsWith("Chrome_WidgetWin", StringComparison.Ordinal) ? ChromiumCopyTimeout : CopyTimeout;
-        return new Selection(await ReadWithCopyAsync(timeout, foreground) ?? "", "copy", windowClass, process);
+        return new Selection(await ReadWithCopyAsync(timeout, scope) ?? "", "copy", windowClass, process);
     }
 
     /// 在单独的线程上读，目标 App 卡住时不拖累 Pop。
@@ -58,11 +69,11 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
     /// 自动工具条只询问辅助功能，不模拟 Ctrl+C，也不接触剪贴板。
     public async Task<Selection> ReadPassiveAsync(IntPtr foreground)
     {
-        if (GetForegroundWindow() != foreground) return new("", "focus-changed", "", "");
+        if (disposed || GetForegroundWindow() != foreground) return new("", "focus-changed", "", "");
         var process = ProcessNameOf(foreground);
         var windowClass = WindowClass(foreground);
         var (_, text, bounds) = await ReadWithAutomationAsync(withBounds: true);
-        return GetForegroundWindow() == foreground
+        return !disposed && GetForegroundWindow() == foreground
             ? new(text ?? "", "uia-passive", windowClass, process, bounds) : new("", "focus-changed", windowClass, process);
     }
 
@@ -96,41 +107,78 @@ internal sealed class SelectionReader(ClipboardAccess clipboard)
         return (false, null, null);
     }
 
-    private async Task<string?> ReadWithCopyAsync(TimeSpan timeout, IntPtr target)
+    private Scope Begin(IntPtr target)
     {
-        var snapshot = clipboard.Save();
-        if (GetForegroundWindow() != target) return null;
-        var before = ClipboardAccess.SequenceNumber;
-        CopyStarting?.Invoke();
-        InputInjector.CtrlChord(0x43); // C
-        var watch = Stopwatch.StartNew();
-        while (ClipboardAccess.SequenceNumber == before && watch.Elapsed < timeout)
-            await Task.Delay(15);
-        if (ClipboardAccess.SequenceNumber == before)
-        {
-            // 没有选中内容，或者 App 还没来得及响应；它晚一步写进来的话要恢复原来的剪贴板
-            _ = GuardLateCopyAsync(before, snapshot);
-            return null;
-        }
-
-        // App 可能分几次写入不同格式
-        await Task.Delay(40);
-        var text = clipboard.GetText();
-        clipboard.Restore(snapshot);
-        return text;
+        GetWindowThreadProcessId(target, out var process);
+        return new(new CopyReadProof(Interlocked.Increment(ref operation), activityVersion(), process), target);
     }
 
-    private async Task GuardLateCopyAsync(uint before, ClipboardAccess.Snapshot? snapshot)
+    private bool IsCurrent(Scope scope)
+    {
+        if (!disposed && !scope.Completed && scope.Proof.IsCurrent(Interlocked.Read(ref operation), activityVersion(), GetForegroundWindow() == scope.Target)) return true;
+        scope.Completed = true;
+        return false;
+    }
+
+    private bool CanRestore(Scope scope)
+    {
+        if (!IsCurrent(scope)) return false;
+        var owner = GetClipboardOwner();
+        if (owner == IntPtr.Zero) return false;
+        GetWindowThreadProcessId(owner, out var process);
+        return scope.Proof.AcceptsOwner(process, Interlocked.Read(ref operation), activityVersion(), GetForegroundWindow() == scope.Target);
+    }
+
+    internal Task<string?> ReadCopyForChecksAsync(TimeSpan timeout, IntPtr target) => ReadWithCopyAsync(timeout, Begin(target));
+
+    private async Task<string?> ReadWithCopyAsync(TimeSpan timeout, Scope scope)
+    {
+        var late = false;
+        try
+        {
+            if (!IsCurrent(scope)) return null;
+            var snapshot = clipboard.Save();
+            if (snapshot is null || !IsCurrent(scope) || snapshot.Sequence != ClipboardAccess.SequenceNumber) return null;
+            var before = snapshot.Sequence;
+            CopyStarting?.Invoke(() => CanRestore(scope));
+            if (!IsCurrent(scope) || ClipboardAccess.SequenceNumber != before) return null;
+            if (!(sendCopy?.Invoke() ?? InputInjector.CtrlChord(0x43))) return null;
+            var watch = Stopwatch.StartNew();
+            while (ClipboardAccess.SequenceNumber == before && watch.Elapsed < timeout && IsCurrent(scope)) await Task.Delay(15);
+            if (!IsCurrent(scope)) return null;
+            if (ClipboardAccess.SequenceNumber == before)
+            {
+                late = true;
+                PendingLateCopy = GuardLateCopyAsync(before, snapshot, scope);
+                return null;
+            }
+            // App 可能分几次写入格式；这段等待中产生的新交互同样会使恢复失效。
+            await Task.Delay(40);
+            if (!CanRestore(scope)) { Log.Info("选区复制来源或交互已变化，保留当前剪贴板"); return null; }
+            var sequence = ClipboardAccess.SequenceNumber;
+            return clipboard.TryReadAndRestore(snapshot, sequence, () => CanRestore(scope), out var text) ? text : null;
+        }
+        finally { if (!late) scope.Completed = true; }
+    }
+
+    private async Task GuardLateCopyAsync(uint before, ClipboardAccess.Snapshot snapshot, Scope scope)
     {
         var watch = Stopwatch.StartNew();
-        while (watch.Elapsed < LateCopyGuard)
+        try
         {
-            await Task.Delay(50);
-            if (ClipboardAccess.SequenceNumber == before) continue;
-            await Task.Delay(40);
-            clipboard.Restore(snapshot);
-            Log.Info($"模拟复制晚到了 {watch.ElapsedMilliseconds} ms，已恢复原来的剪贴板");
-            return;
+            while (watch.Elapsed < LateCopyGuard && IsCurrent(scope))
+            {
+                await Task.Delay(50);
+                if (!IsCurrent(scope)) return;
+                if (ClipboardAccess.SequenceNumber == before) continue;
+                await Task.Delay(40);
+                if (!CanRestore(scope)) return;
+                var sequence = ClipboardAccess.SequenceNumber;
+                if (clipboard.Restore(snapshot, guard: () => ClipboardAccess.SequenceNumber == sequence && CanRestore(scope)))
+                    Log.Info($"本次模拟复制晚到了 {watch.ElapsedMilliseconds} ms，已还原剪贴板");
+                return;
+            }
         }
+        finally { scope.Completed = true; }
     }
 }

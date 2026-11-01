@@ -98,6 +98,13 @@ internal static class Demo
                 SmokeTest.Report("clipboard-recording=ok disabled=unread queued=cancelled queued-result=cancelled rapid-toggle=fresh reenabled=complete");
             });
 
+        if (Want("selection-copy"))
+            await Scene("selection-copy", async () =>
+            {
+                await SelectionCopyChecks.VerifyAsync(app);
+                SmokeTest.Report("selection-copy=ok real-copy=ok normal=restored late=restored user-copy=preserved menu=preserved history=recorded owner=checked foreign-process=preserved lock=checked snapshot=required newer-read=cancelled dispose=cancelled");
+            });
+
         if (Want("snippets"))
             await Scene("snippets", async () =>
             {
