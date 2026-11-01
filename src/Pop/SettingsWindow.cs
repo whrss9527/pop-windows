@@ -31,7 +31,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         ("actions", "功能", Symbol.Apps24),
         ("translate", "翻译", Symbol.Translate24),
         ("clipboard", "剪贴板", Symbol.ClipboardTextLtr24),
-        ("snippets", "常用短语", Symbol.TextBulletList24),
+        ("snippets", "常用短语", Symbol.TextBulletListLtr24),
         ("backup", "备份与迁移", Symbol.Save24),
         ("about", "关于", Symbol.Info24),
     ];
@@ -229,7 +229,15 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         var page = new StackPanel { Margin = new Thickness(40, 12, 40, 40), MaxWidth = 1000 };
         var title = Label(Pages.First(p => p.Id == current).Title, Theme.TitleSize, "TextFillColorPrimaryBrush", FontWeights.SemiBold, Theme.DisplayFont);
         title.Margin = new Thickness(0, 0, 0, 20);
-        page.Children.Add(title);
+        if (current == "general")
+        {
+            title.Margin = new Thickness(0);
+            var heading = new DockPanel { Margin = new Thickness(0, 0, 0, 20) };
+            var help = ActionButton("使用指南", Symbol.Info24, ShowUsageGuide);
+            DockPanel.SetDock(help, Dock.Right); heading.Children.Add(help); heading.Children.Add(title);
+            page.Children.Add(heading);
+        }
+        else page.Children.Add(title);
         switch (current)
         {
             case "triggers": TriggersPage(page); break;
@@ -597,7 +605,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             item.Click += (_, _) => action();
             menu.Items.Add(item);
         }
-        Add("导出…", Symbol.ArrowExport24, () => ExportPlugin(manifest));
+        Add("导出…", Symbol.ArrowExportLtr24, () => ExportPlugin(manifest));
         Add("在文件夹中显示", Symbol.FolderOpen24, () => RevealPlugin(manifest));
         menu.Items.Add(new Separator());
         Add("删除", Symbol.Delete24, async () => await DeletePlugin(manifest));
@@ -1006,6 +1014,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         page.Children.Add(Section("帮助"));
         page.Children.Add(Group(null,
         [
+            Row(Symbol.Info24, "使用指南", "查看当前唤起方式、快捷键和常用操作", ActionButton("打开指南", null, ShowUsageGuide)),
             Row(Symbol.DocumentText24, "日志", "遇到问题时可以把日志发给开发者", ActionButton("打开文件夹", Symbol.FolderOpen24, () => OpenFolder(Log.Directory))),
             Row(Symbol.Settings24, "设置文件", Paths.Settings, ActionButton("打开文件夹", Symbol.FolderOpen24, () => OpenFolder(Paths.RoamingData))),
             Row(Symbol.Globe24, "项目主页", "反馈问题、查看更新日志", ActionButton("打开", Symbol.Open24, () => OpenUrl(HomePage))),

@@ -1,12 +1,13 @@
 name: CI
 
-# 推送代码和合并请求时：单元测试、编译 Release 版、启动测试、真实的长按右键手势测试（带截图）、
+# 合并请求和 main 推送时：单元测试、编译 Release 版、启动测试、真实的长按右键手势测试（带截图）、
 # 演示模式下每个界面的截图、一键更新的端到端测试。
 # 推到 main 并且都通过后，CHANGELOG.md 最上面的版本还没有标签的话，
 # 就自动打标签、打包并发布正式版（调用 release.yml），已安装的 Pop 会提示更新。
 on:
   push:
-    branches: ["**"]
+    # 分支由 pull_request 完整验证，避免同一提交重复运行两套 Windows 矩阵。
+    branches: ["main"]
   pull_request:
   workflow_dispatch:
 

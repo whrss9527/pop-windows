@@ -76,6 +76,13 @@ internal static class Demo
         }
 
         var text = ContentClassifier.Classify("Pop makes selected text useful");
+        if (Want("icon-compatibility"))
+            await Scene("icon-compatibility", () =>
+            {
+                IconExperienceChecks.Verify();
+                SmokeTest.Report("icons-compatible=ok pages=ok legacy=ok fallback=ok");
+                return Task.CompletedTask;
+            });
         if (Want("clipboard-ownership"))
             await Scene("clipboard-ownership", () =>
             {
@@ -490,6 +497,42 @@ internal static class Demo
                 window.PreviewSettingsSearch("");
                 if (window.CurrentPage != "clipboard") throw new InvalidOperationException("清空搜索改变了原页面");
                 window.Close(); SmokeTest.Report("settings-search=ok");
+            });
+
+        if (Want("usage-guide"))
+            await Scene("usage-guide", async () =>
+            {
+                var before = app.Settings.ToJson();
+                var enabled = app.Settings.Enabled;
+                var window = app.ShowSettings("general");
+                var guide = window.PreviewUsageGuide();
+                try
+                {
+                    await Wait(400);
+                    if (guide.FindName("GuideFooterTip") is not TextBlock footer || !footer.IsVisible || footer.ActualHeight <= 0
+                        || footer.TranslatePoint(new Point(), guide).Y + footer.ActualHeight > guide.ActualHeight - 12)
+                        throw new InvalidOperationException("使用指南底部提示被裁切");
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(guide).Handle, out var rect);
+                    Shot("usage-guide", new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                    if (app.Settings.ToJson() != before) throw new InvalidOperationException("打开使用指南改动了设置");
+                    app.UpdateSettings(s => s.Enabled = false);
+                    if (guide.FindName("GuideTriggerHint") is not TextBlock hint || !hint.Text.Contains("已暂停"))
+                        throw new InvalidOperationException("使用指南没有更新当前鼠标暂停状态");
+                    await Wait(200); Shot("usage-guide-paused");
+                    app.UpdateSettings(s => s.Enabled = enabled);
+                    if (guide.FindName("GuideOpenClipboard") is not Wpf.Ui.Controls.Button open)
+                        throw new InvalidOperationException("指南缺少剪贴板设置入口");
+                    open.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    if (guide.IsVisible || window.CurrentPage != "clipboard" || app.Settings.ToJson() != before)
+                        throw new InvalidOperationException("指南跳转未关闭窗口、未到达设置页或修改了配置");
+                    SmokeTest.Report("usage-guide=ok readonly=ok live-state=ok navigation=ok");
+                }
+                finally
+                {
+                    if (guide.IsVisible) guide.Close();
+                    app.UpdateSettings(s => s.Enabled = enabled); app.FlushPendingSettings();
+                    if (window.IsVisible) window.Close();
+                }
             });
 
         if (Want("backup-preview"))
