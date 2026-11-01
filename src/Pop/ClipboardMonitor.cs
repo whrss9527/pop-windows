@@ -42,13 +42,19 @@ internal sealed class ClipboardMonitor : IDisposable
     /// 读到一条新内容。在监听线程上调用；延迟消费前须再次核对本次记录状态。
     public event Action<ClipboardCapture, Func<bool>>? Captured;
 
-    private sealed record RecordingState(bool Enabled);
+    private sealed record RecordingState(ClipboardRecordingPolicy Policy)
+    {
+        public bool Enabled => Policy.Enabled;
+    }
     private RecordingState recording;
     private RecordingState? queuedRecording;
-    private long queuedNotifications, readAttempts;
+    private long queuedNotifications, readAttempts, completedCaptures, contentReadAttempts;
+    private readonly Action? beforeContentForDemo;
 
     internal long QueuedNotifications => Interlocked.Read(ref queuedNotifications);
     internal long ReadAttempts => Interlocked.Read(ref readAttempts);
+    internal long CompletedCaptures => Interlocked.Read(ref completedCaptures);
+    internal long ContentReadAttempts => Interlocked.Read(ref contentReadAttempts);
 
     public bool Enabled
     {
@@ -60,8 +66,19 @@ internal sealed class ClipboardMonitor : IDisposable
             {
                 var previous = Volatile.Read(ref recording);
                 if (previous.Enabled == value) return;
-                if (ReferenceEquals(Interlocked.CompareExchange(ref recording, new RecordingState(value), previous), previous)) return;
+                if (ReferenceEquals(Interlocked.CompareExchange(ref recording, new RecordingState(previous.Policy.WithEnabled(value)), previous), previous)) return;
             }
+        }
+    }
+
+    public void Configure(bool enabled, IEnumerable<string> excludedApplications)
+    {
+        var policy = new ClipboardRecordingPolicy(enabled, excludedApplications);
+        while (true)
+        {
+            var previous = Volatile.Read(ref recording);
+            if (previous.Policy.EquivalentTo(policy)) return;
+            if (ReferenceEquals(Interlocked.CompareExchange(ref recording, new RecordingState(policy), previous), previous)) return;
         }
     }
 
@@ -78,9 +95,12 @@ internal sealed class ClipboardMonitor : IDisposable
     public void IgnoreChangesFor(TimeSpan duration, Func<bool>? current = null) =>
         Volatile.Write(ref ignore, new IgnoreScope((DateTime.UtcNow + duration).Ticks, current));
 
-    public ClipboardMonitor(bool enabled = true)
+    public ClipboardMonitor(bool enabled = true, IEnumerable<string>? excludedApplications = null, Action? beforeContentForDemo = null)
     {
-        recording = new RecordingState(enabled);
+        if (beforeContentForDemo is not null && Application.Current is not App { IsDemo: true })
+            throw new InvalidOperationException("捕获边界检查仅用于独立演示回归");
+        this.beforeContentForDemo = beforeContentForDemo;
+        recording = new RecordingState(new ClipboardRecordingPolicy(enabled, excludedApplications));
         Dispatcher? created = null;
         using var ready = new ManualResetEventSlim();
         var thread = new Thread(() =>
@@ -139,19 +159,33 @@ internal sealed class ClipboardMonitor : IDisposable
 
     private void Capture(RecordingState state)
     {
+        var sequence = ClipboardAccess.SequenceNumber;
         bool Recording() => state.Enabled && ReferenceEquals(state, Volatile.Read(ref recording));
-        bool Active() => Recording() && !IsIgnored();
+        bool Active() => Recording() && !IsIgnored() && ClipboardAccess.SequenceNumber == sequence;
         try
         {
-            if (!Active()) return;
+            if (sequence == 0 || !Active()) return;
             Interlocked.Increment(ref readAttempts);
             if (IsPrivate(Active) || !Active()) return;
+            beforeContentForDemo?.Invoke();
             var source = Native.ProcessNameOf(GetClipboardOwner());
+            if (!Active() || !state.Policy.Allows(source)) return;
+            // 这里仍检查捕获的同一序列；提交到界面线程后只检查记录策略，保留已经完成的正常快照。
             if (Read(source, Active) is { } capture && Active()) Captured?.Invoke(capture, Recording);
         }
         catch (Exception e) when (e is COMException or ExternalException or IOException or NotSupportedException or InvalidOperationException)
         {
             Log.Info($"读取剪贴板失败，跳过这一次：{e.GetType().Name} {e.Message}");
+        }
+        finally
+        {
+            Interlocked.Increment(ref completedCaptures);
+            // 延迟提供也会改变序列。放弃旧快照后重新走全部隐私/来源检查，不依赖额外通知一定到达。
+            if (Recording() && !IsIgnored() && ClipboardAccess.SequenceNumber != sequence)
+            {
+                queuedRecording = state;
+                debounce.Stop(); debounce.Start();
+            }
         }
     }
 
@@ -164,9 +198,10 @@ internal sealed class ClipboardMonitor : IDisposable
             && stream.Length >= 4 && new BinaryReader(stream).ReadInt32() == 0;
     }
 
-    private static ClipboardCapture? Read(string? source, Func<bool> active)
+    private ClipboardCapture? Read(string? source, Func<bool> active)
     {
         if (!active()) return null;
+        Interlocked.Increment(ref contentReadAttempts);
         if (Retry(Clipboard.ContainsFileDropList, active) && Retry(Clipboard.GetFileDropList, active) is { Count: > 0 } files)
             return ClipboardCapture.Files(files.Cast<string>().ToList(), source);
 

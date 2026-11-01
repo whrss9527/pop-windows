@@ -163,7 +163,7 @@ internal sealed partial class App : Application
             hook.ExcludeApplications(Settings.TriggerExcludedApps);
         }
         coordinator?.SettingsUpdated();
-        if (history is not null) history.Monitor.Enabled = Settings.ClipboardHistory;
+        history?.ApplyRecordingPolicy();
         var policy = ClipboardRetentionPolicy.For(Settings);
         if (history is not null && appliedClipboardPolicy != policy)
         {
