@@ -94,6 +94,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
 
         PreviewKeyDown += (_, e) =>
         {
+            if (SearchKey(e)) { e.Handled = true; return; }
             if (!shortcutRecording && e.Key == Key.Escape && !(e.OriginalSource is ComboBoxItem or ComboBox { IsDropDownOpen: true })) Close();
         };
         app.SettingsChanged += OnSettingsChanged;
@@ -161,6 +162,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         Grid.SetColumn(names, 1);
         identity.Children.Add(names);
         panel.Children.Add(identity);
+        panel.Children.Add(SearchInput());
 
         foreach (var (id, title, symbol) in Pages)
         {
@@ -204,6 +206,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
     /// 打开某一页（Pages 里的 ID）
     public void Navigate(string id)
     {
+        ClearSearch();
         if (!Pages.Any(p => p.Id == id)) id = "general";
         current = id;
         foreach (var (key, (button, pill, glyph)) in nav)
@@ -220,6 +223,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
 
     private void ShowPage(bool animate)
     {
+        if (settingsSearch?.Text.Trim() is { Length: > 0 } query) { ShowSearchResults(query); return; }
         var offset = animate ? 0 : scroller.VerticalOffset;
         var page = new StackPanel { Margin = new Thickness(40, 12, 40, 40), MaxWidth = 1000 };
         var title = Label(Pages.First(p => p.Id == current).Title, Theme.TitleSize, "TextFillColorPrimaryBrush", FontWeights.SemiBold, Theme.DisplayFont);
