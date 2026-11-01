@@ -20,6 +20,7 @@ internal sealed partial class Coordinator : IDisposable
     private readonly Paster paster;
     private readonly RingWindow ring = new();
     private readonly ResultCard card = new();
+    private readonly DeferredCard deferredCard;
     private readonly ActionListWindow actionList = new();
     private readonly ClipboardHistoryWindow historyWindow = new();
     private readonly ClipboardHistory history;
@@ -69,6 +70,7 @@ internal sealed partial class Coordinator : IDisposable
         this.history = history;
         this.plugins = plugins;
         this.pluginRunner = pluginRunner;
+        deferredCard = new DeferredCard(card, open => cardOpen = open);
         reader = new SelectionReader(clipboard, () => hook.ClipboardActivityVersion);
         reader.CopyStarting += current => history.Monitor.IgnoreChangesFor(SelectionReader.CopyIgnoreWindow, current);
         PinWindow.RecognizeRequested += async (png, px, py) => await RecognizeAsync(png, px, py);
@@ -128,6 +130,8 @@ internal sealed partial class Coordinator : IDisposable
 
     public void Dispose()
     {
+        deferredCard.Dispose();
+        http.Dispose();
         reader.Dispose();
         snippetWindow.Close();
         awake.Dispose();
@@ -568,16 +572,21 @@ internal sealed partial class Coordinator : IDisposable
     {
         try
         {
-            var text = await TextRecognizer.RecognizeAsync(png);
-            Log.Info($"识别文字：识别出 {text.Length} 个字符{(LogSelection ? $"，内容「{Abbreviate(text)}」" : "")}");
-            ShowResult(x, y, text.Length == 0
-                ? CardContent.Text("识别文字", "没有识别出文字")
-                : new CardContent("识别文字", [], Body: text));
-        }
-        catch (TextRecognizer.UnavailableException e)
-        {
-            Log.Info($"识别文字：{e.Message}");
-            ShowResult(x, y, CardContent.Text("识别文字", e.Message));
+            await deferredCard.RunAsync(x, y, null, async _ =>
+            {
+                try
+                {
+                    var text = await TextRecognizer.RecognizeAsync(png);
+                    Log.Info($"识别文字：识别出 {text.Length} 个字符{(LogSelection ? $"，内容「{Abbreviate(text)}」" : "")}");
+                    return text.Length == 0 ? CardContent.Text("识别文字", "没有识别出文字")
+                        : new CardContent("识别文字", [], Body: text);
+                }
+                catch (TextRecognizer.UnavailableException e)
+                {
+                    Log.Info($"识别文字：{e.Message}");
+                    return CardContent.Text("识别文字", e.Message);
+                }
+            });
         }
         catch (Exception e) when (e is System.Runtime.InteropServices.COMException or ArgumentException or InvalidOperationException)
         {
@@ -925,7 +934,6 @@ internal sealed partial class Coordinator : IDisposable
 
     private readonly System.Net.Http.HttpClient http = new() { Timeout = TimeSpan.FromSeconds(15) };
     private Translator? translator;
-    private int translation;
 
     /// 在卡片里翻译：先显示「正在翻译」，结果回来后原地换成译文
     private async Task TranslateAsync(string text, int x, int y)
@@ -937,39 +945,34 @@ internal sealed partial class Coordinator : IDisposable
             Open(Translator.BrowserUrl(text, to));
             return;
         }
-        var id = ++translation;
-        ShowResult(x, y, TranslationCards.Loading(text, to));
         translator ??= new Translator(http);
-        var watch = Stopwatch.StartNew();
-        CardContent result;
-        try
+        await deferredCard.RunAsync(x, y, TranslationCards.Loading(text, to), async cancellation =>
         {
-            var translated = await translator.TranslateAsync(text, to, s.TranslationEngine,
-                SecretStore.Get(SecretStore.AzureTranslatorKey), s.AzureTranslatorRegion);
-            Log.Info($"翻译完成：{translated.Provider}（{translated.Via}），{translated.From} → {translated.To}，{translated.Text.Length} 个字符，用时 {watch.ElapsedMilliseconds} ms{(LogSelection ? $"，译文「{Abbreviate(translated.Text)}」" : "")}");
-            result = TranslationCards.Result(text, translated);
-        }
-        catch (TranslationException e)
-        {
-            Log.Info($"翻译失败：{e.Message}{(e.InnerException is { } inner ? $"（{inner.GetType().Name}: {inner.Message}）" : "")}");
-            result = TranslationCards.Failed(text, to, e.Message);
-        }
-        catch (TaskCanceledException)
-        {
-            Log.Info("翻译失败：超时");
-            result = TranslationCards.Failed(text, to, "翻译服务没有响应，请稍后再试");
-        }
-        // 用户已经关掉了卡片或者又开始了别的操作
-        if (id != translation || !card.IsOpen) return;
-        ShowResult(x, y, result);
+            var watch = Stopwatch.StartNew();
+            try
+            {
+                var translated = await translator.TranslateAsync(text, to, s.TranslationEngine,
+                    SecretStore.Get(SecretStore.AzureTranslatorKey), s.AzureTranslatorRegion, cancellation);
+                Log.Info($"翻译完成：{translated.Provider}（{translated.Via}），{translated.From} → {translated.To}，{translated.Text.Length} 个字符，用时 {watch.ElapsedMilliseconds} ms{(LogSelection ? $"，译文「{Abbreviate(translated.Text)}」" : "")}");
+                return TranslationCards.Result(text, translated);
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { throw; }
+            catch (TranslationException e)
+            {
+                Log.Info($"翻译失败：{e.Message}{(e.InnerException is { } inner ? $"（{inner.GetType().Name}: {inner.Message}）" : "")}");
+                return TranslationCards.Failed(text, to, e.Message);
+            }
+            catch (TaskCanceledException)
+            {
+                Log.Info("翻译失败：超时");
+                return TranslationCards.Failed(text, to, "翻译服务没有响应，请稍后再试");
+            }
+        });
     }
 
     private void ShowResult(int x, int y, CardContent content)
     {
-        var watch = Stopwatch.StartNew();
-        cardOpen = true;
-        card.ShowResult(x, y, content);
-        LogIfSlow("显示卡片", watch);
+        deferredCard.Show(x, y, content);
     }
 
     /// 界面线程被占住太久时记一笔：这期间长按、松开都在排队，圆盘和卡片也不会动
@@ -995,20 +998,17 @@ internal sealed partial class Coordinator : IDisposable
 
     private void ShowToast(int x, int y, string message)
     {
-        cardOpen = false;
-        card.ShowToast(x, y, message);
+        deferredCard.Toast(x, y, message);
     }
 
     private void ShowCopyFailure(int x, int y, string title, string text, string? instruction = null)
     {
-        cardOpen = true;
-        card.ShowCopyFailure(x, y, title, text, instruction);
+        deferredCard.CopyFailure(x, y, title, text, instruction);
     }
 
     private void CloseCard()
     {
-        cardOpen = false;
-        card.Dismiss();
+        deferredCard.Dismiss();
     }
 
     private static void Open(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
