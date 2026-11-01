@@ -404,6 +404,14 @@ internal sealed partial class Coordinator : IDisposable
             }
             return false;
         }
+        if (cardOpen && card.IsReading && vk is 0x21 or 0x22
+            && (Native.GetAsyncKeyState(0x11) & 0x8000) == 0 && (Native.GetAsyncKeyState(0x10) & 0x8000) == 0
+            && (Native.GetAsyncKeyState(0x12) & 0x8000) == 0 && (Native.GetAsyncKeyState(0x5B) & 0x8000) == 0
+            && (Native.GetAsyncKeyState(0x5C) & 0x8000) == 0)
+        {
+            dispatcher.BeginInvoke(() => card.MoveReadingPage(vk == 0x21 ? -1 : 1));
+            return true;
+        }
         if (cardOpen && vk == VK_ESCAPE)
         {
             dispatcher.BeginInvoke(CloseCard);

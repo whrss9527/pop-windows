@@ -9,7 +9,7 @@ using WpfUi = Wpf.Ui.Controls;
 namespace Pop;
 
 /// 结果卡片（带复制、替换原文按钮）和轻提示（一会儿自己消失）。毛玻璃底，出现在指针旁边，从指针所在的角长出来
-internal sealed class ResultCard : OverlayWindow
+internal sealed partial class ResultCard : OverlayWindow
 {
     private const double MinCardWidth = 280;
     private const double MaxCardWidth = 440;
@@ -52,8 +52,8 @@ internal sealed class ResultCard : OverlayWindow
         CopyFailed = !copied;
         if (copyButton is not null)
         {
-            copyButton.Content = copied ? "复制" : "重试复制";
-            copyButton.ToolTip = copied ? "复制结果（Enter）" : copyPreviewTruncated
+            copyButton.Content = copied ? reading is null ? "复制" : "复制全文" : "重试复制";
+            copyButton.ToolTip = copied ? reading is null ? "复制主要结果（Enter），包含全部内容" : "复制当前阅读项的全文（Enter），包含所有页" : copyPreviewTruncated
                 ? "尚未复制。点击或按 Enter 重试，会复制完整结果"
                 : "剪贴板暂时不可写，尚未复制；再次点击或按 Enter 重试";
         }
@@ -61,11 +61,10 @@ internal sealed class ResultCard : OverlayWindow
 
     public void ShowCopyFailure(int x, int y, string title, string text, string? instruction = null)
     {
-        var preview = TextPreview.Truncate(text, 4000);
-        var truncated = !string.Equals(preview, text, StringComparison.Ordinal);
+        var truncated = text.Length > ResultPreview.BodyCharacters;
         var message = instruction ?? "剪贴板暂时不可写，完整结果已保留。";
-        if (truncated) message += "仅显示部分预览，重试会复制全部内容。";
-        ShowResult(x, y, new CardContent(title, [], Body: preview, Caption: "未复制 · 可重试", Source: message));
+        if (truncated) message += "预览已简略显示，可查看全文；重试会复制全部内容。";
+        ShowResult(x, y, new CardContent(title, [], Body: text, Caption: "未复制 · 可重试", Source: message));
         PrimaryText = text; copyPreviewTruncated = truncated;
         SetCopyState(false);
     }
@@ -93,6 +92,7 @@ internal sealed class ResultCard : OverlayWindow
         {
             if (IsVisible) return;
             PrimaryText = null; copyButton = null; copyPreviewTruncated = false; CopyFailed = false;
+            shownContent = null; reading = null; cardScroller = null; readingTitle = "";
             root.Children.Clear(); shot = null;
         };
     }
@@ -112,7 +112,10 @@ internal sealed class ResultCard : OverlayWindow
         CopyFailed = false;
         copyPreviewTruncated = false;
         copyButton = null;
+        readingActionsEnabled = true;
+        shownContent = content; reading = null; readingTitle = ""; resultsPage = 0;
         PrimaryText = content.Loading ? null : content.PrimaryText;
+        copyPreviewTruncated = PrimaryText?.Length > ResultPreview.BodyCharacters;
         var theme = Theme.Current();
         var updating = IsOpen && !toast && anchor == (x, y);
         toast = false;
@@ -125,6 +128,8 @@ internal sealed class ResultCard : OverlayWindow
         autoClose.Stop();
         MarkShowing();
         PrimaryText = null;
+        readingActionsEnabled = false;
+        shownContent = null; reading = null; cardScroller = null; readingTitle = "";
         copyButton = null;
         CopyFailed = false;
         copyPreviewTruncated = false;
@@ -164,6 +169,7 @@ internal sealed class ResultCard : OverlayWindow
     public void Dismiss()
     {
         if (!IsVisible) return;
+        readingActionsEnabled = false;
         autoClose.Stop();
         Dismissed?.Invoke();
         FadeOutAndHide(root, 120);
@@ -195,11 +201,12 @@ internal sealed class ResultCard : OverlayWindow
         {
             var caption = new TextBlock
             {
-                Text = content.Caption,
+                Text = ResultPreview.Text(content.Caption, 120),
                 FontSize = 11,
                 Foreground = theme.Brush(theme.TertiaryText),
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 160,
                 Margin = new Thickness(12, 0, 6, 0),
             };
             DockPanel.SetDock(caption, Dock.Right);
@@ -231,20 +238,22 @@ internal sealed class ResultCard : OverlayWindow
         }
         header.Children.Add(new TextBlock
         {
-            Text = content.Title,
+            Text = ResultPreview.Text(content.Title, 120),
+            TextTrimming = TextTrimming.CharacterEllipsis,
             FontSize = Theme.Caption,
             FontWeight = FontWeights.Medium,
             Foreground = theme.Brush(theme.SecondaryText),
             VerticalAlignment = VerticalAlignment.Center,
         });
         panel.Children.Add(header);
+        if (reading is not null) panel.Children.Add(ReadingNavigation(theme));
 
         // 原文（翻译卡片）
         if (!string.IsNullOrEmpty(content.Source))
         {
             panel.Children.Add(new TextBlock
             {
-                Text = content.Source,
+                Text = ResultPreview.Text(content.Source, ResultPreview.SourceCharacters),
                 FontSize = Theme.Caption,
                 LineHeight = 18,
                 Foreground = theme.Brush(theme.TertiaryText),
@@ -253,6 +262,8 @@ internal sealed class ResultCard : OverlayWindow
                 MaxHeight = 36,
                 Margin = new Thickness(0, 6, 4, 0),
             });
+            if (reading is null && !content.Loading && ResultPreview.SourceNeedsReader(content.Source))
+                panel.Children.Add(ReadButton(content, content.Source, "原文", "card-read-source", theme));
         }
 
         // 正文和结果行放在一个能滚动的区域里，内容很长时卡片不会超出屏幕
@@ -260,13 +271,14 @@ internal sealed class ResultCard : OverlayWindow
         var scroller = new ScrollViewer
         {
             Content = scrollContent,
-            MaxHeight = MaxBodyHeight,
+            MaxHeight = reading is not null ? 320 : content.Source is { } source && ResultPreview.SourceNeedsReader(source) ? 368 : MaxBodyHeight,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             CanContentScroll = false,
             Focusable = false,
             Margin = new Thickness(-8, 0, -4, 0),
         };
+        cardScroller = scroller;
         panel.Children.Add(scroller);
 
         if (content.Loading)
@@ -275,7 +287,7 @@ internal sealed class ResultCard : OverlayWindow
             loading.Children.Add(new WpfUi.ProgressRing { IsIndeterminate = true, Width = 18, Height = 18, Progress = 30 });
             loading.Children.Add(new TextBlock
             {
-                Text = content.Body ?? "",
+                Text = ResultPreview.Text(content.Body ?? "", 240),
                 FontSize = Theme.Body,
                 Margin = new Thickness(10, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -286,9 +298,11 @@ internal sealed class ResultCard : OverlayWindow
         else if (!string.IsNullOrEmpty(content.Body))
         {
             var prominent = content.Lines.Count == 0;
+            if (reading is null && content.Body.Length > ResultPreview.BodyCharacters)
+                scrollContent.Children.Add(ReadButton(content, content.Body, "正文", "card-read-body", theme));
             scrollContent.Children.Add(new TextBlock
             {
-                Text = content.Body,
+                Text = ResultPreview.Text(content.Body, ResultPreview.BodyCharacters),
                 // 等宽字体只给代码一样的正文（格式化好的 JSON）；结果行上面的说明文字用正文字体
                 FontFamily = content.Monospace && prominent ? Theme.MonoFont : Theme.TextFont,
                 FontSize = prominent ? Theme.BodyLarge : Theme.Body,
@@ -299,10 +313,28 @@ internal sealed class ResultCard : OverlayWindow
             });
         }
 
-        foreach (var line in content.Lines) scrollContent.Children.Add(LineRow(line, theme, content.Monospace));
+        var (first, count) = ResultPreview.Lines(content.Lines.Count, resultsPage);
+        if (content.Lines.Count > ResultPreview.LinesPerPage) scrollContent.Children.Add(ResultNavigation(content, first, count, theme));
+        for (var i = first; i < first + count; i++)
+        {
+            var line = content.Lines[i];
+            if (ResultPreview.LineNeedsReader(line.Value))
+                scrollContent.Children.Add(ReadButton(content, line.Value, line.Label, $"card-read-line-{i}", theme));
+            var row = LineRow(line, theme, content.Monospace);
+            System.Windows.Automation.AutomationProperties.SetAutomationId(row, $"card-result-line-{i}");
+            scrollContent.Children.Add(row);
+        }
 
         // 底部：左边是链接，右边是替换原文、复制
         var footer = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 14, 0, 0) };
+        if (reading is not null)
+        {
+            var back = Subtle(ActionButton("返回结果", WpfUi.ControlAppearance.Transparent, theme), theme);
+            back.Margin = new Thickness(-8, 0, 0, 0);
+            back.Click += (_, _) => ReturnFromReading();
+            System.Windows.Automation.AutomationProperties.SetAutomationId(back, "card-read-back");
+            DockPanel.SetDock(back, Dock.Left); footer.Children.Add(back);
+        }
         foreach (var link in content.Links ?? [])
         {
             var button = Subtle(ActionButton(link.Title, WpfUi.ControlAppearance.Transparent, theme), theme);
@@ -322,6 +354,7 @@ internal sealed class ResultCard : OverlayWindow
         if (!content.Loading && content.Replacement is { } replacement)
         {
             var replace = ActionButton("替换原文", WpfUi.ControlAppearance.Secondary, theme);
+            System.Windows.Automation.AutomationProperties.SetAutomationId(replace, "card-replace-result");
             replace.Click += (_, _) =>
             {
                 Dismiss();
@@ -331,9 +364,9 @@ internal sealed class ResultCard : OverlayWindow
         }
         if (!content.Loading && content.PrimaryText.Length > 0)
         {
-            var copy = ActionButton("复制", WpfUi.ControlAppearance.Primary, theme);
-            copy.Width = 88;
-            copy.ToolTip = "复制结果（Enter）";
+            var copy = ActionButton(reading is null ? "复制" : "复制全文", WpfUi.ControlAppearance.Primary, theme);
+            copy.Width = reading is null ? 88 : 100;
+            copy.ToolTip = reading is null ? "复制主要结果（Enter），包含全部内容" : "复制当前阅读项的全文（Enter），包含所有页";
             copyButton = copy;
             System.Windows.Automation.AutomationProperties.SetAutomationId(copy, "card-copy-result");
             copy.Click += (_, _) => CopyPrimary();
@@ -349,7 +382,8 @@ internal sealed class ResultCard : OverlayWindow
     private FrameworkElement LineRow(ResultLine line, Theme theme, bool monospace)
     {
         // 多行的值（格式化的 JSON 之类）：说明放在上面，值占满整行
-        var stacked = line.Value.Contains('\n');
+        var preview = ResultPreview.Text(line.Value, ResultPreview.LineCharacters);
+        var stacked = preview.Contains('\n') || line.Value.Length > ResultPreview.LineCharacters;
         var grid = new Grid();
         if (stacked)
         {
@@ -363,7 +397,7 @@ internal sealed class ResultCard : OverlayWindow
         }
         var label = new TextBlock
         {
-            Text = line.Label,
+            Text = ResultPreview.Text(line.Label, 100),
             FontSize = Theme.Caption,
             Foreground = theme.Brush(theme.SecondaryText),
             VerticalAlignment = stacked ? VerticalAlignment.Top : VerticalAlignment.Center,
@@ -372,11 +406,13 @@ internal sealed class ResultCard : OverlayWindow
         };
         var value = new TextBlock
         {
-            Text = line.Value,
+            Text = preview,
             FontFamily = monospace ? Theme.MonoFont : Theme.TextFont,
             FontSize = monospace ? 13 : Theme.Body,
             LineHeight = 20,
             TextWrapping = TextWrapping.Wrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxHeight = ResultPreview.LineNeedsReader(line.Value) ? 140 : double.PositiveInfinity,
             Foreground = theme.Brush(theme.Text),
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -451,10 +487,18 @@ internal sealed class ResultCard : OverlayWindow
     {
         MarkShowing();
         root.BeginAnimation(OpacityProperty, null);
+        var (work, monitorScale) = Native.MonitorAt(x, y);
         body.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var availableHeight = Math.Min(MaxCardHeight, (work.Bottom - work.Top) / monitorScale - 2 * Theme.ShadowPad - 12);
+        if (VerificationHeightLimit is { } verification) availableHeight = Math.Min(availableHeight, verification);
+        if (cardScroller is not null && body.DesiredSize.Height > availableHeight)
+        {
+            cardScroller.MaxHeight = Math.Max(48, cardScroller.MaxHeight - (body.DesiredSize.Height - availableHeight));
+            body.InvalidateMeasure();
+            body.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        }
         var width = Math.Ceiling(body.DesiredSize.Width);
         var height = Math.Ceiling(body.DesiredSize.Height);
-        var (work, monitorScale) = Native.MonitorAt(x, y);
         var w = (int)Math.Ceiling(width * monitorScale);
         var h = (int)Math.Ceiling(height * monitorScale);
         var gap = (int)(6 * monitorScale);
