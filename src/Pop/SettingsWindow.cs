@@ -39,6 +39,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
     private const string HomePage = "https://github.com/whrss9527/pop-windows";
 
     private readonly App app;
+    private readonly StartupPreference startupPreference;
     private readonly Dictionary<string, (WpfUi.Button Button, Border Pill, WpfUi.SymbolIcon Icon)> nav = [];
     private readonly ScrollViewer scroller = new()
     {
@@ -51,9 +52,12 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
     private string? updateMessage;
     private System.Net.Http.HttpClient? http;
 
-    public SettingsWindow(App app, string? page = null)
+    public SettingsWindow(App app, string? page = null, StartupPreference? startupPreference = null)
     {
         this.app = app;
+        this.startupPreference = startupPreference ?? (app.IsDemo
+            ? new StartupPreference(() => false, _ => throw new InvalidOperationException("演示不能更改真实开机启动"))
+            : AutoStart.Preference);
         Title = "Pop 设置";
         Width = 960;
         Height = 720;

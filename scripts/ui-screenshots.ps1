@@ -51,6 +51,7 @@ foreach ($appearance in 'light', 'dark') {
     if (-not ($lines -match 'backup-preview=ok')) { $failures.Add("演示模式（${appearance}）备份变化预览与取消验证没有完成") }
     if (-not ($lines -match 'settings-batching=ok')) { $failures.Add("演示模式（${appearance}）设置连续修改、手动保存与关闭补存验证没有完成") }
     if (-not ($lines -match 'settings-recovery=ok')) { $failures.Add("演示模式（${appearance}）设置原文件保留、导入保护和重新读取验证没有完成") }
+    if (-not ($lines -match 'startup-feedback=ok')) { $failures.Add("演示模式（${appearance}）开机启动实际状态、失败反馈和重新读取验证没有完成") }
     if (-not ($lines -match 'list-navigation=ok')) { $failures.Add("演示模式（${appearance}）列表增量更新验证没有完成") }
     if (-not ($lines -match 'list-selection=ok')) { $failures.Add("演示模式（${appearance}）列表搜索与快捷选择验证没有完成") }
     if (-not ($lines -match 'list-content=ok')) { $failures.Add("演示模式（${appearance}）文件与短语性能验证没有完成") }

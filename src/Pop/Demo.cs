@@ -649,6 +649,17 @@ internal static class Demo
                 }
             });
 
+        if (Want("startup-feedback"))
+            await Scene("startup-feedback", async () =>
+            {
+                await StartupExperienceChecks.VerifyAsync(app, (name, window) =>
+                {
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var rect);
+                    Shot(name, new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                });
+                SmokeTest.Report("startup-feedback=ok confirmed=ok denied=actual unknown=disabled reload=ok mismatch=detected");
+            });
+
         if (Want("settings-batching"))
             await Scene("settings-batching", async () =>
             {
