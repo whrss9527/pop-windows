@@ -477,9 +477,11 @@ internal static class Demo
                 var window = app.ShowSettings("backup");
                 var dialog = window.CreateBackupPreview(backup);
                 var showing = dialog.ShowDialogAsync(showAsDialog: false); await Wait(450);
+                if (!SettingsWindow.BackupScopeIsVisible(dialog)) throw new InvalidOperationException("备份导入范围说明被裁切");
                 Shot("backup-preview"); dialog.TemplateButtonCommand.Execute(Wpf.Ui.Controls.MessageBoxButton.Close); await showing;
                 var identical = window.CreateBackupPreview(new(app.Settings, app.Plugins.Manifests));
                 var showingIdentical = identical.ShowDialogAsync(showAsDialog: false); await Wait(300);
+                if (!SettingsWindow.BackupScopeIsVisible(identical)) throw new InvalidOperationException("相同配置预览中的导入范围说明被裁切");
                 Shot("backup-preview-unchanged"); identical.TemplateButtonCommand.Execute(Wpf.Ui.Controls.MessageBoxButton.Close); await showingIdentical;
                 if (app.Settings.ToJson() != before || app.Plugins.Manifests.Any(p => p.Id == "preview-only"))
                     throw new InvalidOperationException("取消导入预览修改了当前设置或插件");
