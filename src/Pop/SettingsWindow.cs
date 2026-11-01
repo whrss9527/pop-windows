@@ -212,7 +212,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             nav[id] = (button, pill, glyph);
             links.Children.Add(button);
         }
-        navigationScroll = new ScrollViewer { Content = links, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        navigationScroll = new ScrollViewer { Content = links, CanContentScroll = false, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         panel.Children.Add(navigationScroll);
         return panel;
     }
