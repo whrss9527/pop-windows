@@ -16,7 +16,8 @@ internal static class StartupExperienceChecks
             var actual = AutoStart.ForVerification(path);
             window = new SettingsWindow(app, "general", actual); window.Show(); await Task.Delay(450);
             window.PreviewStartupChange(true);
-            if (window.StartupStatus != new StartupPreferenceState(true, null) || !actual.Read().Enabled.GetValueOrDefault())
+            await Task.Delay(350);
+            if (window.StartupStatus != new StartupPreferenceState(true, null) || window.StartupToggleValue != true || !actual.Read().Enabled.GetValueOrDefault())
                 throw new InvalidOperationException("启动开关未确认独立验证项的实际值");
             shot("settings-startup-confirmed", window);
             window.PreviewStartupChange(false);
@@ -25,15 +26,15 @@ internal static class StartupExperienceChecks
             window.Close(); window = null;
 
             window = new SettingsWindow(app, "general", new StartupPreference(() => false, _ => throw new UnauthorizedAccessException("演示：没有写入权限")));
-            window.Show(); await Task.Delay(450); window.PreviewStartupChange(true); await Task.Delay(100);
-            if (window.StartupStatus.Enabled != false || window.StartupStatus.Error is null || !window.StartupErrorIsVisible || !window.StartupCanToggle)
+            window.Show(); await Task.Delay(450); window.PreviewStartupChange(true); await Task.Delay(350);
+            if (window.StartupStatus.Enabled != false || window.StartupToggleValue != false || window.StartupStatus.Error is null || !window.StartupErrorIsVisible || !window.StartupCanToggle)
                 throw new InvalidOperationException("启动项写入失败后未恢复实际开关或未显示重试说明");
             shot("settings-startup-denied", window); window.Close(); window = null;
 
             var readable = false; var writes = 0;
             var unavailable = new StartupPreference(() => readable ? false : throw new IOException("演示：暂时无法读取"), _ => writes++);
             window = new SettingsWindow(app, "general", unavailable); window.Show(); await Task.Delay(450);
-            if (window.StartupStatus.Enabled is not null || window.StartupCanToggle || !window.StartupErrorIsVisible || writes != 0)
+            if (window.StartupStatus.Enabled is not null || window.StartupCanToggle || !window.StartupUnknownIsVisible || !window.StartupErrorIsVisible || writes != 0)
                 throw new InvalidOperationException("启动项未知状态被显示成关闭或仍允许盲目更改");
             shot("settings-startup-unknown", window);
             readable = true; window.PreviewStartupReload();

@@ -13,19 +13,22 @@ internal sealed partial class SettingsWindow
 {
     private WpfUi.ToggleSwitch? startupToggle;
     private TextBlock? startupMessage;
+    private TextBlock? startupUnknown;
     private DockPanel? startupFeedback;
     internal StartupPreferenceState StartupStatus { get; private set; } = new(null, null);
 
     private UIElement StartupCard()
     {
         startupToggle = new WpfUi.ToggleSwitch { OnContent = "开", OffContent = "关", LabelPosition = WpfUi.ElementPlacement.Left };
+        startupUnknown = Label("未知", Theme.Body, "TextFillColorSecondaryBrush");
+        startupUnknown.Margin = new Thickness(0, 0, 8, 0);
         AutomationProperties.SetName(startupToggle, "登录 Windows 时启动 Pop");
         startupToggle.Click += (_, _) =>
         {
             if (startupToggle.IsEnabled) ShowStartupState(startupPreference.Set(startupToggle.IsChecked == true));
         };
         var content = new StackPanel();
-        content.Children.Add(Row(Symbol.Rocket24, "开机时启动", "登录 Windows 后在后台运行", startupToggle));
+        content.Children.Add(Row(Symbol.Rocket24, "开机时启动", "登录 Windows 后在后台运行", Horizontal(startupUnknown, startupToggle)));
         startupFeedback = new DockPanel { Margin = new Thickness(56, 0, 16, 12) };
         var retry = ActionButton("重新读取", null, () => ShowStartupState(startupPreference.Read()));
         DockPanel.SetDock(retry, Dock.Right); startupFeedback.Children.Add(retry);
@@ -43,7 +46,7 @@ internal sealed partial class SettingsWindow
         StartupStatus = state;
         if (startupToggle is null || startupMessage is null || startupFeedback is null) return;
         startupToggle.IsChecked = state.Enabled;
-        startupToggle.OffContent = state.Enabled is null ? "未知" : "关";
+        if (startupUnknown is not null) startupUnknown.Visibility = state.Enabled is null ? Visibility.Visible : Visibility.Collapsed;
         startupToggle.IsEnabled = state.Enabled.HasValue;
         startupToggle.ToolTip = state.Enabled switch { true => "Windows 启动项已开启", false => "Windows 启动项已关闭", _ => "暂时无法确认 Windows 的实际状态" };
         startupFeedback.Visibility = state.Error is null ? Visibility.Collapsed : Visibility.Visible;
@@ -53,6 +56,8 @@ internal sealed partial class SettingsWindow
     }
 
     internal bool StartupCanToggle => startupToggle?.IsEnabled == true;
+    internal bool? StartupToggleValue => startupToggle?.IsChecked;
+    internal bool StartupUnknownIsVisible => startupUnknown is { IsVisible: true, ActualHeight: > 0 };
     internal bool StartupErrorIsVisible => startupFeedback?.IsVisible == true;
     internal void PreviewStartupChange(bool enabled)
     {
