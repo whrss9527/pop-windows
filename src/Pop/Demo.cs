@@ -444,7 +444,10 @@ internal static class Demo
                 card.ShowCopyFailure(x, y, "长结果复制恢复", large);
                 if (card.PrimaryText != large || LongestRenderedText(card) > 10_000)
                     throw new InvalidOperationException("长结果没有保留完整复制值，或界面载入了整段正文");
-                await Wait(250); Shot("copy-action-large-recovery");
+                await Wait(250);
+                if (!card.IsOpen || LongestRenderedText(card) == 0)
+                    throw new InvalidOperationException($"快速重开长结果后卡片不可见：visible={card.IsVisible} open={card.IsOpen}");
+                Shot("copy-action-large-recovery");
                 if (!card.CopyPrimary() || copied != large) throw new InvalidOperationException("长结果重试只复制了预览");
                 var hiddenDeadline = DateTime.UtcNow.AddSeconds(5);
                 while (card.IsVisible)
@@ -453,7 +456,7 @@ internal static class Demo
                     await Task.Delay(50);
                 }
                 if (card.PrimaryText is not null || LongestRenderedText(card) > 0)
-                    throw new InvalidOperationException("关闭卡片后仍保留上一张结果的显示缓存");
+                    throw new InvalidOperationException($"关闭卡片后仍保留上一张结果的显示缓存：primary={card.PrimaryText?.Length ?? 0} rendered={LongestRenderedText(card)}");
                 SmokeTest.Report("copy-feedback-large=ok full=2000000 preview=bounded hidden=cleared");
                 card.Close();
                 SmokeTest.Report("copy-feedback=ok");

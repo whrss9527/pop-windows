@@ -106,6 +106,9 @@ internal sealed class ResultCard : OverlayWindow
 
     public void ShowResult(int x, int y, CardContent content)
     {
+        // 新结果可能紧接着上一次复制的收起动画，先阻止旧动画隐藏新内容。
+        autoClose.Stop();
+        MarkShowing();
         CopyFailed = false;
         copyPreviewTruncated = false;
         copyButton = null;
@@ -119,6 +122,8 @@ internal sealed class ResultCard : OverlayWindow
 
     public void ShowToast(int x, int y, string message)
     {
+        autoClose.Stop();
+        MarkShowing();
         PrimaryText = null;
         copyButton = null;
         CopyFailed = false;
@@ -167,6 +172,8 @@ internal sealed class ResultCard : OverlayWindow
     private FrameworkElement Card(CardContent content, Theme theme)
     {
         var panel = new StackPanel { Margin = new Thickness(16, 12, 12, 14), MinWidth = MinCardWidth - 28, MaxWidth = MaxCardWidth - 28 };
+        // 测量时尚未接到窗口上，也要使用实际字体，避免接入后换行变高、底部按钮被裁掉。
+        System.Windows.Documents.TextElement.SetFontFamily(panel, Theme.TextFont);
 
         // 标题行：图标（或色块）、标题、关闭按钮
         var header = new DockPanel { LastChildFill = true };
@@ -442,6 +449,8 @@ internal sealed class ResultCard : OverlayWindow
     /// 摆到指针旁边：默认在右下方，放不下就翻到左边或上边；卡片从离指针最近的那个角长出来
     private void Present(int x, int y, FrameworkElement body, Theme theme, double radius, bool updating)
     {
+        MarkShowing();
+        root.BeginAnimation(OpacityProperty, null);
         body.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var width = Math.Ceiling(body.DesiredSize.Width);
         var height = Math.Ceiling(body.DesiredSize.Height);
@@ -477,7 +486,7 @@ internal sealed class ResultCard : OverlayWindow
         Height = height + 2 * Theme.ShadowPad;
         MarkShowing();
         PlacePhysical(left - pad, top - pad, w + 2 * pad, h + 2 * pad);
-        if (updating)
+        if (updating && IsVisible)
         {
             root.BeginAnimation(OpacityProperty, null);
             root.Opacity = 1;
