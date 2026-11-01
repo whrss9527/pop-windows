@@ -91,7 +91,7 @@ internal sealed class WindowWorkArea
         if (closed || moving || applying || window.WindowState != WindowState.Normal || source is null || !window.IsVisible) return;
         var hwnd = source.Handle;
         if (!Native.GetWindowRect(hwnd, out var rect)) return;
-        var (work, scale) = demoWorkArea?.Invoke() ?? ReadWorkArea(hwnd, rect);
+        var (work, scale) = demoWorkArea?.Invoke() ?? Native.WindowWorkArea(hwnd);
         if (work.Width < 1 || work.Height < 1 || !double.IsFinite(scale) || scale <= 0 || rect.Right <= rect.Left || rect.Bottom <= rect.Top) return;
         var current = new Pop.Core.Rect(rect.Left, rect.Top, rect.Right, rect.Bottom);
         if (Native.DwmGetWindowAttribute(hwnd, 9, out var visible, System.Runtime.InteropServices.Marshal.SizeOf<Native.RECT>()) == 0)
@@ -108,13 +108,6 @@ internal sealed class WindowWorkArea
                 Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
         }
         finally { applying = false; }
-    }
-
-    private static (Pop.Core.Rect Work, double Scale) ReadWorkArea(IntPtr hwnd, Native.RECT rect)
-    {
-        var (work, scale) = Native.MonitorAt((int)(((long)rect.Left + rect.Right) / 2), (int)(((long)rect.Top + rect.Bottom) / 2));
-        var dpi = Native.GetDpiForWindow(hwnd);
-        return (work, dpi > 0 ? dpi / 96d : scale);
     }
 
     private void OnClosed(object? sender, EventArgs e)
