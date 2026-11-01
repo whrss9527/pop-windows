@@ -76,6 +76,13 @@ internal static class Demo
         }
 
         var text = ContentClassifier.Classify("Pop makes selected text useful");
+        if (Want("clipboard-ownership"))
+            await Scene("clipboard-ownership", () =>
+            {
+                ClipboardOwnershipChecks.Verify();
+                SmokeTest.Report("clipboard-ownership=ok restore=ok replacement=preserved fallback=preserved");
+                return Task.CompletedTask;
+            });
 
         if (Want("snippets"))
             await Scene("snippets", async () =>

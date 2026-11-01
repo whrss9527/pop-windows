@@ -979,6 +979,7 @@ internal sealed partial class Coordinator : IDisposable
             Paster.Outcome.Pasted => $"粘贴完成：目标 App 过了 {result.Milliseconds} ms 来读，原来的剪贴板已恢复{others}",
             Paster.Outcome.NotRead => $"目标 App {Paster.Deadline.TotalSeconds:0} 秒内没有来读剪贴板，原来的内容已恢复{others}",
             Paster.Outcome.Replaced => "粘贴期间剪贴板里放进了别的内容，不再恢复原来的",
+            Paster.Outcome.RestoreFailed => "原文已处理，但未能完整恢复原剪贴板，详情见此前日志",
             _ => "替换原文失败：打不开剪贴板",
         });
     }

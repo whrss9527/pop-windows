@@ -19,6 +19,8 @@ internal sealed class Paster : IDisposable
         Replaced,
         /// 打不开剪贴板
         Failed,
+        /// 原文已处理，但未能恢复原剪贴板。
+        RestoreFailed,
     }
 
     /// Milliseconds：目标 App 过了多久来读（没来读时是一共等了多久）；OtherReaders：来读过的其他程序
@@ -150,9 +152,10 @@ internal sealed class Paster : IDisposable
         p.Timer?.Stop();
         if (restore)
         {
-            if (p.Snapshot is { } snapshot) clipboard.Restore(snapshot);
+            var restored = p.Snapshot is { } snapshot ? clipboard.Restore(snapshot, onlyIfOwned: true)
             // 原来的内容没能备份下来：至少把文字真的放进去，不留一个没人兑现的「延迟提供」
-            else clipboard.SetText(p.Text, temporary: true);
+                : clipboard.SetText(p.Text, temporary: true, onlyIfOwned: true);
+            if (!restored) outcome = clipboard.OwnsClipboard ? Outcome.RestoreFailed : Outcome.Replaced;
         }
         p.Done.TrySetResult(new Result(outcome, p.ReadAt ?? p.Watch.ElapsedMilliseconds, p.OtherReaders));
     }
