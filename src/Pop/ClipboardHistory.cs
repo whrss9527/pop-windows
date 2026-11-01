@@ -15,12 +15,14 @@ internal sealed class ClipboardHistory : IDisposable
     public ClipboardStore Store { get; }
     public ClipboardMonitor Monitor { get; }
 
-    public ClipboardHistory(Func<AppSettings> settings)
+    public ClipboardHistory(Func<AppSettings> settings, string? directoryForDemo = null)
     {
+        if (directoryForDemo is not null && System.Windows.Application.Current is not App { IsDemo: true })
+            throw new InvalidOperationException("临时历史目录仅用于演示回归");
         this.settings = settings;
         var current = settings();
         Monitor = new ClipboardMonitor(current.ClipboardHistory, current.ClipboardExcludedApps);
-        Store = new ClipboardStore(ClipboardStore.DefaultDirectory);
+        Store = new ClipboardStore(directoryForDemo ?? ClipboardStore.DefaultDirectory);
         if (Store.OpenError is { } error) Log.Error($"打不开剪贴板历史数据库：{error}");
         // 监听线程读到内容就交过来，存储和设置都在界面线程上
         var ui = Dispatcher.CurrentDispatcher;

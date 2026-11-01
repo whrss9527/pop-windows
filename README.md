@@ -137,6 +137,8 @@ dotnet publish src/Pop -c Release --self-contained false -o out/lightweight # �
 
 `Pop.exe --demo-shots 文件夹` 是演示模式：不装钩子、不改设置，显示各个界面并截图，然后退出；`--demo-scenes ring,cards` 只拍其中几组（ring、cards、list、history、flyout、settings、pin、region、annotate、picker）。ring 包含十二格和角落弧形菜单；annotate 同时验证 PNG 导出尺寸、标注像素和未绘制区域。Windows CI 会在浅色、深色下运行全部场景。
 
+`plugin-lifetime` 场景通过真实协调器和插件运行器验证等待期间的关闭、Esc、切换功能、新旧插件完成顺序与退出；受控进程故意忽略取消，确认迟到结果和错误不会回写。使用临时插件与历史目录，不安装全局钩子、不启动实际插件子进程；保留当前插件的加载、结果和失败反馈检查。
+
 ## CI 和发版
 
 合并请求和 main 推送会运行完整检查：核心测试、Release 编译；Windows Server 2022 和 2025 中便携版与轻量版的真实启动、记事本和浏览器手势、交互及明暗界面截图；最后用独立的模拟发布验证一键更新（校验和不对要拒绝、正常版本要替换并重新启动、已是最新时不更新）。分支提交通过合并请求检查，避免重复运行两套矩阵。

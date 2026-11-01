@@ -587,6 +587,17 @@ internal static class Demo
                 SmokeTest.Report("deferred-results=ok latest=preserved closed=cancelled stale-error=ignored current-error=preserved transport=cancelled ocr=guarded copy=preserved toast=preserved dispose=cancelled");
             });
 
+        if (Want("plugin-lifetime"))
+            await Scene("plugin-lifetime", async () =>
+            {
+                await Coordinator.VerifyPluginLifetimeAsync(app, x, y, (name, card) =>
+                {
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(card).Handle, out var rect);
+                    Shot(name, new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                });
+                SmokeTest.Report("plugin-lifetime=ok early-close=cancelled esc=cancelled action=preserved latest=preserved stale-error=ignored current-error=visible loading=visible visible-close=cancelled translation=cancelled dispose=cancelled");
+            });
+
         if (Want("usage-guide"))
             await Scene("usage-guide", async () =>
             {
