@@ -19,9 +19,11 @@ internal sealed class Updater : IDisposable
     private readonly Func<AppSettings> settings;
     private System.Windows.Threading.DispatcherTimer? timer;
     private bool busy;
+    private bool checking;
     private bool preparing;
     private long operation;
     public bool IsBusy => busy;
+    public bool IsChecking => checking;
     public double? DownloadFraction { get; private set; }
     public bool IsPreparingPackage => preparing;
 
@@ -70,6 +72,7 @@ internal sealed class Updater : IDisposable
     {
         if (busy) return Available;
         busy = true;
+        checking = true;
         Status = "正在检查更新…";
         Changed?.Invoke();
         try
@@ -94,6 +97,7 @@ internal sealed class Updater : IDisposable
         finally
         {
             busy = false;
+            checking = false;
             Changed?.Invoke();
         }
     }

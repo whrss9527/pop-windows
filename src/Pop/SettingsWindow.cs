@@ -153,6 +153,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
 
     private void OnUpdaterChanged()
     {
+        if (app.Updater.IsBusy) updateMessage = null;
         if (current == "about") RefreshUpdateFeedback();
     }
 

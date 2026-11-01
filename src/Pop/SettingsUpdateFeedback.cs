@@ -60,7 +60,7 @@ internal sealed partial class SettingsWindow
         updateProgress.IsIndeterminate = updater.DownloadFraction is null;
         updateProgress.Value = updater.DownloadFraction.GetValueOrDefault() * 100;
         updateAction.IsEnabled = !updater.IsBusy;
-        updateAction.Content = updater.IsBusy ? updater.Available is null ? "正在检查…" : "正在更新…"
+        updateAction.Content = updater.IsBusy ? updater.IsChecking ? "正在检查…" : "正在更新…"
             : updater.Available is { } available ? $"更新到 {available.Version}" : "检查更新";
         updateAction.Appearance = updater.Available is null ? WpfUi.ControlAppearance.Secondary : WpfUi.ControlAppearance.Primary;
         updateAction.Icon = new WpfUi.SymbolIcon { Symbol = updater.Available is null ? Symbol.ArrowSync24 : Symbol.ArrowDownload24, FontSize = 16 };

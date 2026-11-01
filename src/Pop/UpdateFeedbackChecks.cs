@@ -9,7 +9,7 @@ namespace Pop;
 
 internal sealed partial class SettingsWindow
 {
-    internal static async Task VerifyUpdateFeedbackAsync(App app, Action<string, SettingsWindow> shot)
+    internal static async Task VerifyUpdateFeedbackAsync(App app, Action<string, System.Windows.Window> shot)
     {
         if (!app.IsDemo) throw new InvalidOperationException("更新反馈检查仅用于演示回归");
         var preferences = app.Settings.ToJson();
@@ -67,6 +67,22 @@ internal sealed partial class SettingsWindow
                     window.scroller.ScrollToTop();
                     await Task.Delay(200);
                     shot(known ? "update-download-progress" : "update-download-unknown", window);
+                    if (known)
+                    {
+                        var (_, work, _) = Native.MonitorDetailsAt(1, 1);
+                        var flyout = new TrayFlyout(app);
+                        try
+                        {
+                            flyout.ShowNear((int)work.Right - 24, (int)work.Bottom + 5);
+                            await Task.Delay(250);
+                            if (FindIn<System.Windows.Controls.Primitives.ButtonBase>(flyout, "tray-update-install").IsEnabled
+                                || FindIn<System.Windows.Controls.Primitives.ButtonBase>(flyout, "tray-check-update").IsEnabled
+                                || !FindIn<System.Windows.Controls.TextBlock>(flyout, "tray-update-status").Text.Contains("正在下载", StringComparison.Ordinal))
+                                throw new InvalidOperationException("托盘未展示真实更新阶段或仍允许重复更新");
+                            shot("update-tray-busy", flyout);
+                        }
+                        finally { flyout.Close(); window.Activate(); }
+                    }
                 }
                 finally
                 {
@@ -86,6 +102,18 @@ internal sealed partial class SettingsWindow
             window.Close();
         }
         if (app.Settings.ToJson() != preferences) throw new InvalidOperationException("更新反馈检查改写了偏好设置");
+
+        static T FindIn<T>(System.Windows.DependencyObject root, string id) where T : System.Windows.DependencyObject
+        {
+            var pending = new Stack<System.Windows.DependencyObject>(); pending.Push(root);
+            while (pending.TryPop(out var element))
+            {
+                if (element is T found && System.Windows.Automation.AutomationProperties.GetAutomationId(element) == id) return found;
+                for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(element); i++)
+                    pending.Push(System.Windows.Media.VisualTreeHelper.GetChild(element, i));
+            }
+            throw new InvalidOperationException("找不到更新控件：" + id);
+        }
     }
 
     private sealed class WaitingDownloadHandler(byte[] bytes, string sums, bool known) : HttpMessageHandler
