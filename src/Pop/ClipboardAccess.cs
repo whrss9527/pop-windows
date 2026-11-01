@@ -36,6 +36,7 @@ internal sealed class ClipboardAccess : IDisposable
     public bool Emptying { get; private set; }
 
     public static uint SequenceNumber => GetClipboardSequenceNumber();
+    public bool OwnsClipboard => GetClipboardOwner() == window.Handle;
 
     public sealed record Snapshot(IReadOnlyList<(uint Format, byte[] Data)> Items);
 
@@ -74,14 +75,18 @@ internal sealed class ClipboardAccess : IDisposable
         }
     }
 
-    public void Restore(Snapshot? snapshot)
+    public bool Restore(Snapshot? snapshot, bool onlyIfOwned = false)
     {
-        if (snapshot is null || !Open()) return;
+        if (snapshot is null || !Open()) return false;
         try
         {
+            // 必须在打开剪贴板之后判断，避免等待占用期间所有者已经改变。
+            if (onlyIfOwned && !OwnsClipboard) return false;
             Empty();
-            foreach (var (format, data) in snapshot.Items) Put(format, data);
+            var restored = true;
+            foreach (var (format, data) in snapshot.Items) restored &= Put(format, data);
             MarkPrivate();
+            return restored;
         }
         finally
         {
@@ -114,11 +119,12 @@ internal sealed class ClipboardAccess : IDisposable
     }
 
     /// 写入文字。temporary 为 true 时不进剪贴板历史（替换原文时临时用一下）
-    public bool SetText(string text, bool temporary)
+    public bool SetText(string text, bool temporary, bool onlyIfOwned = false)
     {
         if (!Open()) return false;
         try
         {
+            if (onlyIfOwned && !OwnsClipboard) return false;
             Empty();
             var ok = Put(CF_UNICODETEXT, TextBytes(text));
             if (temporary) MarkPrivate();
