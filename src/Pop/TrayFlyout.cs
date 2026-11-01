@@ -289,7 +289,7 @@ internal sealed class TrayFlyout : Window
             await app.CheckForUpdatesAsync(userInitiated: true);
             Refill();
         });
-        check.IsEnabled = app.Updater.Available is null;
+        check.IsEnabled = !app.Updater.IsBusy && app.Updater.Available is null;
         System.Windows.Automation.AutomationProperties.SetAutomationId(check, "tray-check-update");
         Grid.SetColumn(check, 2);
         grid.Children.Add(check);
@@ -321,18 +321,21 @@ internal sealed class TrayFlyout : Window
         icon.VerticalAlignment = VerticalAlignment.Center;
         grid.Children.Add(icon);
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        text.Children.Add(new TextBlock { Text = $"Pop {release.Version} 可以更新了", FontWeight = FontWeights.Medium, Foreground = theme.Brush(theme.Text) });
-        text.Children.Add(new TextBlock { Text = "更新后自动重新启动", FontSize = Theme.Caption, Foreground = theme.Brush(theme.SecondaryText) });
+        var updateStatus = new TextBlock { Text = app.Updater.IsBusy ? app.Updater.Status : $"Pop {release.Version} 可以更新了", FontWeight = FontWeights.Medium, Foreground = theme.Brush(theme.Text), TextWrapping = TextWrapping.Wrap };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(updateStatus, "tray-update-status");
+        text.Children.Add(updateStatus);
+        text.Children.Add(new TextBlock { Text = app.Updater.IsBusy ? "可在设置 → 关于查看进度" : "更新后自动重新启动", FontSize = Theme.Caption, Foreground = theme.Brush(theme.SecondaryText) });
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);
         var install = new WpfUi.Button
         {
-            Content = "更新",
+            Content = app.Updater.IsBusy ? "进行中" : "更新",
             Appearance = WpfUi.ControlAppearance.Primary,
             Padding = new Thickness(14, 5, 14, 6),
             VerticalAlignment = VerticalAlignment.Center,
-            IsEnabled = app.Updater.Status is not { } s || !s.StartsWith("正在", StringComparison.Ordinal),
+            IsEnabled = !app.Updater.IsBusy,
         };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(install, "tray-update-install");
         install.Click += async (_, _) =>
         {
             install.IsEnabled = false;

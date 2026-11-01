@@ -598,6 +598,17 @@ internal static class Demo
                 SmokeTest.Report("plugin-lifetime=ok early-close=cancelled esc=cancelled action=preserved latest=preserved stale-error=ignored current-error=visible loading=visible visible-close=cancelled translation=cancelled dispose=cancelled");
             });
 
+        if (Want("update-feedback"))
+            await Scene("update-feedback", async () =>
+            {
+                await SettingsWindow.VerifyUpdateFeedbackAsync(app, (name, window) =>
+                {
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var rect);
+                    Shot(name, new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                });
+                SmokeTest.Report("update-feedback=ok known=percent unknown=indeterminate prepare=observed controls=reused focus=preserved scroll=preserved tray=busy package=verified preferences=unchanged");
+            });
+
         if (Want("usage-guide"))
             await Scene("usage-guide", async () =>
             {

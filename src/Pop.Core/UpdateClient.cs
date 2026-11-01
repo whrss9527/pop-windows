@@ -17,17 +17,23 @@ public sealed class UpdateClient(HttpClient http, ReleasePackage package = Relea
 
     public async Task DownloadAsync(string location, string destination, IProgress<double>? progress, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         if (LocalPath(location) is { } path)
         {
-            File.Copy(path, destination, overwrite: true);
-            progress?.Report(1);
+            await using var local = File.OpenRead(path);
+            await CopyDownloadAsync(local, destination, local.Length, progress, ct);
             return;
         }
         using var response = await http.GetAsync(location, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
         var total = response.Content.Headers.ContentLength;
         await using var source = await response.Content.ReadAsStreamAsync(ct);
+        await CopyDownloadAsync(source, destination, total, progress, ct);
+    }
+
+    private static async Task CopyDownloadAsync(Stream source, string destination, long? total, IProgress<double>? progress, CancellationToken ct)
+    {
         await using var target = File.Create(destination);
         var buffer = new byte[81920];
         long received = 0;
@@ -47,13 +53,27 @@ public sealed class UpdateClient(HttpClient http, ReleasePackage package = Relea
     }
 
     /// 下载安装包和校验和，校验后解压，返回新 Pop.exe 的路径
-    public async Task<string> DownloadAndPrepareAsync(ReleaseInfo release, string workDirectory, IProgress<double>? progress, CancellationToken ct)
+    public async Task<string> DownloadAndPrepareAsync(ReleaseInfo release, string workDirectory, IProgress<double>? progress, CancellationToken ct,
+        IProgress<UpdatePreparationProgress>? preparationProgress = null)
     {
         Directory.CreateDirectory(workDirectory);
         var zip = Path.Combine(workDirectory, release.PackageName);
         var checksums = await GetStringAsync(release.ChecksumsUrl, ct);
-        await DownloadAsync(release.PackageUrl, zip, progress, ct);
-        return UpdatePackage.Prepare(zip, release.PackageName, checksums, Path.Combine(workDirectory, "staging"));
+        preparationProgress?.Report(new(UpdatePreparationStage.Downloading));
+        await DownloadAsync(release.PackageUrl, zip, new InlineProgress<double>(fraction =>
+        {
+            progress?.Report(fraction);
+            preparationProgress?.Report(new(UpdatePreparationStage.Downloading, fraction));
+        }), ct);
+        ct.ThrowIfCancellationRequested();
+        preparationProgress?.Report(new(UpdatePreparationStage.Preparing));
+        // 哈希和解压不占用调用方的界面线程。
+        return await Task.Run(() => UpdatePackage.Prepare(zip, release.PackageName, checksums, Path.Combine(workDirectory, "staging")), ct);
+    }
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 
     /// file:///C:/x 或者 C:\x 这样的本机路径
