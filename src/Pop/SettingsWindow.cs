@@ -101,6 +101,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         app.SettingsSaveStateChanged += OnSettingsSaveStateChanged;
         app.Updater.Changed += OnUpdaterChanged;
         app.PluginsChanged += OnPluginsChanged;
+        Closing += (_, _) => { Keyboard.ClearFocus(); app.FlushPendingSettings(); };
         Closed += (_, _) =>
         {
             app.SettingsChanged -= OnSettingsChanged;

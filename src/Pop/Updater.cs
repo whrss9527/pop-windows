@@ -88,7 +88,7 @@ internal sealed class Updater : IDisposable
     }
 
     /// 下载、校验、替换。成功后启动新版本，返回 true，调用方负责退出当前进程
-    public async Task<bool> InstallAsync(ReleaseInfo release, IProgress<double>? progress)
+    public async Task<bool> InstallAsync(ReleaseInfo release, IProgress<double>? progress, Func<bool>? beforeRestart = null)
     {
         if (busy) return false;
         busy = true;
@@ -109,6 +109,9 @@ internal sealed class Updater : IDisposable
                 throw new UpdateException($"安装包里的版本（{fileVersion}）和发布的版本（{release.Version}）不一致，已放弃更新");
 
             if (Signature.CheckUpdate(current, newExe) is { } refusal) throw new UpdateException(refusal);
+
+            if (beforeRestart?.Invoke() == false)
+                throw new UpdateException("设置尚未保存，请在设置窗口重试保存后再更新");
 
             await ExecutableSwap.SwapAsync(current, newExe);
             Log.Info($"已替换为 {release.Version}，重新启动");
