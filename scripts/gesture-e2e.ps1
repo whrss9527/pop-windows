@@ -439,8 +439,8 @@ try {
         $exePath = $browser.Paths | Where-Object { Test-Path $_ } | Select-Object -First 1
         if (-not $exePath) { throw "这台 runner 上没有 $name" }
         $browserProfile = Join-Path $env:RUNNER_TEMP "pop-$name-profile"
-        # runner 的虚拟显卡上浏览器偶尔画不出页面，用软件渲染
-        Start-Process $exePath -ArgumentList '--no-first-run', '--no-default-browser-check', '--disable-gpu', "--user-data-dir=`"$browserProfile`"", '--new-window', '--window-position=120,60', '--window-size=900,700', "`"$page`""
+        # 预先建立辅助功能树，测真实选词与复制，不把冷启动初始化混进断言；虚拟显卡用软件渲染。
+        Start-Process $exePath -ArgumentList '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--force-renderer-accessibility=complete', "--user-data-dir=`"$browserProfile`"", '--new-window', '--window-position=120,60', '--window-size=900,700', "`"$page`""
         $browserWindow = [IntPtr]::Zero
         for ($i = 0; $i -lt 120 -and $browserWindow -eq [IntPtr]::Zero; $i++) {
             Start-Sleep -Milliseconds 500
