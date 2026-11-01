@@ -378,6 +378,7 @@ internal sealed class TrayFlyout : Window
         };
         ((FrameworkElement)face.Child).HorizontalAlignment = HorizontalAlignment.Center;
         ((FrameworkElement)face.Child).VerticalAlignment = VerticalAlignment.Center;
+        System.Windows.Automation.AutomationProperties.SetAutomationId(face, "tray-face-" + id);
         var label = new TextBlock
         {
             Text = title,
@@ -430,6 +431,7 @@ internal sealed class TrayFlyout : Window
         if (keys is not null)
         {
             var hint = new TextBlock { Text = keys, FontSize = Theme.Caption, Foreground = theme.Brush(theme.TertiaryText), VerticalAlignment = VerticalAlignment.Center };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(hint, "tray-shortcut-" + id);
             Grid.SetColumn(hint, 2);
             grid.Children.Add(hint);
         }
@@ -456,10 +458,15 @@ internal sealed class TrayFlyout : Window
     private void PrepareControl(ButtonBase control, string id)
     {
         var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        presenter.SetBinding(HorizontalAlignmentProperty, new System.Windows.Data.Binding(nameof(Control.HorizontalContentAlignment))
+            { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
+        presenter.SetBinding(VerticalAlignmentProperty, new System.Windows.Data.Binding(nameof(Control.VerticalContentAlignment))
+            { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
         control.Template = new ControlTemplate(control.GetType()) { VisualTree = presenter };
         control.Background = Brushes.Transparent; control.BorderThickness = new Thickness(0); control.Padding = new Thickness(0);
         control.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         control.VerticalContentAlignment = VerticalAlignment.Stretch;
+        control.HorizontalAlignment = HorizontalAlignment.Stretch;
         control.FontFamily = Theme.TextFont; control.FontWeight = FontWeights.Normal; control.Cursor = Cursors.Hand;
         System.Windows.Automation.AutomationProperties.SetAutomationId(control, id);
         var outline = new FrameworkElementFactory(typeof(Border));

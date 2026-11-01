@@ -28,6 +28,16 @@ internal static class TrayControlsChecks
             flyout = new TrayFlyout(app); flyout.ShowNear(x, y);
             await Task.Delay(250); await Dispatcher.Yield(DispatcherPriority.ContextIdle);
             foreach (var id in new[] { "mouse", "direct", "recording" }) AssertState(id, true);
+            var widths = new[] { "mouse", "direct", "recording" }.Select(id => Find<Border>("tray-face-" + id).ActualWidth).ToArray();
+            var historyRow = Find<Button>("tray-action-history");
+            var historyShortcut = Find<TextBlock>("tray-shortcut-history");
+            var shortcutRight = historyShortcut.TranslatePoint(new Point(historyShortcut.ActualWidth, 0), historyRow).X;
+            if (widths.Any(width => width < 80) || widths.Max() - widths.Min() > 1
+                || shortcutRight < historyRow.ActualWidth - 24 || shortcutRight > historyRow.ActualWidth + 1)
+            {
+                shot("tray-controls-layout-problem", flyout);
+                throw new InvalidOperationException($"托盘模板未铺满操作区：tiles={string.Join(',', widths)} shortcutRight={shortcutRight} rowWidth={historyRow.ActualWidth}");
+            }
             await Task.Delay(200); shot("tray-controls-enabled", flyout);
 
             var mouse = Toggle("mouse"); mouse.Focus();
