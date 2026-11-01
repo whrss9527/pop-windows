@@ -662,7 +662,13 @@ internal sealed partial class Coordinator : IDisposable
             switch (item.Kind)
             {
                 case ClipboardKind.Text:
-                    clipboard.SetText(item.Text, temporary: false);
+                    if (!clipboard.SetText(item.Text, temporary: false))
+                    {
+                        Native.GetCursorPos(out var cursor);
+                        ShowCopyFailure(cursor.X, cursor.Y, "尚未粘贴", item.Text, "没有发送粘贴。重试复制成功后，请在原窗口按 Ctrl+V。");
+                        Log.Info("剪贴板暂时不可写，未发送历史粘贴按键");
+                        return;
+                    }
                     break;
                 case ClipboardKind.Files:
                     var files = new System.Collections.Specialized.StringCollection();
@@ -820,8 +826,8 @@ internal sealed partial class Coordinator : IDisposable
                 await Replace(replacement);
                 break;
             case ActionEffect.Copy when result.Text is { } copied:
-                clipboard.SetText(copied, temporary: false);
-                ShowToast(x, y, "已复制");
+                if (clipboard.SetText(copied, temporary: false)) ShowToast(x, y, "已复制");
+                else ShowCopyFailure(x, y, action.Title, copied);
                 break;
             case ActionEffect.Translate when result.Text is { } source:
                 await TranslateAsync(source, x, y);
@@ -982,6 +988,12 @@ internal sealed partial class Coordinator : IDisposable
     {
         cardOpen = false;
         card.ShowToast(x, y, message);
+    }
+
+    private void ShowCopyFailure(int x, int y, string title, string text, string? instruction = null)
+    {
+        cardOpen = true;
+        card.ShowCopyFailure(x, y, title, text, instruction);
     }
 
     private void CloseCard()

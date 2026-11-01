@@ -87,6 +87,7 @@ function Start-Scenario([string]$Mode, [string]$Modifier = 'Control', [switch]$H
             snippets = @{ modifiers = 3; key = 74 }; textDiff = @{ modifiers = 3; key = 68 }
             keepAwake = @{ modifiers = 3; key = 65 }; colorPicker = @{ modifiers = 3; key = 67 }
             ruler = @{ modifiers = 3; key = 82 }
+            clipboard = @{ modifiers = 3; key = 72 }
         }
     }
     if ($ExcludeNotepad) { $settings.triggerExcludedApps = @('Notepad.EXE') }
@@ -415,6 +416,36 @@ try {
     Invoke-Key 0x0D
     Assert-Clipboard '#293232'
     Passed 'picker-keyboard-pixel-movement'
+
+    # 写入被其他程序占用时，保留复制结果；历史粘贴不能把旧的剪贴板内容贴进去。
+    Start-Scenario 'ModifierRightClick'
+    Invoke-CtrlAlt 0x4B; Wait-Window 'Pop 圆盘' $true
+    if (-not [PopCi.Native]::OpenClipboard([IntPtr]::Zero)) { throw '无法准备剪贴板占用场景' }
+    try {
+        Invoke-Key 0x33 # 第三格是复制
+        Wait-Window 'Pop 结果' $true
+        if ((Find-Control 'Pop 结果' 'card-copy-result').Current.Name -notmatch '重试复制') { throw '普通复制失败没有保留重试入口' }
+        Save-Screenshot (Join-Path $OutDir 'copy-locked-recovery.png')
+    } finally { [PopCi.Native]::CloseClipboard() | Out-Null }
+    Invoke-Key 0x0D; Assert-Clipboard $sample; Wait-Window 'Pop 结果' $false
+    Passed 'copy-locked-retry'
+
+    Start-Scenario 'ModifierRightClick'
+    Set-Clipboard -Value $sample
+    Start-Sleep -Milliseconds 500 # 明确准备历史记录，不依赖 Reset-Selection 的输入方式
+    Set-Clipboard -Value 'UNEXPECTED OLD TEXT'
+    Invoke-CtrlAlt 0x48; Wait-Window 'Pop 剪贴板历史' $true
+    foreach ($vk in 0x48, 0x45, 0x4C, 0x4C, 0x4F) { Invoke-Key ([byte]$vk) }
+    if (-not [PopCi.Native]::OpenClipboard([IntPtr]::Zero)) { throw '无法准备历史粘贴占用场景' }
+    try {
+        Invoke-Key 0x0D; Wait-Window 'Pop 结果' $true
+        if ([PopCi.Native]::ReadEditText($notepad.MainWindowHandle).Trim() -cne $sample) { throw '剪贴板占用时错误粘贴了旧内容' }
+        if ((Find-Control 'Pop 结果' 'card-copy-result').Current.Name -notmatch '重试复制') { throw '历史粘贴失败没有保留内容' }
+        Save-Screenshot (Join-Path $OutDir 'history-locked-recovery.png')
+    } finally { [PopCi.Native]::CloseClipboard() | Out-Null }
+    Invoke-Key 0x0D; Assert-Clipboard $sample; Wait-Window 'Pop 结果' $false
+    if ([PopCi.Native]::ReadEditText($notepad.MainWindowHandle).Trim() -cne $sample) { throw '手动复制重试不应自动粘贴' }
+    Passed 'history-locked-does-not-paste-old-clipboard'
 
     Start-PixelFixture 'ruler'
     [PopCi.Native]::SetCursorPos(440, 310) | Out-Null

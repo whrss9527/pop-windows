@@ -53,29 +53,60 @@ public static class ExecutableSwap
 {
     public static string OldPath(string currentExe) => currentExe + ".old";
 
-    public static void Swap(string currentExe, string newExe)
+    public static void Swap(string currentExe, string newExe) => SwapAsync(currentExe, newExe).GetAwaiter().GetResult();
+
+    /// 先在程序目录完整准备新文件，再改名替换；文件被短暂扫描时异步重试，不阻塞界面。
+    public static async Task SwapAsync(string currentExe, string newExe)
     {
         var old = OldPath(currentExe);
-        TryDelete(old);
-        if (File.Exists(old)) throw new UpdateException($"上一次更新留下的 {Path.GetFileName(old)} 删不掉，请退出所有 Pop 后再试");
-        File.Move(currentExe, old);
+        var staged = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(currentExe))!, $".pop-update-{Guid.NewGuid():N}.new");
         try
         {
-            File.Copy(newExe, currentExe, overwrite: false);
-        }
-        catch (Exception e)
-        {
-            // 放不进去就把原来的改回来，保证 Pop 还能启动
+            await RetrySharingViolationAsync(() =>
+            {
+                // 重试只清理本次独占的临时文件，不接触当前可运行的版本。
+                File.Delete(staged);
+                File.Copy(newExe, staged, overwrite: false);
+            }).ConfigureAwait(false);
+            await RetrySharingViolationAsync(() => File.Delete(old)).ConfigureAwait(false);
+            await RetrySharingViolationAsync(() => File.Move(currentExe, old)).ConfigureAwait(false);
             try
             {
-                if (File.Exists(currentExe)) File.Delete(currentExe);
-                File.Move(old, currentExe);
+                await RetrySharingViolationAsync(() => File.Move(staged, currentExe)).ConfigureAwait(false);
             }
-            catch (Exception rollback)
+            catch (Exception e)
             {
-                throw new UpdateException($"替换失败，恢复原来的版本也失败了：{rollback.Message}", e);
+                try
+                {
+                    await RetrySharingViolationAsync(() => File.Move(old, currentExe)).ConfigureAwait(false);
+                }
+                catch (Exception rollback)
+                {
+                    throw new UpdateException($"替换失败，原版本保留在 {old}，自动恢复失败：{rollback.Message}", e);
+                }
+                throw new UpdateException($"替换 {Path.GetFileName(currentExe)} 失败，已恢复原版本：{e.Message}", e);
             }
-            throw new UpdateException($"替换 {Path.GetFileName(currentExe)} 失败：{e.Message}", e);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            throw new UpdateException($"无法替换 {Path.GetFileName(currentExe)}，原版本仍保留。请稍后重试：{e.Message}", e);
+        }
+        finally
+        {
+            TryDelete(staged);
+        }
+    }
+
+    private static async Task RetrySharingViolationAsync(Action operation)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try { operation(); return; }
+            // 只重试 Windows 的共享/锁冲突；路径、权限和空间等错误立即交给调用方。
+            catch (IOException e) when ((e.HResult & 0xffff) is 32 or 33 && attempt < 29)
+            {
+                await Task.Delay(100).ConfigureAwait(false);
+            }
         }
     }
 

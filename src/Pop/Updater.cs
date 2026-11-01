@@ -110,7 +110,7 @@ internal sealed class Updater : IDisposable
 
             if (Signature.CheckUpdate(current, newExe) is { } refusal) throw new UpdateException(refusal);
 
-            ExecutableSwap.Swap(current, newExe);
+            await ExecutableSwap.SwapAsync(current, newExe);
             Log.Info($"已替换为 {release.Version}，重新启动");
             TryDelete(work);
 
