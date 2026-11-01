@@ -45,11 +45,7 @@ internal sealed partial class SettingsWindow
         {
             if (new FileInfo(dialog.FileName).Length > SettingsBackup.MaximumBytes) throw new InvalidDataException("备份文件超过 16 MB");
             var backup = SettingsBackup.FromJson(File.ReadAllText(dialog.FileName));
-            var confirm = new WpfUi.MessageBox
-            {
-                Owner = this, Title = "导入设置与插件？", PrimaryButtonText = "导入", CloseButtonText = "取消",
-                Content = $"将覆盖当前圆盘、唤起、直达规则、快捷键、常用短语（{backup.Settings.Snippets.Count} 条）、翻译和剪贴板设置，并导入 {backup.Plugins.Count} 个插件。同 ID 的已有插件会更新，其他插件保留。\n\n导入前会自动备份。导入不会运行脚本；使用导入的插件前，请在功能页检查脚本内容。",
-            };
+            var confirm = CreateBackupPreview(backup);
             if (await confirm.ShowDialogAsync() != WpfUi.MessageBoxResult.Primary) return;
             var recovery = app.ImportBackup(backup);
             await ShowMessage("已导入", $"设置已生效，导入前的备份保存在：\n{recovery}");
