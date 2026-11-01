@@ -234,6 +234,9 @@ internal static unsafe class Native
     [DllImport("user32.dll")]
     public static extern IntPtr GetOpenClipboardWindow();
 
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetClipboardOwner();
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern uint RegisterClipboardFormat(string lpszFormat);
 

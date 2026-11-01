@@ -43,6 +43,7 @@ foreach ($appearance in 'light', 'dark') {
     if (-not ($lines -match 'copy-feedback=ok')) { $failures.Add("演示模式（${appearance}）复制失败与重试验证没有完成") }
     if (-not ($lines -match 'settings-save-feedback=ok')) { $failures.Add("演示模式（${appearance}）设置保存反馈验证没有完成") }
     if (-not ($lines -match 'settings-search=ok')) { $failures.Add("演示模式（${appearance}）设置搜索与跳转验证没有完成") }
+    if (-not ($lines -match 'clipboard-ownership=ok')) { $failures.Add("演示模式（${appearance}）原剪贴板恢复与新复制内容保护验证没有完成") }
     if (-not ($lines -match 'history-filters=ok')) { $failures.Add("演示模式（${appearance}）剪贴板分类与固定筛选验证没有完成") }
     if (-not ($lines -match 'backup-preview=ok')) { $failures.Add("演示模式（${appearance}）备份变化预览与取消验证没有完成") }
     if (-not ($lines -match 'list-navigation=ok')) { $failures.Add("演示模式（${appearance}）列表增量更新验证没有完成") }
