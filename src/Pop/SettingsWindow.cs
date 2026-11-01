@@ -747,6 +747,9 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
                 Log.Error("保存 Key 失败", e);
             }
         });
+        System.Windows.Automation.AutomationProperties.SetAutomationId(key, "translation-key");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(save, "translation-key-save");
+        System.Windows.Automation.AutomationProperties.SetAutomationId(keyStatus, "translation-key-status");
         save.Margin = new Thickness(8, 0, 0, 0);
         var keyControl = new StackPanel();
         keyControl.Children.Add(Horizontal(key, save));
