@@ -9,6 +9,7 @@ public static class SettingsCatalog
 {
     public static IReadOnlyList<SettingsEntry> Entries { get; } =
     [
+        new("guide", "general", "使用指南", "查看当前唤起方式、可用快捷键和常用操作", "帮助 新手 入门 guide help getting started"),
         new("enabled", "general", "暂停或恢复鼠标唤起", "保留全局快捷键，临时关闭鼠标触发", "通用 开关 启用 暂停 enabled pause mouse"),
         new("startup", "general", "开机启动", "登录 Windows 后自动运行 Pop", "通用 自动启动 自启 startup autostart"),
         new("trigger", "triggers", "唤起方式与长按时间", "设置右键长按、修饰键右键、中键或仅使用快捷键", "唤起 按住 延迟 时间 灵敏度 鼠标 trigger hold delay hk"),

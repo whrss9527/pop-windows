@@ -11,6 +11,7 @@ public sealed class SettingsCatalogTests
     [InlineData("FY", "translate")]
     [InlineData("hotkey", "shortcuts")]
     [InlineData("备份", "backup")]
+    [InlineData("新手", "general")]
     public void FindsRelatedPages(string query, string page) => Assert.Contains(SettingsCatalog.Search(query), entry => entry.Page == page);
 
     [Fact]
