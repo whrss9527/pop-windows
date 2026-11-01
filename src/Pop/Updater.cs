@@ -113,7 +113,7 @@ internal sealed class Updater : IDisposable
             if (beforeRestart?.Invoke() == false)
                 throw new UpdateException("设置尚未保存，请在设置窗口重试保存后再更新");
 
-            ExecutableSwap.Swap(current, newExe);
+            await ExecutableSwap.SwapAsync(current, newExe);
             Log.Info($"已替换为 {release.Version}，重新启动");
             TryDelete(work);
 
