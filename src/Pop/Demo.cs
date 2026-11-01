@@ -557,6 +557,17 @@ internal static class Demo
                 SmokeTest.Report("window-workarea=ok moved=fit moving=free minimum=restored foreground=preserved normal=only closed=cancelled settings=unchanged");
             });
 
+        if (Want("deferred-results"))
+            await Scene("deferred-results", async () =>
+            {
+                await DeferredCardChecks.VerifyAsync(app, x, y, (name, card) =>
+                {
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(card).Handle, out var rect);
+                    Shot(name, new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                });
+                SmokeTest.Report("deferred-results=ok latest=preserved closed=cancelled stale-error=ignored current-error=preserved transport=cancelled ocr=guarded copy=preserved toast=preserved dispose=cancelled");
+            });
+
         if (Want("usage-guide"))
             await Scene("usage-guide", async () =>
             {
