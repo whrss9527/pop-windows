@@ -355,12 +355,38 @@ try {
     foreach ($vk in 0x53, 0x45, 0x43, 0x4F, 0x4E, 0x44) { Invoke-Key ([byte]$vk) }   # second
     Start-Sleep -Milliseconds 300
     Save-Screenshot (Join-Path $OutDir 'clipboard-history-search.png')
+    # 分类与固定筛选走真实键盘钩子；空结果不能误粘贴底下的其他记录。
+    Invoke-Key 0x09 # Tab：全部 → 文字
+    [PopCi.Native]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)
+    Invoke-Key 0x50 -Ctrl # Ctrl+Shift+P：只看固定，尚未固定 second
+    [PopCi.Native]::keybd_event(0x10, 0, 2, [UIntPtr]::Zero)
+    Invoke-Key 0x0D
+    Start-Sleep -Milliseconds 200
+    Wait-PopWindow 'Pop 剪贴板历史' -Visible
+    if ((Get-NotepadText).Trim() -ne 'placeholder') { throw '空的固定筛选错误粘贴了其他内容' }
+    Save-Screenshot (Join-Path $OutDir 'clipboard-history-pinned-empty.png')
+    [PopCi.Native]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)
+    Invoke-Key 0x50 -Ctrl # 退出只看固定
+    [PopCi.Native]::keybd_event(0x10, 0, 2, [UIntPtr]::Zero)
+    Invoke-Key 0x50 -Ctrl # 固定当前项
+    [PopCi.Native]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)
+    Invoke-Key 0x50 -Ctrl # 再进入只看固定
+    [PopCi.Native]::keybd_event(0x10, 0, 2, [UIntPtr]::Zero)
+    Invoke-Key 0x09 # 图片分类没有匹配项
+    Invoke-Key 0x0D
+    Start-Sleep -Milliseconds 200
+    Wait-PopWindow 'Pop 剪贴板历史' -Visible
+    if ((Get-NotepadText).Trim() -ne 'placeholder') { throw '图片分类错误粘贴了文字' }
+    [PopCi.Native]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)
+    Invoke-Key 0x09 # Shift+Tab 回到文字，保留 second 搜索词
+    [PopCi.Native]::keybd_event(0x10, 0, 2, [UIntPtr]::Zero)
+    Save-Screenshot (Join-Path $OutDir 'clipboard-history-pinned-text.png')
     Invoke-Key 0x0D
     Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') '剪贴板历史：粘贴' 10 | Out-Null
     Start-Sleep -Milliseconds 800
     $text = Get-NotepadText
     if ($text.Trim() -ne 'second item') { throw "从剪贴板历史粘贴后记事本里是「$text」" }
-    Write-Host '✓ 剪贴板历史：记录、快捷键打开、搜索、粘贴'
+    Write-Host '✓ 剪贴板历史：记录、快捷键打开、搜索、分类、固定筛选与空结果保护、粘贴'
 
     # 5d. 截图识字：记事本里放大一行字，Win+Alt+O 框选这一行，识别出的文字要对
     Set-NotepadText 'POP OCR TEST 2026'

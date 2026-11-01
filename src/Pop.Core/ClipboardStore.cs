@@ -185,18 +185,27 @@ public sealed class ClipboardStore : IDisposable
     }
 
     /// 固定的排在最前，其余按最近使用排序。search 不为空时按文字搜索，图片按里面识别出的文字搜索（英文字母不分大小写）
-    public IReadOnlyList<ClipboardItem> Items(string search = "", int limit = 200)
+    public IReadOnlyList<ClipboardItem> Items(string search = "", int limit = 200, ClipboardKind? kind = null, bool pinnedOnly = false)
     {
         lock (_gate)
         {
             var keyword = search.Trim();
             var sql = "SELECT " + Columns + " FROM items";
             var parameters = new List<(string, object?)>();
+            var conditions = new List<string>();
             if (keyword.Length > 0)
             {
-                sql += " WHERE text LIKE $pattern ESCAPE '\\' OR recognized_text LIKE $pattern ESCAPE '\\'";
+                conditions.Add("(text LIKE $pattern ESCAPE '\\' OR recognized_text LIKE $pattern ESCAPE '\\')");
                 parameters.Add(("$pattern", "%" + EscapeLike(keyword) + "%"));
             }
+            if (kind is { } selectedKind)
+            {
+                if (!Enum.IsDefined(selectedKind)) throw new ArgumentOutOfRangeException(nameof(kind));
+                conditions.Add("kind = $kind");
+                parameters.Add(("$kind", KindName(selectedKind)));
+            }
+            if (pinnedOnly) conditions.Add("pinned = 1");
+            if (conditions.Count > 0) sql += " WHERE " + string.Join(" AND ", conditions);
             sql += " ORDER BY pinned DESC, used_at DESC LIMIT $limit";
             parameters.Add(("$limit", Math.Max(limit, 0)));
             return Query(sql, [.. parameters]);
