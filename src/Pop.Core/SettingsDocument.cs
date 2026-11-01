@@ -46,15 +46,24 @@ public sealed class SettingsDocument
         settings = null;
         try
         {
-            using var stream = new MemoryStream(bytes, writable: false);
-            using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-            var json = reader.ReadToEnd();
+            // 解码失败也属于损坏，不能悄悄替换字符后再把结果保存回去。
+            // 继续接受带 BOM 的旧 Unicode 文件，UTF-32 必须先于 UTF-16 判断。
+            (Encoding Encoding, int Offset) decoder = bytes switch
+            {
+                [0xff, 0xfe, 0, 0, ..] => (new UTF32Encoding(false, false, true), 4),
+                [0, 0, 0xfe, 0xff, ..] => (new UTF32Encoding(true, false, true), 4),
+                [0xff, 0xfe, ..] => (new UnicodeEncoding(false, false, true), 2),
+                [0xfe, 0xff, ..] => (new UnicodeEncoding(true, false, true), 2),
+                [0xef, 0xbb, 0xbf, ..] => (new UTF8Encoding(false, true), 3),
+                _ => (new UTF8Encoding(false, true), 0),
+            };
+            var json = decoder.Encoding.GetString(bytes, decoder.Offset, bytes.Length - decoder.Offset);
             using var document = JsonDocument.Parse(json);
             if (document.RootElement.ValueKind != JsonValueKind.Object) return false;
             settings = AppSettings.FromJson(json);
             return true;
         }
-        catch (JsonException) { return false; }
+        catch (Exception e) when (e is JsonException or DecoderFallbackException) { return false; }
     }
 
     public void Save(AppSettings settings)
