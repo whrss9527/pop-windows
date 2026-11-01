@@ -98,6 +98,13 @@ internal static class Demo
                 SmokeTest.Report("clipboard-recording=ok disabled=unread queued=cancelled queued-result=cancelled rapid-toggle=fresh reenabled=complete");
             });
 
+        if (Want("clipboard-policy"))
+            await Scene("clipboard-policy", async () =>
+            {
+                await ClipboardReadPolicyChecks.VerifyAsync(app);
+                SmokeTest.Report("clipboard-policy=ok private-replacement=unread");
+            });
+
         if (Want("selection-copy"))
             await Scene("selection-copy", async () =>
             {

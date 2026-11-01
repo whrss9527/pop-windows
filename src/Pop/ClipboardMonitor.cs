@@ -45,10 +45,13 @@ internal sealed class ClipboardMonitor : IDisposable
     private sealed record RecordingState(bool Enabled);
     private RecordingState recording;
     private RecordingState? queuedRecording;
-    private long queuedNotifications, readAttempts;
+    private long queuedNotifications, readAttempts, completedCaptures, contentReadAttempts;
+    private readonly Action? beforeContentForDemo;
 
     internal long QueuedNotifications => Interlocked.Read(ref queuedNotifications);
     internal long ReadAttempts => Interlocked.Read(ref readAttempts);
+    internal long CompletedCaptures => Interlocked.Read(ref completedCaptures);
+    internal long ContentReadAttempts => Interlocked.Read(ref contentReadAttempts);
 
     public bool Enabled
     {
@@ -78,8 +81,11 @@ internal sealed class ClipboardMonitor : IDisposable
     public void IgnoreChangesFor(TimeSpan duration, Func<bool>? current = null) =>
         Volatile.Write(ref ignore, new IgnoreScope((DateTime.UtcNow + duration).Ticks, current));
 
-    public ClipboardMonitor(bool enabled = true)
+    public ClipboardMonitor(bool enabled = true, Action? beforeContentForDemo = null)
     {
+        if (beforeContentForDemo is not null && Application.Current is not App { IsDemo: true })
+            throw new InvalidOperationException("捕获边界检查仅用于独立演示回归");
+        this.beforeContentForDemo = beforeContentForDemo;
         recording = new RecordingState(enabled);
         Dispatcher? created = null;
         using var ready = new ManualResetEventSlim();
@@ -146,6 +152,7 @@ internal sealed class ClipboardMonitor : IDisposable
             if (!Active()) return;
             Interlocked.Increment(ref readAttempts);
             if (IsPrivate(Active) || !Active()) return;
+            beforeContentForDemo?.Invoke();
             var source = Native.ProcessNameOf(GetClipboardOwner());
             if (Read(source, Active) is { } capture && Active()) Captured?.Invoke(capture, Recording);
         }
@@ -153,6 +160,7 @@ internal sealed class ClipboardMonitor : IDisposable
         {
             Log.Info($"读取剪贴板失败，跳过这一次：{e.GetType().Name} {e.Message}");
         }
+        finally { Interlocked.Increment(ref completedCaptures); }
     }
 
     /// 标了不进剪贴板历史的内容
@@ -164,9 +172,10 @@ internal sealed class ClipboardMonitor : IDisposable
             && stream.Length >= 4 && new BinaryReader(stream).ReadInt32() == 0;
     }
 
-    private static ClipboardCapture? Read(string? source, Func<bool> active)
+    private ClipboardCapture? Read(string? source, Func<bool> active)
     {
         if (!active()) return null;
+        Interlocked.Increment(ref contentReadAttempts);
         if (Retry(Clipboard.ContainsFileDropList, active) && Retry(Clipboard.GetFileDropList, active) is { Count: > 0 } files)
             return ClipboardCapture.Files(files.Cast<string>().ToList(), source);
 
