@@ -17,11 +17,12 @@ internal sealed partial class App
     public bool ReloadSettings()
     {
         if (IsDemo && settingsDocument is null) return false;
+        // 重新读取期间不让旧的排队写入接着覆盖；失败后由用户明确重试保存。
+        settingsSaveTimer?.Stop(); SettingsSavePending = false;
         var candidate = SettingsDocument.Open(SettingsFilePath);
         settingsDocument = candidate;
         if (candidate.State == SettingsReadState.Missing)
         {
-            settingsSaveTimer?.Stop(); SettingsSavePending = false;
             SettingsHaveBeenSaved = false;
             SettingsSaveError = "没有找到原设置，已保留当前改动；保存将创建新的设置文件";
             SettingsSaveStateChanged?.Invoke();
@@ -34,7 +35,6 @@ internal sealed partial class App
             SettingsSaveStateChanged?.Invoke();
             return false;
         }
-        settingsSaveTimer?.Stop(); SettingsSavePending = false;
         Settings = candidate.Settings; SettingsSaveError = null;
         SettingsHaveBeenSaved = candidate.State == SettingsReadState.Loaded;
         ApplySettings(); SettingsSaveStateChanged?.Invoke();

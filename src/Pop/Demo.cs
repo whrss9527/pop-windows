@@ -597,8 +597,15 @@ internal static class Demo
                         throw new InvalidOperationException("保留副本失败时覆盖了原设置");
                     await Wait(200); Shot("settings-recovery-blocked", area);
                     File.Delete(blockedRecovery);
+                    app.UpdateSettings(s => s.HoldMilliseconds = 600);
+                    const string stillBroken = "{重新读取时仍未修复";
+                    File.WriteAllText(path, stillBroken);
+                    if (app.ReloadSettings() || app.SettingsSavePending || app.Settings.HoldMilliseconds != 600)
+                        throw new InvalidOperationException("重新读取失败后没有保留改动或停止旧的排队写入");
+                    await Wait(500);
+                    if (File.ReadAllText(path) != stillBroken) throw new InvalidOperationException("重新读取失败后擅自保存了临时设置");
                     if (!app.RetrySaveSettings() || app.SettingsReadProblem || app.SettingsRecoveryPath is not { } preserved
-                        || File.ReadAllText(preserved) != raw || AppSettings.Load(path).HoldMilliseconds != 600 || AppSettings.Load(path).ClipboardAutomaticCleanup)
+                        || File.ReadAllText(preserved) != stillBroken || AppSettings.Load(path).HoldMilliseconds != 600 || AppSettings.Load(path).ClipboardAutomaticCleanup)
                         throw new InvalidOperationException("重试没有先保留原文件再保存当前设置");
                     await Wait(200);
                     if (!window.RecoveryNoticeIsVisible) throw new InvalidOperationException("保留副本后的说明不可见");
