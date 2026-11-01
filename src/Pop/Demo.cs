@@ -91,6 +91,13 @@ internal static class Demo
                 return Task.CompletedTask;
             });
 
+        if (Want("clipboard-recording"))
+            await Scene("clipboard-recording", async () =>
+            {
+                await ClipboardRecordingChecks.VerifyAsync();
+                SmokeTest.Report("clipboard-recording=ok disabled=unread queued=cancelled queued-result=cancelled rapid-toggle=fresh reenabled=complete");
+            });
+
         if (Want("snippets"))
             await Scene("snippets", async () =>
             {
