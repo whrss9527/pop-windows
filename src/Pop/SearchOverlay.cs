@@ -56,6 +56,9 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
     protected abstract string Placeholder { get; }
     protected abstract IReadOnlyList<(string Keys, string Action)> Hints { get; }
 
+    /// 可选的分类控件，和搜索框一起计入浮窗尺寸。
+    protected virtual FrameworkElement? FilterControls() => null;
+
     /// 按搜索词列出要显示的内容
     protected abstract IEnumerable<Entry> Query(string text);
 
@@ -244,6 +247,11 @@ internal abstract class SearchOverlay<T> : OverlayWindow where T : class
         DockPanel.SetDock(searchBox, Dock.Top);
         DockPanel.SetDock(hints, Dock.Bottom);
         layout.Children.Add(searchBox);
+        if (FilterControls() is { } filters)
+        {
+            DockPanel.SetDock(filters, Dock.Top);
+            layout.Children.Add(filters);
+        }
         layout.Children.Add(hints);
         if (scroller.Parent is Panel oldScroller) oldScroller.Children.Remove(scroller);
         layout.Children.Add(scroller);

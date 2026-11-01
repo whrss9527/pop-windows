@@ -35,6 +35,42 @@ public sealed class ClipboardStoreTests : IDisposable
     private static readonly byte[] Png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
 
     [Fact]
+    public void FiltersSearchAndPinnedTogetherWithoutLeakingOtherKinds()
+    {
+        var store = Open();
+        var text = store.Add(Text("shared 100%_"), Start)!.Value;
+        var image = store.Add(ClipboardCapture.Image(Png), Start.AddSeconds(1))!.Value;
+        var files = store.Add(ClipboardCapture.Files([@"C:\shared 100%_.txt"]), Start.AddSeconds(2))!.Value;
+        store.SetRecognizedText("shared 100%_", image);
+        store.SetPinned(true, text); store.SetPinned(true, files);
+
+        Assert.Equal([files, text, image], store.Items("shared").Select(i => i.Id));
+        Assert.Equal([image], store.Items("shared", kind: ClipboardKind.Image).Select(i => i.Id));
+        Assert.Equal([files], store.Items("100%_", kind: ClipboardKind.Files, pinnedOnly: true).Select(i => i.Id));
+        Assert.Equal([text], store.Items("shared", kind: ClipboardKind.Text, pinnedOnly: true).Select(i => i.Id));
+        Assert.Empty(store.Items("shared", kind: ClipboardKind.Image, pinnedOnly: true));
+        Assert.Equal([files, text], store.Items(pinnedOnly: true).Select(i => i.Id));
+        Assert.Empty(store.Items("unmatched", pinnedOnly: true));
+
+        store.SetPinned(true, image);
+        Assert.Equal([image], store.Items("100%_", kind: ClipboardKind.Image, pinnedOnly: true).Select(i => i.Id));
+        store.SetPinned(false, image);
+        Assert.Empty(store.Items(kind: ClipboardKind.Image, pinnedOnly: true));
+        Assert.Equal(3, store.Items().Count);
+    }
+
+    [Fact]
+    public void FiltersBeforeApplyingTheResultLimit()
+    {
+        var store = Open();
+        var file = store.Add(ClipboardCapture.Files([@"C:\older.txt"]), Start)!.Value;
+        for (var n = 0; n < 205; n++) store.Add(Text("newer " + n), Start.AddSeconds(n + 1));
+        Assert.DoesNotContain(store.Items(), i => i.Id == file);
+        Assert.Equal([file], store.Items(limit: 1, kind: ClipboardKind.Files).Select(i => i.Id));
+        Assert.Empty(store.Items(limit: 0, kind: ClipboardKind.Files));
+    }
+
+    [Fact]
     public void AddDeduplicateAndSearch()
     {
         var store = Open();

@@ -696,7 +696,8 @@ internal sealed partial class Coordinator : IDisposable
     {
         const int VK_BACK = 0x08, VK_UP = 0x26, VK_DOWN = 0x28, VK_DELETE = 0x2E;
         static bool Down(int key) => (Native.GetAsyncKeyState(key) & 0x8000) != 0;
-        if (Down(0x11) && !Down(0x12))
+        if (vk is 0x11 or 0xA2 or 0xA3 or 0x10 or 0xA0 or 0xA1) return false;
+        if (Down(0x11) && !Down(0x12) && !Down(0x5B) && !Down(0x5C))
         {
             if (vk == 0x56) { dispatcher.BeginInvoke(() => historyWindow.Paste(clipboard.GetText() ?? "")); return true; }
             if (vk is >= 0x31 and <= 0x39)
@@ -707,7 +708,8 @@ internal sealed partial class Coordinator : IDisposable
             }
             if (vk == 0x50) // P
             {
-                dispatcher.BeginInvoke(historyWindow.TogglePin);
+                if (Down(0x10)) dispatcher.BeginInvoke(historyWindow.TogglePinnedFilter);
+                else dispatcher.BeginInvoke(historyWindow.TogglePin);
                 return true;
             }
         }
@@ -724,6 +726,10 @@ internal sealed partial class Coordinator : IDisposable
         }
         switch (vk)
         {
+            case 0x09:
+                var direction = Down(0x10) ? -1 : 1;
+                dispatcher.BeginInvoke(() => historyWindow.CycleFilter(direction));
+                return true;
             case VK_ESCAPE:
                 dispatcher.BeginInvoke(CloseHistory);
                 return true;

@@ -13,6 +13,10 @@ internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
     private ClipboardStore? store;
     private readonly ClipboardThumbnailCache thumbnails = new();
     private int thumbnailGeneration;
+    private static readonly ClipboardKind?[] Kinds = [null, ClipboardKind.Text, ClipboardKind.Image, ClipboardKind.Files];
+    private ClipboardKind? kind;
+    private bool pinnedOnly;
+    private readonly List<(Border Shell, TextBlock Label, ClipboardKind? Kind, bool Pins)> filters = [];
 
     /// 要粘贴这一条
     public event Action<ClipboardItem>? Chosen;
@@ -30,11 +34,12 @@ internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
     protected override double ListHeight => 7 * 54;
     protected override string Placeholder => "搜索剪贴板历史";
     protected override IReadOnlyList<(string Keys, string Action)> Hints =>
-        [("Enter", "粘贴"), ("Ctrl 1–9", "直接粘贴"), ("Del", "删除"), ("Ctrl P", "固定")];
+        [("Enter", "粘贴"), ("Ctrl 1–9", "直接粘贴"), ("Del", "删除"), ("Ctrl P", "固定"), ("Tab", "分类"), ("Ctrl Shift P", "只看固定")];
 
     public void ShowAt(ClipboardStore history, int x, int y)
     {
         thumbnailGeneration++; thumbnails.Clear();
+        kind = null; pinnedOnly = false;
         store = history;
         Open(x, y);
         Log.Info("剪贴板历史已显示");
@@ -56,7 +61,7 @@ internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
 
     protected override IEnumerable<Entry> Query(string text)
     {
-        var items = store?.Items(text, 200) ?? [];
+        var items = store?.Items(text, 200, kind, pinnedOnly) ?? [];
         var pinned = items.Where(i => i.Pinned).ToList();
         var recent = items.Where(i => !i.Pinned).ToList();
         if (pinned.Count > 0)
@@ -156,8 +161,70 @@ internal sealed class ClipboardHistoryWindow : SearchOverlay<ClipboardItem>
         return line;
     }
 
-    protected override string EmptyText(string text) =>
-        text.Length == 0 ? "还没有记录。复制过的文字、图片和文件会出现在这里" : $"没有找到「{text}」";
+    protected override string EmptyText(string text)
+    {
+        if (store?.OpenError is not null) return "无法读取剪贴板历史，请在设置的「关于」页查看日志。";
+        if (text.Length > 0) return $"当前分类中没有找到「{text}」。可切换到「全部」并关闭「只看固定」继续查找。";
+        if (pinnedOnly) return "当前分类没有固定内容。关闭「只看固定」后选择记录，按 Ctrl+P 固定。";
+        return kind is null ? "还没有记录。复制过的文字、图片和文件会出现在这里" : $"还没有{ClipboardHistory.Name(kind.Value)}记录。选择「全部」查看其他类型。";
+    }
+
+    public void CycleFilter(int delta)
+    {
+        var index = (Array.IndexOf(Kinds, kind) + delta % Kinds.Length + Kinds.Length) % Kinds.Length;
+        SetFilter(Kinds[index], pinnedOnly);
+    }
+
+    public void TogglePinnedFilter() => SetFilter(kind, !pinnedOnly);
+
+    internal void SetFilter(ClipboardKind? selectedKind, bool onlyPinned)
+    {
+        kind = selectedKind; pinnedOnly = onlyPinned;
+        UpdateFilters(); Reload();
+    }
+
+    internal ClipboardItem? SelectedHistoryItem => SelectedItem;
+    internal bool FiltersAreClear => kind is null && !pinnedOnly;
+
+    protected override FrameworkElement FilterControls()
+    {
+        filters.Clear();
+        var panel = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 0, 0, 6) };
+        var pins = FilterButton("只看固定", null, true);
+        DockPanel.SetDock(pins, Dock.Right); panel.Children.Add(pins);
+        foreach (var value in Kinds)
+            panel.Children.Add(FilterButton(value is { } k ? ClipboardHistory.Name(k) : "全部", value, false));
+        UpdateFilters();
+        return panel;
+    }
+
+    private Border FilterButton(string title, ClipboardKind? value, bool pins)
+    {
+        var label = new TextBlock { Text = title, FontSize = Theme.Caption, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center };
+        var shell = new Border
+        {
+            Child = label, MinWidth = 48, Height = 30, Padding = new Thickness(10, 0, 10, 0),
+            CornerRadius = new CornerRadius(Theme.ControlRadius), BorderThickness = new Thickness(1),
+            Margin = new Thickness(0, 0, 4, 0), Cursor = System.Windows.Input.Cursors.Hand,
+            ToolTip = pins ? "Ctrl+Shift+P 切换只看固定，可与文字、图片、文件分类组合" : "Tab 切换分类，Shift+Tab 返回；保留搜索词",
+        };
+        System.Windows.Automation.AutomationProperties.SetName(shell, title);
+        shell.MouseLeftButtonUp += (_, e) => { if (pins) TogglePinnedFilter(); else SetFilter(value, pinnedOnly); e.Handled = true; };
+        filters.Add((shell, label, value, pins));
+        return shell;
+    }
+
+    private void UpdateFilters()
+    {
+        foreach (var (shell, label, value, pins) in filters)
+        {
+            var active = pins ? pinnedOnly : kind == value;
+            shell.Background = Palette.Brush(active ? Palette.AccentSoft : Palette.Hover);
+            shell.BorderBrush = Palette.Brush(active ? Palette.Accent : Palette.Divider);
+            label.Foreground = Palette.Brush(active ? Palette.Accent : Palette.SecondaryText);
+            System.Windows.Automation.AutomationProperties.SetItemStatus(shell, active ? "已选中" : "未选中");
+        }
+    }
 
     protected override void OnChosen(ClipboardItem item) => Chosen?.Invoke(item);
 
