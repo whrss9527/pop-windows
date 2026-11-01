@@ -19,6 +19,11 @@ internal sealed class Updater : IDisposable
     private readonly Func<AppSettings> settings;
     private System.Windows.Threading.DispatcherTimer? timer;
     private bool busy;
+    private bool preparing;
+    private long operation;
+    public bool IsBusy => busy;
+    public double? DownloadFraction { get; private set; }
+    public bool IsPreparingPackage => preparing;
 
     public Updater(Func<AppSettings> settings)
     {
@@ -38,6 +43,8 @@ internal sealed class Updater : IDisposable
 
     /// 检查结果变了（发现新版本、开始下载、失败）
     public event Action? Changed;
+    /// 下载百分比只更新已有视图，避免每个数据块重建设置页或托盘。
+    public event Action? ProgressChanged;
 
     public string? Status { get; private set; }
 
@@ -54,6 +61,7 @@ internal sealed class Updater : IDisposable
 
     public void Dispose()
     {
+        operation++;
         timer?.Stop();
         http.Dispose();
     }
@@ -62,6 +70,8 @@ internal sealed class Updater : IDisposable
     {
         if (busy) return Available;
         busy = true;
+        Status = "正在检查更新…";
+        Changed?.Invoke();
         try
         {
             Available = await client.CheckAsync(Feed, CurrentVersion, settings().IncludePrerelease, CancellationToken.None);
@@ -71,6 +81,7 @@ internal sealed class Updater : IDisposable
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException or InvalidOperationException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
+            Status = null;
             // 断网、GitHub 限流都很常见，后台检查失败下次再试，不算错误
             if (!userInitiated)
             {
@@ -92,6 +103,7 @@ internal sealed class Updater : IDisposable
     {
         if (busy) return false;
         busy = true;
+        operation++;
         Status = $"正在下载 {release.Version}…";
         Changed?.Invoke();
         try
@@ -102,7 +114,9 @@ internal sealed class Updater : IDisposable
                 throw new UpdateException($"Pop 所在的文件夹不能写入（{directory}），请把 Pop.exe 放到自己的文件夹里（例如 %LOCALAPPDATA%\\Programs\\Pop）再更新");
 
             var work = Path.Combine(Paths.LocalData, "updates", release.Version.ToString());
-            var newExe = await client.DownloadAndPrepareAsync(release, work, progress, CancellationToken.None);
+            var newExe = await PrepareAsync(client, release, work, progress, CancellationToken.None);
+            Status = "正在验证程序…";
+            Changed?.Invoke();
 
             var fileVersion = FileVersionInfo.GetVersionInfo(newExe).ProductVersion;
             if (!SemVersion.TryParse(fileVersion, out var actual) || !actual.Equals(release.Version))
@@ -113,6 +127,8 @@ internal sealed class Updater : IDisposable
             if (beforeRestart?.Invoke() == false)
                 throw new UpdateException("设置尚未保存，请在设置窗口重试保存后再更新");
 
+            Status = "正在安装更新…";
+            Changed?.Invoke();
             await ExecutableSwap.SwapAsync(current, newExe);
             Log.Info($"已替换为 {release.Version}，重新启动");
             TryDelete(work);
@@ -126,13 +142,71 @@ internal sealed class Updater : IDisposable
         catch (Exception e) when (e is UpdateException or HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
             Log.Error("更新失败", e);
-            Status = null;
-            throw e as UpdateException ?? new UpdateException($"更新失败：{e.Message}", e);
+            var failure = e as UpdateException ?? new UpdateException($"更新失败：{e.Message}", e);
+            Status = failure.Message;
+            throw failure;
         }
         finally
         {
             busy = false;
+            operation++;
+            DownloadFraction = null;
+            preparing = false;
             Changed?.Invoke();
+        }
+    }
+
+    private async Task<string> PrepareAsync(UpdateClient downloadClient, ReleaseInfo release, string work,
+        IProgress<double>? progress, CancellationToken cancellation)
+    {
+        var current = operation;
+        var acceptsProgress = true;
+        DownloadFraction = null;
+        preparing = false;
+        var updates = new DispatcherProgress<UpdatePreparationProgress>(System.Windows.Threading.Dispatcher.CurrentDispatcher, value =>
+        {
+            if (!acceptsProgress || current != operation) return;
+            if (value.Stage == UpdatePreparationStage.Preparing)
+            {
+                preparing = true; DownloadFraction = null;
+                Status = "正在校验并准备安装包…";
+                Changed?.Invoke();
+                return;
+            }
+            if (preparing) return;
+            var fraction = value.Fraction is { } f && double.IsFinite(f) ? Math.Clamp(f, 0, 1) : (double?)null;
+            // 只在可见百分比变化时通知界面，大文件按块下载不会反复重画。
+            if (fraction is { } next && DownloadFraction is { } previous && (int)(next * 100) == (int)(previous * 100)) return;
+            DownloadFraction = fraction;
+            ProgressChanged?.Invoke();
+        });
+        try { return await downloadClient.DownloadAndPrepareAsync(release, work, progress, cancellation, updates); }
+        finally { acceptsProgress = false; DownloadFraction = null; preparing = false; }
+    }
+
+    private sealed class DispatcherProgress<T>(System.Windows.Threading.Dispatcher dispatcher, Action<T> report) : IProgress<T>
+    {
+        public void Report(T value)
+        {
+            if (dispatcher.CheckAccess()) report(value);
+            else dispatcher.BeginInvoke(() => report(value));
+        }
+    }
+
+    /// 使用真实下载与校验路径检查进度，不执行替换、启动或访问正式发布。
+    internal async Task<string> PrepareForDemoAsync(HttpClient transport, ReleaseInfo release, string work, CancellationToken cancellation = default)
+    {
+        if (System.Windows.Application.Current is not App { IsDemo: true })
+            throw new InvalidOperationException("更新进度预览仅用于演示回归");
+        if (busy) throw new InvalidOperationException("已有更新任务");
+        var saved = (Available, Status);
+        busy = true; operation++;
+        Available = release; Status = $"正在下载 {release.Version}…"; Changed?.Invoke();
+        try { return await PrepareAsync(new UpdateClient(transport, Package), release, work, null, cancellation); }
+        finally
+        {
+            operation++; busy = false; preparing = false; DownloadFraction = null;
+            (Available, Status) = saved; Changed?.Invoke();
         }
     }
 

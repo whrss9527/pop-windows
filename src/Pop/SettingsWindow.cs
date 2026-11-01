@@ -106,6 +106,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         app.SettingsChanged += OnSettingsChanged;
         app.SettingsSaveStateChanged += OnSettingsSaveStateChanged;
         app.Updater.Changed += OnUpdaterChanged;
+        app.Updater.ProgressChanged += OnUpdaterChanged;
         app.PluginsChanged += OnPluginsChanged;
         Closing += (_, _) => { Keyboard.ClearFocus(); app.FlushPendingSettings(); };
         Closed += (_, _) =>
@@ -115,6 +116,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             app.SettingsChanged -= OnSettingsChanged;
             app.SettingsSaveStateChanged -= OnSettingsSaveStateChanged;
             app.Updater.Changed -= OnUpdaterChanged;
+            app.Updater.ProgressChanged -= OnUpdaterChanged;
             app.PluginsChanged -= OnPluginsChanged;
             http?.Dispose();
             if (shortcutRecording) app.SuspendShortcuts(false);
@@ -151,7 +153,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
 
     private void OnUpdaterChanged()
     {
-        if (current == "about") Dispatcher.BeginInvoke(() => ShowPage(animate: false));
+        if (current == "about") RefreshUpdateFeedback();
     }
 
     // ── 导航 ────────────────────────────────────────────
@@ -957,43 +959,9 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         var names = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         names.Children.Add(Label("Pop", Theme.Subtitle, "TextFillColorPrimaryBrush", FontWeights.SemiBold, Theme.DisplayFont));
         names.Children.Add(Label($"版本 {Updater.CurrentVersion}", Theme.Body, "TextFillColorSecondaryBrush"));
-        var status = app.Updater.Available is { } available ? $"可以更新到 {available.Version}" : app.Updater.Status ?? updateMessage;
-        if (status is not null)
-        {
-            var line = Label(status, Theme.Caption, app.Updater.Available is null ? "TextFillColorTertiaryBrush" : "AccentTextFillColorPrimaryBrush");
-            line.Margin = new Thickness(0, 4, 0, 0);
-            names.Children.Add(line);
-        }
+        AddUpdateFeedback(names, hero);
         Grid.SetColumn(names, 1);
         hero.Children.Add(names);
-        WpfUi.Button button;
-        if (app.Updater.Available is { } release)
-        {
-            button = ActionButton($"更新到 {release.Version}", Symbol.ArrowDownload24, async () => await app.InstallUpdateAsync(release), WpfUi.ControlAppearance.Primary);
-            button.IsEnabled = app.Updater.Status is not { } busy || !busy.StartsWith("正在", StringComparison.Ordinal);
-        }
-        else
-        {
-            button = ActionButton("检查更新", Symbol.ArrowSync24, async () =>
-            {
-                updateMessage = "正在检查…";
-                ShowPage(animate: false);
-                try
-                {
-                    var found = await app.Updater.CheckAsync(userInitiated: true);
-                    updateMessage = found is null ? $"{Updater.CurrentVersion} 已是最新版本" : null;
-                }
-                catch (UpdateException e)
-                {
-                    updateMessage = e.Message;
-                }
-                ShowPage(animate: false);
-            });
-            button.IsEnabled = updateMessage != "正在检查…";
-        }
-        button.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(button, 2);
-        hero.Children.Add(button);
         page.Children.Add(SearchTarget("update", CardBorder(hero)));
 
         page.Children.Add(Section("更新"));
