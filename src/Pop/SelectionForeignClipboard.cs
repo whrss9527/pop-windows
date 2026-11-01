@@ -15,6 +15,8 @@ internal sealed class SelectionForeignClipboard : IDisposable
         try
         {
             var script = """
+                $ErrorActionPreference='Stop'
+                [IO.File]::WriteAllText('PHASE_FILE','powershell-started')
                 Add-Type -TypeDefinition @'
                 using System;
                 using System.Runtime.InteropServices;
@@ -48,6 +50,7 @@ internal sealed class SelectionForeignClipboard : IDisposable
                     }
                 }
                 '@
+                [IO.File]::WriteAllText('PHASE_FILE','compiled')
                 [PopCopyProofOwner]::Create()
                 [IO.File]::WriteAllText('READY_FILE','ok')
                 $watch=[Diagnostics.Stopwatch]::StartNew()
@@ -56,13 +59,19 @@ internal sealed class SelectionForeignClipboard : IDisposable
                 Start-Sleep -Seconds 15
                 """;
             script = script.Replace("READY_FILE", Path.Combine(fixture.directory, "ready").Replace("'", "''"))
-                .Replace("GO_FILE", Path.Combine(fixture.directory, "go").Replace("'", "''"));
+                .Replace("GO_FILE", Path.Combine(fixture.directory, "go").Replace("'", "''"))
+                .Replace("PHASE_FILE", Path.Combine(fixture.directory, "phase").Replace("'", "''"));
             var start = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden, RedirectStandardError = true };
             foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-STA", "-Command", script }) start.ArgumentList.Add(argument);
             fixture.process = Process.Start(start) ?? throw new InvalidOperationException("无法启动独立所有者进程");
             var watch = Stopwatch.StartNew();
-            while (!File.Exists(Path.Combine(fixture.directory, "ready")) && !fixture.process.HasExited && watch.Elapsed < TimeSpan.FromSeconds(6)) await Task.Delay(20);
-            if (!File.Exists(Path.Combine(fixture.directory, "ready"))) throw new InvalidOperationException("独立所有者未准备好：" + (fixture.process.HasExited ? await fixture.process.StandardError.ReadToEndAsync() : "启动超时"));
+            // 首次 PowerShell / 编译器加载在 CI 冷机上可能超过六秒；这是准备期限，不改变复制响应时限。
+            while (!File.Exists(Path.Combine(fixture.directory, "ready")) && !fixture.process.HasExited && watch.Elapsed < TimeSpan.FromSeconds(20)) await Task.Delay(20);
+            if (!File.Exists(Path.Combine(fixture.directory, "ready")))
+            {
+                var phase = File.Exists(Path.Combine(fixture.directory, "phase")) ? File.ReadAllText(Path.Combine(fixture.directory, "phase")) : "脚本尚未开始";
+                throw new InvalidOperationException("独立所有者未准备好：" + phase + "，" + (fixture.process.HasExited ? await fixture.process.StandardError.ReadToEndAsync() : "启动超时"));
+            }
             return fixture;
         }
         catch { fixture.Dispose(); throw; }
