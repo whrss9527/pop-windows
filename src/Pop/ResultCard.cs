@@ -56,9 +56,9 @@ internal sealed class ResultCard : OverlayWindow
         }
     }
 
-    public void ShowCopyFailure(int x, int y, string title, string text)
+    public void ShowCopyFailure(int x, int y, string title, string text, string? instruction = null)
     {
-        ShowResult(x, y, new CardContent(title, [], Body: text, Caption: "尚未复制 · 剪贴板暂时不可写，可重试"));
+        ShowResult(x, y, new CardContent(title, [], Body: text, Caption: "未复制 · 可重试", Source: instruction ?? "剪贴板暂时不可写，完整结果已保留。"));
         SetCopyState(false);
     }
 

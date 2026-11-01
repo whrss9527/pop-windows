@@ -665,7 +665,7 @@ internal sealed partial class Coordinator : IDisposable
                     if (!clipboard.SetText(item.Text, temporary: false))
                     {
                         Native.GetCursorPos(out var cursor);
-                        ShowCopyFailure(cursor.X, cursor.Y, "尚未粘贴 · 可先复制后手动粘贴", item.Text);
+                        ShowCopyFailure(cursor.X, cursor.Y, "尚未粘贴", item.Text, "没有发送粘贴。重试复制成功后，请在原窗口按 Ctrl+V。");
                         Log.Info("剪贴板暂时不可写，未发送历史粘贴按键");
                         return;
                     }
@@ -989,10 +989,10 @@ internal sealed partial class Coordinator : IDisposable
         card.ShowToast(x, y, message);
     }
 
-    private void ShowCopyFailure(int x, int y, string title, string text)
+    private void ShowCopyFailure(int x, int y, string title, string text, string? instruction = null)
     {
         cardOpen = true;
-        card.ShowCopyFailure(x, y, title, text);
+        card.ShowCopyFailure(x, y, title, text, instruction);
     }
 
     private void CloseCard()
