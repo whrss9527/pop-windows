@@ -111,6 +111,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         Closed += (_, _) =>
         {
             ClearSearchTarget();
+            ClearToolView();
             app.SettingsChanged -= OnSettingsChanged;
             app.SettingsSaveStateChanged -= OnSettingsSaveStateChanged;
             app.Updater.Changed -= OnUpdaterChanged;
@@ -244,6 +245,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
     private void ShowPage(bool animate)
     {
         if (settingsSearch?.Text.Trim() is { Length: > 0 } query) { ShowSearchResults(query); return; }
+        ClearToolView();
         ClearSearchTarget();
         searchTargets.Clear();
         var offset = animate ? 0 : scroller.VerticalOffset;
@@ -499,47 +501,6 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
     }
 
     // ── 功能 ────────────────────────────────────────────
-
-    private void ActionsPage(StackPanel page)
-    {
-        var s = Settings;
-        page.Children.Add(Note("用不上的功能可以关掉：关掉的功能不出现在圆盘和「全部功能」列表里，圆盘上空出来的格子自动换成别的功能，选中内容时也不再直接出它的结果。"));
-        PluginsSection(page);
-
-        var builtIn = Actions.BuiltIn.Append(Actions.All).ToList();
-        var on = builtIn.Count(a => s.IsEnabled(a.Id));
-        page.Children.Add(SearchTarget("tools", Section("内置功能")));
-        var enableAll = ActionButton("全部打开", Symbol.CheckmarkCircle24, () =>
-        {
-            Update(x => x.DisabledActions.RemoveAll(id => Actions.IsBuiltIn(id)));
-            ShowPage(animate: false);
-        });
-        enableAll.IsEnabled = on < builtIn.Count;
-        page.Children.Add(Card(Symbol.Apps24, $"已打开 {on} 个内置功能，共 {builtIn.Count} 个", null, enableAll));
-
-        foreach (var category in Actions.Categories.Where(c => c != Actions.PluginCategory))
-        {
-            var actions = builtIn.Where(a => a.Category == category).ToList();
-            if (actions.Count == 0) continue;
-            page.Children.Add(Section(category));
-            var rows = new List<UIElement>();
-            foreach (var action in actions)
-            {
-                var canDisable = Actions.CanDisable(action);
-                var toggle = EnableToggle(action.Id);
-                toggle.IsEnabled = canDisable;
-                var summary = canDisable ? action.Summary : $"{action.Summary}。一直打开，其他功能都能从这里找到";
-                rows.Add(Row(Icons.Parse(action.Glyph), action.Title, summary, toggle));
-            }
-            page.Children.Add(Group(null, rows));
-        }
-    }
-
-    private WpfUi.ToggleSwitch EnableToggle(string id) => Toggle(Settings.IsEnabled(id), v => Update(x =>
-    {
-        x.DisabledActions.RemoveAll(d => string.Equals(d, id, StringComparison.OrdinalIgnoreCase));
-        if (!v) x.DisabledActions.Add(id);
-    }));
 
     // ── 插件 ────────────────────────────────────────────
 

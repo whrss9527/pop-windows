@@ -28,7 +28,11 @@ internal sealed partial class SettingsWindow
         return element;
     }
 
-    private void OpenSearchResult(SettingsEntry entry) => PendingSearchNavigation = OpenSearchTargetAsync(entry);
+    private void OpenSearchResult(SettingsEntry entry)
+    {
+        if (entry.Id == "tools") PrepareToolSearch(settingsSearch?.Text);
+        PendingSearchNavigation = OpenSearchTargetAsync(entry);
+    }
 
     private async Task<bool> OpenSearchTargetAsync(SettingsEntry entry)
     {

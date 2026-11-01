@@ -433,7 +433,19 @@ try {
     )
     $browserText = 'browser text for pop'
     $page = Join-Path $env:RUNNER_TEMP 'pop-browser.html'
-    Set-Content -Path $page -Encoding UTF8 -Value "<!doctype html><meta charset=`"utf-8`"><title>PopBrowserTest</title><body style=`"font-size:32px;margin:80px`"><p>$browserText</p></body>"
+    # 只报告真实浏览器选区，不用脚本代替用户的全选操作。
+    Set-Content -Path $page -Encoding UTF8 -Value @"
+<!doctype html><meta charset="utf-8"><title>PopBrowserTest</title>
+<body style="font-size:32px;margin:80px"><p>$browserText</p>
+<script>
+function reportSelection() {
+    const selected = window.getSelection().toString().trim() === '$browserText';
+    document.title = 'PopBrowserTest selection=' + (selected ? 'ready' : 'empty');
+}
+document.addEventListener('selectionchange', reportSelection);
+reportSelection();
+</script></body>
+"@
     foreach ($browser in $browsers) {
         $name = $browser.Name
         $exePath = $browser.Paths | Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -452,19 +464,41 @@ try {
             throw "$name 的窗口没有出现"
         }
         Start-Sleep -Seconds 2
-        Set-Foreground $browserWindow
-        # 窗口成为前台不保证网页正文获得键盘焦点；先点击正文再全选。
-        $documentX, $documentY = Get-WindowCenter $browserWindow
-        [PopCi.Native]::SetCursorPos($documentX, $documentY) | Out-Null
-        Invoke-LeftDown; Invoke-LeftUp
-        Start-Sleep -Milliseconds 100
-        Invoke-Key 0x41 -Ctrl   # Ctrl+A 选中整页文字
         Set-Clipboard -Value 'before'
-        Invoke-LongPress 0 (-110) $name -Hwnd $browserWindow
-        Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') "窗口 Chrome_WidgetWin_1（$name）.*内容「$browserText」" 10 | Out-Null
-        Assert-PopAlive $name
-        $clip = (Get-Clipboard -Raw).Trim()
-        if ($clip -ne $browserText) { throw "$name 里复制到的是「$clip」" }
+        $selectionReady = $false
+        # 冷启动时正文可能尚未接收按键；确认准备步骤成功后只执行一次 Pop 手势。
+        for ($prepare = 0; $prepare -lt 3 -and -not $selectionReady; $prepare++) {
+            Set-Foreground $browserWindow
+            $documentX, $documentY = Get-WindowCenter $browserWindow
+            [PopCi.Native]::SetCursorPos($documentX, $documentY) | Out-Null
+            Invoke-LeftDown; Invoke-LeftUp
+            Start-Sleep -Milliseconds 100
+            Invoke-Key 0x41 -Ctrl   # Ctrl+A 选中整页文字
+            for ($probe = 0; $probe -lt 20; $probe++) {
+                Start-Sleep -Milliseconds 100
+                $w.Refresh()
+                if ($w.MainWindowTitle -like 'PopBrowserTest selection=ready*') {
+                    $selectionReady = $true
+                    break
+                }
+            }
+        }
+        Write-Host "$name 手势前选区：$($w.MainWindowTitle)"
+        if (-not $selectionReady) {
+            Save-Screenshot (Join-Path $OutDir "$name-not-selected.png")
+            throw "$name 网页未成功选中文字，尚未执行 Pop 手势"
+        }
+        try {
+            Invoke-LongPress 0 (-110) $name -Hwnd $browserWindow
+            Wait-FileContains (Join-Path $env:LOCALAPPDATA 'Pop\logs\pop.log') "窗口 Chrome_WidgetWin_1（$name）.*内容「$browserText」" 10 | Out-Null
+            Assert-PopAlive $name
+            $clip = (Get-Clipboard -Raw).Trim()
+            if ($clip -ne $browserText) { throw "$name 里复制到的是「$clip」" }
+        }
+        finally {
+            $w.Refresh()
+            Write-Host "$name 手势后选区：$($w.MainWindowTitle)"
+        }
         Get-Process $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 1
         Write-Host "✓ $name 里读取选中文字并复制"
