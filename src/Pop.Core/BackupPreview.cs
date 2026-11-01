@@ -34,7 +34,7 @@ public sealed record BackupPreview(IReadOnlyList<BackupSettingChange> Settings, 
         Group("功能快捷键", ["actionShortcuts"], s => $"{s.ActionShortcuts.Count} 项自定义绑定或停用");
         Group("功能开关", ["disabledActions"], s => $"停用 {s.DisabledActions.Count} 项功能");
         Group("常用短语", ["snippets"], s => $"{s.Snippets.Count} 条短语");
-        Group("翻译偏好", ["translationEngine", "translateTarget", "azureTranslatorRegion"], s => $"{EngineName(s.TranslationEngine)} · 目标语言 {(s.TranslateTarget == "auto" ? "自动双向" : s.TranslateTarget)}");
+        Group("翻译偏好", ["translationEngine", "translateTarget", "azureTranslatorRegion"], s => $"{EngineName(s.TranslationEngine)} · 目标语言 {(s.TranslateTarget == "auto" ? "自动双向" : Languages.Name(s.TranslateTarget))}");
         Group("剪贴板偏好", ["clipboardHistory", "clipboardRetentionDays", "clipboardMaxItems", "clipboardExcludedApps"],
             s => $"历史记录{On(s.ClipboardHistory)} · {s.ClipboardRetentionDays} 天 · 最多 {s.ClipboardMaxItems} 条 · 排除 {s.ClipboardExcludedApps.Count} 个应用");
         Group("更新偏好", ["checkForUpdates", "includePrerelease"], s => $"自动检查{On(s.CheckForUpdates)} · 测试版{On(s.IncludePrerelease)}");
