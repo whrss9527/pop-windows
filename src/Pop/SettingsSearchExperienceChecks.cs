@@ -82,10 +82,13 @@ internal static class SettingsSearchExperienceChecks
             if (await old || window.CurrentSearchTarget != "plugins")
                 throw new InvalidOperationException("旧定位任务未取消");
 
-            await Task.Delay(2300);
+            // 等待真实清理事件；共享运行环境的计时续体不保证正好在 2.3 秒时执行。
+            var expiryDeadline = Environment.TickCount64 + 5000;
+            while (window.SearchTargetPosition().Highlighted && Environment.TickCount64 < expiryDeadline) await Task.Delay(25);
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             var position = window.SearchTargetPosition();
             if (position.Highlighted || !position.Focused || window.CurrentSearchTarget != "plugins")
-                throw new InvalidOperationException("定位强调层未及时消退或消退时改变了焦点");
+                throw new InvalidOperationException($"定位强调层未及时消退或消退时改变了焦点：{position} target={window.CurrentSearchTarget}");
 
             window.Navigate("clipboard");
             window.PreviewSettingsScroll(260); await Task.Delay(60);

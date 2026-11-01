@@ -58,7 +58,7 @@ internal sealed partial class SettingsWindow
             searchOutlineLayer.Add(searchOutline);
             searchOutline.BeginAnimation(OpacityProperty, new DoubleAnimation(1, 0, Motion.Ms(600))
             { BeginTime = TimeSpan.FromMilliseconds(1600) });
-            searchOutlineTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2200) };
+            searchOutlineTimer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(2200) };
             searchOutlineTimer.Tick += OnSearchOutlineExpired;
             searchOutlineTimer.Start();
         }
