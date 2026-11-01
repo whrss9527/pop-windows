@@ -45,7 +45,7 @@ internal static class WindowWorkAreaChecks
             if (Bounds(handle) != duringMove || Inside(VisibleBounds(handle), small))
                 throw new InvalidOperationException("移动过程被拉回，或越界测试未建立");
             SendMessage(handle, 0x0232, IntPtr.Zero, IntPtr.Zero);
-            await WaitUntil(() => Inside(VisibleBounds(handle), small));
+            await WaitUntil(() => Inside(VisibleBounds(handle), small), "移动结束", Snapshot);
             if (window.MinHeight >= originalMinHeight) throw new InvalidOperationException("较小工作区没有放宽原最小高度");
             AssertFooterVisible(window);
             await Task.Delay(250); shot("window-workarea-small", window);
@@ -54,7 +54,7 @@ internal static class WindowWorkAreaChecks
             work = actualWork;
             SendMessage(handle, 0x001a, new IntPtr(0x002f), IntPtr.Zero);
             await WaitUntil(() => window.MinHeight == originalMinHeight && window.MinWidth == originalMinWidth
-                && Inside(VisibleBounds(handle), actualWork));
+                && Inside(VisibleBounds(handle), actualWork), "恢复最小尺寸", Snapshot);
             AssertFooterVisible(window);
             await Task.Delay(250); shot("window-workarea-restored", window);
 
@@ -68,7 +68,7 @@ internal static class WindowWorkAreaChecks
                 throw new InvalidOperationException("工作区焦点检查未建立输入焦点");
             work = small;
             SendMessage(handle, 0x007e, IntPtr.Zero, IntPtr.Zero);
-            await WaitUntil(() => Inside(VisibleBounds(handle), small));
+            await WaitUntil(() => Inside(VisibleBounds(handle), small), "后台工作区变化", Snapshot);
             if (Native.GetForegroundWindow() != foreground || !editor.IsKeyboardFocused)
                 throw new InvalidOperationException("适配后台窗口抢走了输入焦点");
             focusWindow.Close(); focusWindow = null; window.Activate();
@@ -85,6 +85,9 @@ internal static class WindowWorkAreaChecks
             await Task.Delay(150);
             if (window.WindowState != WindowState.Maximized || Bounds(handle) != maximized)
                 throw new InvalidOperationException("工作区适配改变了最大化窗口");
+            // 最大化后直接最小化再还原，系统会恢复到原最大化状态；分别验证普通窗口的两个还原流程。
+            window.WindowState = WindowState.Normal;
+            await WaitUntil(() => window.WindowState == WindowState.Normal && Inside(VisibleBounds(handle), small), "最大化还原", Snapshot);
             window.WindowState = WindowState.Minimized;
             await Task.Delay(150); var minimized = Bounds(handle);
             SendMessage(handle, 0x007e, IntPtr.Zero, IntPtr.Zero);
@@ -92,7 +95,7 @@ internal static class WindowWorkAreaChecks
             if (window.WindowState != WindowState.Minimized || Bounds(handle) != minimized)
                 throw new InvalidOperationException("工作区适配改变了最小化窗口");
             window.WindowState = WindowState.Normal;
-            await WaitUntil(() => Inside(VisibleBounds(handle), small));
+            await WaitUntil(() => window.WindowState == WindowState.Normal && Inside(VisibleBounds(handle), small), "最小化还原", Snapshot);
             AssertFooterVisible(window);
 
             // 已排队的约束在关闭后不得继续读取窗口或工作区。
@@ -102,6 +105,7 @@ internal static class WindowWorkAreaChecks
             if (reads != readsAtClose) throw new InvalidOperationException("窗口关闭后仍执行工作区适配");
             if (app.Settings.ToJson() != before || app.SettingsSavePending != pending)
                 throw new InvalidOperationException("窗口移动或缩放改变了设置");
+            string Snapshot() => $"state={window.WindowState} outer={Bounds(handle)} visible={VisibleBounds(handle)} work={work} min={window.MinWidth}x{window.MinHeight}";
         }
         finally { focusWindow?.Close(); if (window.IsVisible) window.Close(); }
     }
@@ -132,12 +136,12 @@ internal static class WindowWorkAreaChecks
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
             foreach (var child in Tree(VisualTreeHelper.GetChild(parent, i))) yield return child;
     }
-    private static async Task WaitUntil(Func<bool> ready)
+    private static async Task WaitUntil(Func<bool> ready, string stage, Func<string> snapshot)
     {
         var deadline = Environment.TickCount64 + 5_000;
         while (!ready())
         {
-            if (Environment.TickCount64 > deadline) throw new TimeoutException("工作区窗口未达到预期边界或最小尺寸");
+            if (Environment.TickCount64 > deadline) throw new TimeoutException($"工作区阶段「{stage}」未达到预期：{snapshot()}");
             await Task.Delay(25);
         }
         await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.ContextIdle);

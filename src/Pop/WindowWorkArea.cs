@@ -61,7 +61,8 @@ internal sealed class WindowWorkArea
         loaded = true;
         // 构造窗口时设置的最终约束，而不是第一次缩小后的约束。
         minWidth = window.MinWidth; minHeight = window.MinHeight;
-        AttachSource(); QueueFit();
+        // 首次加载立即适配，保证后续 BringIntoView 使用实际视口；跨屏等后续消息再延后处理。
+        AttachSource(); Fit();
     }
     private void OnStateChanged(object? sender, EventArgs e) => QueueFit();
 
