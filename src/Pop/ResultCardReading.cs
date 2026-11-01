@@ -11,11 +11,13 @@ internal sealed partial class ResultCard
     private TextPages? reading;
     private string readingTitle = "";
     private int resultsPage;
+    private double readingReturnOffset;
     private volatile bool readingActionsEnabled;
     private ScrollViewer? cardScroller;
     internal double? VerificationHeightLimit { get; set; }
     public bool IsReading => readingActionsEnabled && Volatile.Read(ref reading) is not null;
     internal int? ReadingPage => reading?.Index;
+    internal double BodyScrollOffset => cardScroller?.VerticalOffset ?? 0;
     internal bool HasRetainedReadingContent => reading is not null || shownContent is not null;
 
     private WpfUi.Button ReadButton(CardContent content, string text, string title, string id, Theme theme)
@@ -29,6 +31,7 @@ internal sealed partial class ResultCard
         button.Click += (_, _) =>
         {
             if (!readingActionsEnabled || !ReferenceEquals(content, shownContent) || content.Loading) return;
+            readingReturnOffset = cardScroller?.VerticalOffset ?? 0;
             reading = new TextPages(text);
             readingTitle = ResultPreview.Text(title, 80);
             RefreshReading();
@@ -65,7 +68,10 @@ internal sealed partial class ResultCard
     private void ReturnFromReading()
     {
         if (!readingActionsEnabled || reading is null) return;
+        var offset = readingReturnOffset;
         reading = null; readingTitle = ""; RefreshReading();
+        cardScroller?.UpdateLayout();
+        cardScroller?.ScrollToVerticalOffset(offset);
     }
 
     private void RefreshReading()

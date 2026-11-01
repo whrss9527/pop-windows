@@ -14,7 +14,8 @@ internal static class ResultReadingChecks
     public static async Task VerifyAsync(App app, int x, int y, Action<string, ResultCard> shot)
     {
         if (!app.IsDemo) throw new InvalidOperationException("长结果检查仅用于演示回归");
-        var full = "JSON 正文\r\n" + new string('界', 1_999_970) + "👩‍💻\r\n末尾";
+        const string record = "    {\"订单\": \"ORD-20261102\", \"状态\": \"待发货\", \"仓库\": \"上海\", \"金额\": 128.50, \"备注\": \"周末送达 👩‍💻\"}";
+        var full = "{\r\n  \"记录\": [\r\n" + string.Concat(Enumerable.Repeat(record + ",\r\n", 2_000_000 / record.Length + 1)) + record + "\r\n  ]\r\n}";
         var source = "原文不同：" + full;
         string? copied = null, replaced = null;
         var allowCopy = false;
@@ -35,6 +36,11 @@ internal static class ResultReadingChecks
             AssertBounded(5500); AssertFooter("card-copy-result");
             if (card.CopyPrimary() || !card.CopyFailed || copied != full || !card.IsOpen)
                 throw new InvalidOperationException("分页中的复制失败未保留全文或错误关闭");
+            await Task.Delay(350);
+            if (!Find<ButtonBase>("card-read-previous").IsEnabled
+                || !Tree(card).OfType<TextBlock>().Any(b => b.Text == "第 2 页")
+                || Find<ButtonBase>("card-copy-result").Content?.ToString() != "重试复制")
+                throw new InvalidOperationException("阅读页码、上一页或失败反馈未反映当前状态");
             shot("result-long-reading", card);
             await Click("card-read-back");
             if (card.IsReading || card.PrimaryText != full) throw new InvalidOperationException("返回结果后主要内容改变");
@@ -59,10 +65,14 @@ internal static class ResultReadingChecks
             var row = Find<Border>("card-result-line-25"); row.BringIntoView(); await Task.Delay(45);
             row.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
             if (copied != last) throw new InvalidOperationException("后续结果行没有复制自己的全文");
+            var readLine = Find<ButtonBase>("card-read-line-25"); readLine.BringIntoView(); await Task.Delay(60);
+            var returnOffset = card.BodyScrollOffset;
             await Click("card-read-line-25");
             if (card.PrimaryText != last) throw new InvalidOperationException("后续结果行阅读了其他项");
             await Click("card-read-back");
             if (Find<Border>("card-result-line-25") is null || card.PrimaryText != full) throw new InvalidOperationException("返回阅读后未保留结果分组");
+            await Task.Delay(350);
+            if (Math.Abs(card.BodyScrollOffset - returnOffset) > 1) throw new InvalidOperationException("返回阅读后未恢复原滚动位置");
             shot("result-many-items", card);
 
             var shorter = string.Concat(Enumerable.Repeat("分页阅读\r\n", 1250));

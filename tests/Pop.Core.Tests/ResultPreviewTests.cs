@@ -67,6 +67,17 @@ public class ResultPreviewTests
     }
 
     [Fact]
+    public void PagePrefersNearbyCompleteLineWithoutLosingCrLf()
+    {
+        var text = "12345678901234\r\n下一行不能丢失\r\n末尾";
+        var pages = new TextPages(text, 20);
+        Assert.Equal("12345678901234\r\n", pages.Current.Text);
+        var whole = new StringBuilder(pages.Current.Text);
+        while (pages.Next()) whole.Append(pages.Current.Text);
+        Assert.Equal(text, whole.ToString());
+    }
+
+    [Fact]
     public void EmptyAndBoundaryPagesDoNotCreateExtraPages()
     {
         var empty = new TextPages("");

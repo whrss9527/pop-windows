@@ -65,7 +65,13 @@ public sealed class TextPages
         if (remaining.Length <= limit) return new(FullText.Substring(start), start, FullText.Length, false);
         var preview = TextPreview.Truncate(remaining, limit);
         var length = preview.Length - 1; // 分页不用预览末尾的省略号。
-        if (length > 0) return new(preview[..length], start, start + length, false);
+        if (length > 0)
+        {
+            // 有合适换行时按行收尾，便于阅读 JSON；仍不跳过换行或重复文字。
+            var newline = preview.AsSpan(0, length).LastIndexOf('\n');
+            if (newline >= limit * 3L / 4) length = newline + 1;
+            return new(preview[..length], start, start + length, false);
+        }
 
         // 单个组合字符组也可能超过一页。此时明确分段，但仍保证推进和代理对完整。
         length = limit;
