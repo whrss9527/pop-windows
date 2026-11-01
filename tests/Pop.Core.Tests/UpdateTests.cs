@@ -202,13 +202,95 @@ public sealed class UpdatePackageTests : IDisposable
     }
 
     [Fact]
-    public void SwapRollsBackWhenNewFileIsMissing()
+    public void SwapPreservesCurrentWhenNewFileIsMissing()
     {
         var current = Path.Combine(dir, "Pop.exe");
         File.WriteAllText(current, "old");
         Assert.Throws<UpdateException>(() => ExecutableSwap.Swap(current, Path.Combine(dir, "missing.exe")));
         Assert.Equal("old", File.ReadAllText(current));
         Assert.False(File.Exists(ExecutableSwap.OldPath(current)));
+    }
+
+    [Fact]
+    public async Task InvalidSourcePreservesInstalledAndPreviousVersion()
+    {
+        var current = Path.Combine(dir, "Pop.exe");
+        var old = ExecutableSwap.OldPath(current);
+        File.WriteAllText(current, "installed");
+        File.WriteAllText(old, "previous");
+        await Assert.ThrowsAsync<UpdateException>(() => ExecutableSwap.SwapAsync(current, Path.Combine(dir, "missing.exe")));
+        Assert.Equal("installed", File.ReadAllText(current));
+        Assert.Equal("previous", File.ReadAllText(old));
+        Assert.Empty(Directory.EnumerateFiles(dir, ".pop-update-*.new"));
+    }
+
+    [WindowsFact]
+    public async Task SwapWaitsForTemporaryInstalledFileLockWithoutBlockingCaller()
+    {
+        var current = Path.Combine(dir, "Pop.exe");
+        var fresh = Path.Combine(dir, "new.exe");
+        File.WriteAllText(current, "old"); File.WriteAllText(fresh, "new");
+        using var locked = new FileStream(current, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var swap = ExecutableSwap.SwapAsync(current, fresh);
+        Assert.False(swap.IsCompleted);
+        Assert.Equal("old", File.ReadAllText(current));
+        locked.Dispose();
+        await swap.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("new", File.ReadAllText(current));
+        Assert.Equal("old", File.ReadAllText(ExecutableSwap.OldPath(current)));
+        Assert.Empty(Directory.EnumerateFiles(dir, ".pop-update-*.new"));
+    }
+
+    [WindowsFact]
+    public async Task SwapWaitsForSourceLock()
+    {
+        var current = Path.Combine(dir, "Pop.exe");
+        var fresh = Path.Combine(dir, "new.exe");
+        var old = ExecutableSwap.OldPath(current);
+        File.WriteAllText(current, "installed"); File.WriteAllText(fresh, "new"); File.WriteAllText(old, "previous");
+        using var sourceLock = new FileStream(fresh, FileMode.Open, FileAccess.Read, FileShare.None);
+        var swap = ExecutableSwap.SwapAsync(current, fresh);
+        Assert.False(swap.IsCompleted);
+        sourceLock.Dispose();
+        Assert.Equal("installed", File.ReadAllText(current));
+        await swap.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("new", File.ReadAllText(current));
+        Assert.Equal("installed", File.ReadAllText(old));
+        Assert.Empty(Directory.EnumerateFiles(dir, ".pop-update-*.new"));
+    }
+
+    [WindowsFact]
+    public async Task SwapWaitsForPreviousVersionLock()
+    {
+        var current = Path.Combine(dir, "Pop.exe");
+        var fresh = Path.Combine(dir, "new.exe");
+        var old = ExecutableSwap.OldPath(current);
+        File.WriteAllText(current, "installed"); File.WriteAllText(fresh, "new"); File.WriteAllText(old, "previous");
+        using var oldLock = new FileStream(old, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var swap = ExecutableSwap.SwapAsync(current, fresh);
+        Assert.False(swap.IsCompleted);
+        Assert.Equal("installed", File.ReadAllText(current));
+        oldLock.Dispose();
+        await swap.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("new", File.ReadAllText(current));
+        Assert.Equal("installed", File.ReadAllText(old));
+        Assert.Empty(Directory.EnumerateFiles(dir, ".pop-update-*.new"));
+    }
+
+    [WindowsFact]
+    public async Task PersistentLockStopsWithOriginalStillRunnable()
+    {
+        var current = Path.Combine(dir, "Pop.exe");
+        var fresh = Path.Combine(dir, "new.exe");
+        File.WriteAllText(current, "old"); File.WriteAllText(fresh, "new");
+        using var locked = new FileStream(current, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var error = await Assert.ThrowsAsync<UpdateException>(() =>
+            ExecutableSwap.SwapAsync(current, fresh).WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Contains("稍后重试", error.Message);
+        Assert.Equal("old", File.ReadAllText(current));
+        Assert.Equal("new", File.ReadAllText(fresh));
+        Assert.False(File.Exists(ExecutableSwap.OldPath(current)));
+        Assert.Empty(Directory.EnumerateFiles(dir, ".pop-update-*.new"));
     }
 
     [Theory]
