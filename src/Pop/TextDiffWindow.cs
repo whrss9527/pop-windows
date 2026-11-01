@@ -4,7 +4,7 @@ using Pop.Core;
 
 namespace Pop;
 
-internal sealed class TextDiffWindow : ToolWindow
+internal sealed partial class TextDiffWindow : ToolWindow
 {
     private readonly TextBox before, after, output;
     private readonly TextBlock status;
