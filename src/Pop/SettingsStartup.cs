@@ -17,7 +17,7 @@ internal sealed partial class SettingsWindow
     private DockPanel? startupFeedback;
     internal StartupPreferenceState StartupStatus { get; private set; } = new(null, null);
 
-    private UIElement StartupCard()
+    private Border StartupCard()
     {
         startupToggle = new WpfUi.ToggleSwitch { OnContent = "开", OffContent = "关", LabelPosition = WpfUi.ElementPlacement.Left };
         startupUnknown = Label("未知", Theme.Body, "TextFillColorSecondaryBrush");

@@ -12,6 +12,7 @@ internal sealed partial class SettingsWindow
     private bool shortcutRecording;
     private string? ringApplication;
     private string shortcutQuery = "";
+    private TextBox? applicationRingInput;
 
     public void EditApplicationRing(string application)
     {
@@ -44,6 +45,7 @@ internal sealed partial class SettingsWindow
         page.Children.Add(Card(Symbol.Apps24, "正在编辑", "唤起时自动使用当前应用的布局；其他应用继承默认圆盘", scope));
         var management = new StackPanel();
         var appName = new TextBox { Width = 140, ToolTip = "程序名，例如 Code.exe", VerticalContentAlignment = VerticalAlignment.Center };
+        applicationRingInput = appName;
         var message = Label("", Theme.Caption, "TextFillColorSecondaryBrush");
         void Add(string input)
         {
@@ -75,15 +77,16 @@ internal sealed partial class SettingsWindow
                 {
                     var name = ringApplication; Update(s => s.AppRings.Remove(name)); ringApplication = null; ShowPage(false);
                 })));
-        page.Children.Add(new Expander { Header = "管理应用圆盘", Content = management, Margin = new Thickness(0, 4, 0, 12) });
+        var manage = new Expander { Header = "管理应用圆盘", Content = management, Margin = new Thickness(0, 4, 0, 12) };
+        page.Children.Add(SearchTarget("app-ring", manage, () => manage.IsExpanded = true));
     }
 
     private void GeneralPage(StackPanel page)
     {
         page.Children.Add(Note("选择内容后唤起 Pop：能直接处理的显示结果，其他内容打开圆盘。所有改动立即生效。"));
-        page.Children.Add(Card(Symbol.CursorClick24, "鼠标唤起", "暂停鼠标唤起时，已经设置的全局快捷键仍可使用",
-            Toggle(Settings.Enabled, v => Update(s => s.Enabled = v))));
-        page.Children.Add(StartupCard());
+        page.Children.Add(SearchTarget("enabled", Card(Symbol.CursorClick24, "鼠标唤起", "暂停鼠标唤起时，已经设置的全局快捷键仍可使用",
+            Toggle(Settings.Enabled, v => Update(s => s.Enabled = v)))));
+        page.Children.Add(SearchTarget("startup", StartupCard()));
         page.Children.Add(Section("操作方式"));
         page.Children.Add(Card(Symbol.CursorClick24, "唤起", "长按右键、修饰键右键或中键，选择适合自己的操作方式",
             ActionButton("设置唤起", null, () => Navigate("triggers"))));
@@ -111,7 +114,8 @@ internal sealed partial class SettingsWindow
             Update(x => x.TriggerMode = modes[mode.SelectedIndex].Item1);
             Dispatcher.BeginInvoke(() => ShowPage(false));
         };
-        page.Children.Add(Card(Symbol.CursorClick24, "唤起方式", null, mode));
+        var modeCard = Card(Symbol.CursorClick24, "唤起方式", s.TriggerMode == TriggerMode.LongPressRight ? null : "长按时间仅在选择「长按右键」后显示", mode);
+        page.Children.Add(s.TriggerMode == TriggerMode.LongPressRight ? modeCard : SearchTarget("trigger", modeCard));
         if (s.TriggerMode == TriggerMode.ModifierRightClick)
         {
             var modifiers = new[] { (TriggerModifier.Alt, "Alt"), (TriggerModifier.Control, "Ctrl"), (TriggerModifier.Shift, "Shift"), (TriggerModifier.Windows, "Win") };
@@ -128,14 +132,14 @@ internal sealed partial class SettingsWindow
             var hold = new Slider { Minimum = AppSettings.MinHold, Maximum = AppSettings.MaxHold, TickFrequency = 50,
                 IsSnapToTickEnabled = true, Value = s.HoldMilliseconds, Width = 180 };
             hold.ValueChanged += (_, e) => { holdValue.Text = $"{(int)e.NewValue} 毫秒"; Update(x => x.HoldMilliseconds = (int)e.NewValue); };
-            page.Children.Add(Card(Symbol.Timer24, "长按时间", "比这个时间短的右键点击仍然弹出系统菜单", Horizontal(holdValue, hold)));
+            page.Children.Add(SearchTarget("trigger", Card(Symbol.Timer24, "长按时间", "比这个时间短的右键点击仍然弹出系统菜单", Horizontal(holdValue, hold))));
             page.Children.Add(Card(Symbol.Cursor24, "在圆心松开后保持圆盘", "划向功能再松开仍然执行；在圆心松开后，可以改用点击选择",
                 Toggle(s.KeepRingOpen, v => Update(x => x.KeepRingOpen = v))));
         }
         page.Children.Add(Section("选择工具条"));
-        page.Children.Add(Card(Symbol.Cursor24, "选中文字后显示工具条", "拖选、双击选词后显示常用功能；只读取辅助功能选区，不改动剪贴板。不支持的 App 仍可手动唤起",
-            Toggle(s.SelectionToolbar, v => Update(x => x.SelectionToolbar = v))));
-        page.Children.Add(Section("应用排除"));
+        page.Children.Add(SearchTarget("toolbar", Card(Symbol.Cursor24, "选中文字后显示工具条", "拖选、双击选词后显示常用功能；只读取辅助功能选区，不改动剪贴板。不支持的 App 仍可手动唤起",
+            Toggle(s.SelectionToolbar, v => Update(x => x.SelectionToolbar = v)))));
+        page.Children.Add(SearchTarget("excluded", Section("应用排除")));
         var excluded = new TextBox { Text = string.Join(", ", s.TriggerExcludedApps), MinHeight = 36,
             TextWrapping = TextWrapping.Wrap, AcceptsReturn = true, Padding = new Thickness(10), ToolTip = "程序名，以逗号或换行分隔，例如 Code.exe, notepad.exe" };
         System.Windows.Automation.AutomationProperties.SetName(excluded, "排除鼠标唤起的应用");
@@ -151,8 +155,8 @@ internal sealed partial class SettingsWindow
     private void RulesPage(StackPanel page)
     {
         page.Children.Add(Note("从上往下匹配，第一条已启用且能处理当前内容的规则直接运行。找不到适用规则时显示圆盘。关闭的功能和不适用的规则会跳过。"));
-        page.Children.Add(Card(Symbol.Flash24, "直接出结果", "关闭后所有内容都先显示圆盘",
-            Toggle(Settings.DirectResults, value => { Update(s => s.DirectResults = value); ShowPage(false); })));
+        page.Children.Add(SearchTarget("rules", Card(Symbol.Flash24, "直接出结果", "关闭后所有内容都先显示圆盘",
+            Toggle(Settings.DirectResults, value => { Update(s => s.DirectResults = value); ShowPage(false); }))));
         var rules = Settings.EffectiveRules.ToList();
         for (var i = 0; i < rules.Count; i++)
         {
@@ -208,7 +212,7 @@ internal sealed partial class SettingsWindow
     private void ShortcutsPage(StackPanel page)
     {
         page.Children.Add(Note("点击组合键后直接按下新组合；Backspace 清除，Esc 取消。功能快捷键直接处理当前选中内容，读取前会等修饰键松开，避免影响原 App。"));
-        page.Children.Add(Card(Symbol.Apps24, "打开圆盘", app.ShortcutProblem(KeyboardShortcut.RingTarget), ShortcutEditor(KeyboardShortcut.RingTarget)));
+        page.Children.Add(SearchTarget("shortcuts", Card(Symbol.Apps24, "打开圆盘", app.ShortcutProblem(KeyboardShortcut.RingTarget), ShortcutEditor(KeyboardShortcut.RingTarget))));
         var search = new TextBox { Text = shortcutQuery, ToolTip = "按功能名称、拼音或英文搜索", Margin = new Thickness(0, 14, 0, 8), Padding = new Thickness(10, 7, 10, 7) };
         System.Windows.Automation.AutomationProperties.SetName(search, "搜索功能快捷键");
         page.Children.Add(Label("搜索功能", Theme.Caption, "TextFillColorSecondaryBrush"));

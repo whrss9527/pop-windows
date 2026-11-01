@@ -513,6 +513,17 @@ internal static class Demo
                 window.Close(); SmokeTest.Report("settings-search=ok");
             });
 
+        if (Want("settings-targets"))
+            await Scene("settings-targets", async () =>
+            {
+                await SettingsSearchExperienceChecks.VerifyAsync(app, (name, window) =>
+                {
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var rect);
+                    Shot(name, new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                });
+                SmokeTest.Report($"settings-targets=ok entries={SettingsCatalog.Entries.Count} short-window=ok keyboard=ok readonly=ok conditional=ok expand=ok editor=available nav=visible cancel=ok highlight=expired offset=restored");
+            });
+
         if (Want("usage-guide"))
             await Scene("usage-guide", async () =>
             {

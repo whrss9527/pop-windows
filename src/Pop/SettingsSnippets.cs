@@ -11,7 +11,7 @@ internal sealed partial class SettingsWindow
     private void SnippetsPage(StackPanel page)
     {
         page.Children.Add(Note("在圆盘或全部功能里打开「常用短语」，选择后粘贴到原 App；也可在快捷键页为它录入组合键。短语会随设置一起备份。"));
-        page.Children.Add(ActionButton("添加短语", Symbol.Add24, () => EditSnippet(null)));
+        page.Children.Add(SearchTarget("snippets", ActionButton("添加短语", Symbol.Add24, () => EditSnippet(null))));
         page.Children.Add(Section("已保存的短语"));
         if (Settings.Snippets.Count == 0) page.Children.Add(Note("还没有短语。可以保存常用回复、邮件结尾或带日期的模板。"));
         for (var i = 0; i < Settings.Snippets.Count; i++)

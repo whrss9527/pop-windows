@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -41,6 +42,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
     private readonly App app;
     private readonly StartupPreference startupPreference;
     private readonly Dictionary<string, (WpfUi.Button Button, Border Pill, WpfUi.SymbolIcon Icon)> nav = [];
+    private ScrollViewer? navigationScroll;
     private readonly ScrollViewer scroller = new()
     {
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -108,6 +110,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         Closing += (_, _) => { Keyboard.ClearFocus(); app.FlushPendingSettings(); };
         Closed += (_, _) =>
         {
+            ClearSearchTarget();
             app.SettingsChanged -= OnSettingsChanged;
             app.SettingsSaveStateChanged -= OnSettingsSaveStateChanged;
             app.Updater.Changed -= OnUpdaterChanged;
@@ -154,7 +157,8 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
 
     private UIElement Navigation()
     {
-        var panel = new StackPanel { Margin = new Thickness(12, 4, 12, 12) };
+        var panel = new DockPanel { Margin = new Thickness(12, 4, 12, 12) };
+        var fixedHeader = new StackPanel();
         var identity = new Grid { Margin = new Thickness(8, 12, 0, 24) };
         identity.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         identity.ColumnDefinitions.Add(new ColumnDefinition());
@@ -166,8 +170,11 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         names.Children.Add(Label($"版本 {Updater.CurrentVersion}", Theme.Caption, "TextFillColorSecondaryBrush"));
         Grid.SetColumn(names, 1);
         identity.Children.Add(names);
-        panel.Children.Add(identity);
-        panel.Children.Add(SearchInput());
+        fixedHeader.Children.Add(identity);
+        fixedHeader.Children.Add(SearchInput());
+        DockPanel.SetDock(fixedHeader, Dock.Top);
+        panel.Children.Add(fixedHeader);
+        var links = new StackPanel();
 
         foreach (var (id, title, symbol) in Pages)
         {
@@ -203,13 +210,17 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             System.Windows.Automation.AutomationProperties.SetName(button, title);
             button.Click += (_, _) => Navigate(id);
             nav[id] = (button, pill, glyph);
-            panel.Children.Add(button);
+            links.Children.Add(button);
         }
-        return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        navigationScroll = new ScrollViewer { Content = links, CanContentScroll = false, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        panel.Children.Add(navigationScroll);
+        return panel;
     }
 
     /// 打开某一页（Pages 里的 ID）
-    public void Navigate(string id)
+    public void Navigate(string id) => Navigate(id, animate: true);
+
+    private void Navigate(string id, bool animate)
     {
         ClearSearch();
         if (!Pages.Any(p => p.Id == id)) id = "general";
@@ -222,13 +233,19 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             pill.Visibility = selected ? Visibility.Visible : Visibility.Hidden;
             glyph.Filled = selected;
         }
-        ShowPage(animate: true);
+        ShowPage(animate);
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (IsVisible && current == id) nav[id].Button.BringIntoView();
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
         Log.Info($"设置：{Pages.First(p => p.Id == id).Title}");
     }
 
     private void ShowPage(bool animate)
     {
         if (settingsSearch?.Text.Trim() is { Length: > 0 } query) { ShowSearchResults(query); return; }
+        ClearSearchTarget();
+        searchTargets.Clear();
         var offset = animate ? 0 : scroller.VerticalOffset;
         var page = new StackPanel { Margin = new Thickness(40, 12, 40, 40), MaxWidth = 1000 };
         var title = Label(Pages.First(p => p.Id == current).Title, Theme.TitleSize, "TextFillColorPrimaryBrush", FontWeights.SemiBold, Theme.DisplayFont);
@@ -237,7 +254,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         {
             title.Margin = new Thickness(0);
             var heading = new DockPanel { Margin = new Thickness(0, 0, 0, 20) };
-            var help = ActionButton("使用指南", Symbol.Info24, ShowUsageGuide);
+            var help = SearchTarget("guide", ActionButton("使用指南", Symbol.Info24, ShowUsageGuide));
             DockPanel.SetDock(help, Dock.Right); heading.Children.Add(help); heading.Children.Add(title);
             page.Children.Add(heading);
         }
@@ -256,7 +273,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             case "about": AboutPage(page); break;
             default: GeneralPage(page); break;
         }
-        scroller.Content = page;
+        scroller.Content = new AdornerDecorator { Child = page };
         scroller.UpdateLayout();
         scroller.ScrollToVerticalOffset(offset);
         if (!animate) return;
@@ -313,7 +330,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             });
             Dispatcher.BeginInvoke(() => ShowPage(animate: false));
         };
-        page.Children.Add(Card(Symbol.DataPie24, "格子数", "4 到 12 格。格子越少，每一格越大，越容易划中", count));
+        page.Children.Add(SearchTarget("ring", Card(Symbol.DataPie24, "格子数", "4 到 12 格。格子越少，每一格越大，越容易划中", count)));
 
         page.Children.Add(Section("每一格的功能"));
         var preview = new Canvas { Width = PreviewSize, Height = PreviewSize };
@@ -491,7 +508,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
 
         var builtIn = Actions.BuiltIn.Append(Actions.All).ToList();
         var on = builtIn.Count(a => s.IsEnabled(a.Id));
-        page.Children.Add(Section("内置功能"));
+        page.Children.Add(SearchTarget("tools", Section("内置功能")));
         var enableAll = ActionButton("全部打开", Symbol.CheckmarkCircle24, () =>
         {
             Update(x => x.DisabledActions.RemoveAll(id => Actions.IsBuiltIn(id)));
@@ -530,7 +547,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
     private void PluginsSection(StackPanel page)
     {
         var store = app.Plugins;
-        page.Children.Add(Section("我的插件"));
+        page.Children.Add(SearchTarget("plugins", Section("我的插件")));
         var rows = new List<UIElement>();
         foreach (var manifest in store.Manifests)
         {
@@ -742,7 +759,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             Update(x => x.TranslationEngine = chosen);
             ShowAzure();
         };
-        page.Children.Add(Card(Symbol.Translate24, "用哪个翻译服务", "必应翻译直接就能用；有 Azure 账号的话可以用自己的翻译资源", engine));
+        page.Children.Add(SearchTarget("translation", Card(Symbol.Translate24, "用哪个翻译服务", "必应翻译直接就能用；有 Azure 账号的话可以用自己的翻译资源", engine)));
 
         // Microsoft Translator 的 Key 和区域
         var hasKey = !string.IsNullOrEmpty(SecretStore.Get(SecretStore.AzureTranslatorKey));
@@ -877,8 +894,8 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
     {
         var s = Settings;
         page.Children.Add(Section("剪贴板历史", first: true));
-        page.Children.Add(Card(Symbol.History24, "记录剪贴板历史", "只保存在这台电脑。关闭后暂停读取与记录，已有历史仍可查看",
-            Toggle(s.ClipboardHistory, v => Update(x => x.ClipboardHistory = v))));
+        page.Children.Add(SearchTarget("history", Card(Symbol.History24, "记录剪贴板历史", "只保存在这台电脑。关闭后暂停读取与记录，已有历史仍可查看",
+            Toggle(s.ClipboardHistory, v => Update(x => x.ClipboardHistory = v)))));
         page.Children.Add(Card(Symbol.Keyboard24, "打开剪贴板历史",
             app.HistoryHotKey is null ? "快捷键被别的程序占用了，可以从托盘面板或「全部功能」里打开" : "在任意位置按下这组快捷键，打字搜索，回车粘贴",
             Keys(app.HistoryHotKey)));
@@ -925,15 +942,21 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             PlaceholderText = "一行一个程序名",
             Margin = new Thickness(56, 0, 16, 16),
         };
-        excluded.LostFocus += (_, _) => Update(x => x.ClipboardExcludedApps = excluded.Text
-            .Split(['\r', '\n', ',', '，'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(n => n.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? n[..^4] : n)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList());
+        var lastCommittedExclusions = excluded.Text;
+        excluded.LostFocus += (_, _) =>
+        {
+            if (excluded.Text == lastCommittedExclusions) return;
+            var values = excluded.Text.Split(['\r', '\n', ',', '，'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(n => n.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? n[..^4] : n)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (!Settings.ClipboardExcludedApps.SequenceEqual(values, StringComparer.OrdinalIgnoreCase))
+                Update(x => x.ClipboardExcludedApps = values);
+            lastCommittedExclusions = excluded.Text;
+        };
         var privacy = new StackPanel();
         privacy.Children.Add(Row(Symbol.ShieldLock24, "不记录这些 App 复制的内容", "一行一个程序名，不带 .exe。密码管理器标了「不要记录」的内容本来就不会记", null));
         privacy.Children.Add(excluded);
-        page.Children.Add(CardBorder(privacy));
+        page.Children.Add(SearchTarget("privacy", CardBorder(privacy)));
 
         page.Children.Add(Section("已保存"));
         var (count, bytes) = app.ClipboardStatistics();
@@ -1010,7 +1033,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         button.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(button, 2);
         hero.Children.Add(button);
-        page.Children.Add(CardBorder(hero));
+        page.Children.Add(SearchTarget("update", CardBorder(hero)));
 
         page.Children.Add(Section("更新"));
         page.Children.Add(Card(Symbol.ArrowSync24, "自动检查更新", "有新版本时托盘图标右下角会出现一个小圆点，点一下就能更新",
@@ -1018,7 +1041,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
         page.Children.Add(Card(Symbol.Beaker24, "接收测试版", "提前用上还在测试的新功能，可能不太稳定",
             Toggle(s.IncludePrerelease, v => Update(x => x.IncludePrerelease = v))));
 
-        page.Children.Add(Section("帮助"));
+        page.Children.Add(SearchTarget("logs", Section("帮助")));
         page.Children.Add(Group(null,
         [
             Row(Symbol.Info24, "使用指南", "查看当前唤起方式、快捷键和常用操作", ActionButton("打开指南", null, ShowUsageGuide)),

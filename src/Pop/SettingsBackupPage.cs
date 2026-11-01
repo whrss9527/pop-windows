@@ -12,8 +12,8 @@ internal sealed partial class SettingsWindow
     private void BackupPage(StackPanel page)
     {
         page.Children.Add(Note("把圆盘、应用布局、唤起方式、选择工具条、直达规则、快捷键、常用短语、翻译和剪贴板设置，以及自己写的 JSON 插件保存到一个文件，方便换机或恢复。"));
-        page.Children.Add(Card(Symbol.Save24, "导出设置与插件", "不包含翻译密钥、剪贴板历史和开机启动状态。插件脚本和网址会完整保留",
-            ActionButton("导出…", null, ExportBackup)));
+        page.Children.Add(SearchTarget("backup", Card(Symbol.Save24, "导出设置与插件", "不包含翻译密钥、剪贴板历史和开机启动状态。插件脚本和网址会完整保留",
+            ActionButton("导出…", null, ExportBackup))));
         page.Children.Add(Card(Symbol.FolderOpen24, "导入设置与插件", "先预览，再覆盖当前设置；同 ID 的插件会更新，其他插件保留。导入不会运行脚本",
             ActionButton("导入…", null, async () => await ImportBackup())));
         page.Children.Add(Card(Symbol.ArrowReset24, "导入前的自动备份", "每次导入前保存当前设置及插件，需要时可以重新导入",
