@@ -811,6 +811,8 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
     {
         var input = new WpfUi.TextBox { Text = "Select any text, then press and hold the right mouse button.", TextWrapping = TextWrapping.Wrap };
         var output = Label("", Theme.BodyLarge, "TextFillColorPrimaryBrush");
+        output.TextWrapping = TextWrapping.Wrap;
+        System.Windows.Automation.AutomationProperties.SetAutomationId(output, "translation-test-result");
         output.Margin = new Thickness(2, 14, 0, 0);
         output.Visibility = Visibility.Collapsed;
         var caption = Label("", Theme.Caption, "TextFillColorSecondaryBrush");
@@ -831,7 +833,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
             try
             {
                 http ??= new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                var result = await new Translator(http).TranslateAsync(text, to, engine, SecretStore.Get(SecretStore.AzureTranslatorKey), s.AzureTranslatorRegion);
+                var result = await new Translator(http).TranslateAsync(text, to, engine, SecretStore.GetTranslationKey(engine), s.AzureTranslatorRegion);
                 output.Text = result.Text;
                 caption.Text = $"{Languages.Name(result.From)} → {Languages.Name(result.To)} · {result.Provider}";
                 caption.Visibility = Visibility.Visible;
@@ -849,6 +851,7 @@ internal sealed partial class SettingsWindow : WpfUi.FluentWindow
                 go.IsEnabled = true;
             }
         }, WpfUi.ControlAppearance.Primary);
+        System.Windows.Automation.AutomationProperties.SetAutomationId(go, "translation-test-run");
         go.Margin = new Thickness(8, 0, 0, 0);
         go.VerticalAlignment = VerticalAlignment.Top;
         var line = new Grid();

@@ -33,6 +33,15 @@ internal static class SecretStore
 
     public static string? Get(string name) => Read(name).Value;
 
+    public static string? GetTranslationKey(TranslationEngine engine)
+    {
+        if (engine != TranslationEngine.Azure) return null;
+        var saved = Read(AzureTranslatorKey);
+        if (saved.Error is not null)
+            throw new TranslationException("无法读取已保存的翻译 Key，请在设置 → 翻译中检查并重试保存");
+        return saved.Value;
+    }
+
     internal static ReadResult Read(string name)
     {
         try

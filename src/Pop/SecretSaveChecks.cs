@@ -69,9 +69,20 @@ internal static class SecretSaveChecks
                 || !File.ReadAllBytes(file).SequenceEqual(damaged))
                 throw new InvalidOperationException("损坏凭据保存时丢失输入或改写了原文件");
 
-            async Task InvokeSave()
+            // 凭据不可读时，实际翻译入口要在发送请求前明确失败；不能冒充尚未填写。
+            if (SecretStore.GetTranslationKey(TranslationEngine.Bing) is not null)
+                throw new InvalidOperationException("不需要 Key 的服务错误取得了凭据");
+            await InvokeButton(Find<WpfUi.Button>("translation-test-run"));
+            var translated = Find<TextBlock>("translation-test-result");
+            if (!translated.IsVisible || !translated.Text.Contains("无法读取已保存的翻译 Key", StringComparison.Ordinal))
+                throw new InvalidOperationException("实际翻译没有明确报告凭据读取失败");
+            await Task.Delay(200); shot("secret-translation-unavailable", window);
+
+            Task InvokeSave() => InvokeButton(save);
+            async Task InvokeButton(WpfUi.Button button)
             {
-                if (new ButtonAutomationPeer(save).GetPattern(PatternInterface.Invoke) is not IInvokeProvider invoke)
+                button.BringIntoView(); await Dispatcher.Yield(DispatcherPriority.ContextIdle);
+                if (new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke) is not IInvokeProvider invoke)
                     throw new InvalidOperationException("凭据保存按钮不可调用");
                 invoke.Invoke(); await Dispatcher.Yield(DispatcherPriority.ContextIdle);
             }
