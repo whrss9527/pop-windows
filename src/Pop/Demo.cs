@@ -429,6 +429,10 @@ internal static class Demo
                 card.ShowToast(x, y, "示例轻提示");
                 if (card.PrimaryText is not null || card.CopyPrimary())
                     throw new InvalidOperationException("轻提示不应保留上一张卡片的可复制内容");
+                card.ShowCopyFailure(x, y, "复制未完成", original);
+                if (!card.CopyFailed || card.PrimaryText != original) throw new InvalidOperationException("复制失败恢复卡片没有保留原内容");
+                await Wait(250); Shot("copy-action-recovery");
+                if (!card.CopyPrimary() || copied != original) throw new InvalidOperationException("普通复制恢复入口无法重试");
                 card.Close();
                 SmokeTest.Report("copy-feedback=ok");
 

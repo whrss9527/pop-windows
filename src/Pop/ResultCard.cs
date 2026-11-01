@@ -42,13 +42,24 @@ internal sealed class ResultCard : OverlayWindow
     private bool TryCopy(string text)
     {
         var copied = CopyRequested?.Invoke(text) == true;
+        SetCopyState(copied);
+        return copied;
+    }
+
+    private void SetCopyState(bool copied)
+    {
         CopyFailed = !copied;
         if (copyButton is not null)
         {
             copyButton.Content = copied ? "复制" : "重试复制";
             copyButton.ToolTip = copied ? "复制结果（Enter）" : "剪贴板暂时不可写，尚未复制；再次点击或按 Enter 重试";
         }
-        return copied;
+    }
+
+    public void ShowCopyFailure(int x, int y, string title, string text)
+    {
+        ShowResult(x, y, new CardContent(title, [], Body: text, Caption: "尚未复制 · 剪贴板暂时不可写，可重试"));
+        SetCopyState(false);
     }
 
     /// 点了「替换原文」
@@ -301,6 +312,7 @@ internal sealed class ResultCard : OverlayWindow
             copy.Width = 88;
             copy.ToolTip = "复制结果（Enter）";
             copyButton = copy;
+            System.Windows.Automation.AutomationProperties.SetAutomationId(copy, "card-copy-result");
             copy.Click += (_, _) => CopyPrimary();
             buttons.Children.Add(copy);
         }
