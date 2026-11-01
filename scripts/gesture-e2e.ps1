@@ -439,8 +439,8 @@ try {
         $exePath = $browser.Paths | Where-Object { Test-Path $_ } | Select-Object -First 1
         if (-not $exePath) { throw "这台 runner 上没有 $name" }
         $browserProfile = Join-Path $env:RUNNER_TEMP "pop-$name-profile"
-        # runner 的虚拟显卡上浏览器偶尔画不出页面，用软件渲染
-        Start-Process $exePath -ArgumentList '--no-first-run', '--no-default-browser-check', '--disable-gpu', "--user-data-dir=`"$browserProfile`"", '--new-window', '--window-position=120,60', '--window-size=900,700', "`"$page`""
+        # 预先建立辅助功能树，测真实选词与复制，不把冷启动初始化混进断言；虚拟显卡用软件渲染。
+        Start-Process $exePath -ArgumentList '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--force-renderer-accessibility=complete', "--user-data-dir=`"$browserProfile`"", '--new-window', '--window-position=120,60', '--window-size=900,700', "`"$page`""
         $browserWindow = [IntPtr]::Zero
         for ($i = 0; $i -lt 120 -and $browserWindow -eq [IntPtr]::Zero; $i++) {
             Start-Sleep -Milliseconds 500
@@ -453,6 +453,11 @@ try {
         }
         Start-Sleep -Seconds 2
         Set-Foreground $browserWindow
+        # 窗口成为前台不保证网页正文获得键盘焦点；先点击正文再全选。
+        $documentX, $documentY = Get-WindowCenter $browserWindow
+        [PopCi.Native]::SetCursorPos($documentX, $documentY) | Out-Null
+        Invoke-LeftDown; Invoke-LeftUp
+        Start-Sleep -Milliseconds 100
         Invoke-Key 0x41 -Ctrl   # Ctrl+A 选中整页文字
         Set-Clipboard -Value 'before'
         Invoke-LongPress 0 (-110) $name -Hwnd $browserWindow

@@ -29,14 +29,12 @@ function Wait-Window([string]$Title, [bool]$Visible) {
 
 function Reset-Selection {
     Set-Foreground $script:notepad.MainWindowHandle
-    Set-Clipboard -Value $sample
-    Invoke-Key 0x41 -Ctrl
-    Invoke-Key 0x56 -Ctrl
-    # 记事本读取剪贴板可能晚于按键返回，实际文字落地后才能设置下一步的哨兵。
-    # 固定等 200 ms 会偶尔把「toolbar must not copy automatically」贴进文档。
+    # 只准备输入夹具；真实的复制、替换和粘贴仍由下面各场景执行和断言。
+    # 用同步的 WM_SETTEXT，避免准备步骤与上一场景的剪贴板恢复相互影响。
+    if (-not [PopCi.Native]::SetEditText($script:notepad.MainWindowHandle, $sample)) { throw '无法设置示例文字' }
     $deadline = (Get-Date).AddSeconds(12)
     while ([PopCi.Native]::ReadEditText($script:notepad.MainWindowHandle).Trim() -cne $sample) {
-        if ((Get-Date) -gt $deadline) { throw "示例文字没有粘贴完成，实际为：$([PopCi.Native]::ReadEditText($script:notepad.MainWindowHandle))" }
+        if ((Get-Date) -gt $deadline) { throw "示例文字没有准备完成，实际为：$([PopCi.Native]::ReadEditText($script:notepad.MainWindowHandle))" }
         Start-Sleep -Milliseconds 100
     }
     Invoke-Key 0x41 -Ctrl
