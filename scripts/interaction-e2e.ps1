@@ -32,7 +32,13 @@ function Reset-Selection {
     Set-Clipboard -Value $sample
     Invoke-Key 0x41 -Ctrl
     Invoke-Key 0x56 -Ctrl
-    Start-Sleep -Milliseconds 200
+    # 记事本读取剪贴板可能晚于按键返回，实际文字落地后才能设置下一步的哨兵。
+    # 固定等 200 ms 会偶尔把「toolbar must not copy automatically」贴进文档。
+    $deadline = (Get-Date).AddSeconds(12)
+    while ([PopCi.Native]::ReadEditText($script:notepad.MainWindowHandle).Trim() -cne $sample) {
+        if ((Get-Date) -gt $deadline) { throw "示例文字没有粘贴完成，实际为：$([PopCi.Native]::ReadEditText($script:notepad.MainWindowHandle))" }
+        Start-Sleep -Milliseconds 100
+    }
     Invoke-Key 0x41 -Ctrl
     $r = New-Object PopCi.Native+RECT
     [PopCi.Native]::GetWindowRect($script:notepad.MainWindowHandle, [ref]$r) | Out-Null
