@@ -1,0 +1,161 @@
+screen-snapshot=ok
+performance: screen=1920x1080 png-ms=32.935 direct-ms=2.391 png-managed-bytes=819328 direct-managed-bytes=624
+performance: screen=3840x2160 png-ms=132.227 direct-ms=9.866 png-managed-bytes=3502848 direct-managed-bytes=624
+text-preview=ok
+performance: preview-chars=1800000 split-ms=7.23 prefix-ms=0.009 split-managed-bytes=11400680 prefix-managed-bytes=1664
+bounded-settings-preview=ok ring=ok snippets=ok
+performance: additional-preview-chars=1800000 ring-managed-bytes=656 snippet-settings-managed-bytes=1080
+performance: file-count=10000 split-ms=1.588 summary-ms=0.236 split-managed-bytes=1920208 summary-managed-bytes=320
+list-content=ok files=10000 snippets=ok
+performance: snippet-chars=90000 concat-ms=0.877 search-ms=0.011 concat-managed-bytes=1220160 search-managed-bytes=72 replace-managed-bytes=400088 preview-managed-bytes=2144
+plugin-match=ok graphemes=ok bounded=ok
+performance: plugin-match-chars=300000 whole-ms=7.563 bounded-ms=0.001 whole-managed-bytes=1200096 bounded-managed-bytes=40
+plugin-output=ok toast=ok environment=ok error=ok
+performance: plugin-toast-chars=1100000 split-managed-bytes=6400240 prefix-managed-bytes=128
+performance: plugin-environment-chars=2000000 whole-managed-bytes=8064304 bounded-managed-bytes=64280
+performance: plugin-error-chars=2000000 whole-managed-bytes=8001120 bounded-managed-bytes=1096
+clipboard-hash=ok utf8=ok bounded=ok
+performance: clipboard-hash-chars=500000 whole-ms=1.68 chunked-ms=1.452 whole-managed-bytes=1500584 chunked-managed-bytes=960
+list-navigation=ok rows=100 updated=6 moves=3
+list-selection=ok filtered=ok shortcuts=ok empty=ok
+overlay-release=ok reopen=ok
+clipboard-thumbnails=ok bounded=256 pixels=96 workers=2 cancellation=ok
+native-tray=ok keyboard=ok restart=ok dispose=ok monitors=ok
+list-sizing=ok compact=ok workarea=ok scroll=ok
+plugin-editor=ok restart=ok stop=ok copy-full=ok close=ok length=ok pending-numbers=ok
+icons-compatible=ok pages=ok legacy=ok fallback=ok
+clipboard-ownership=ok restore=ok replacement=preserved fallback=preserved
+clipboard-recording=ok disabled=unread queued=cancelled queued-result=cancelled rapid-toggle=fresh reenabled=complete
+clipboard-policy-stage=delayed renders=1 captured=1 sequence-before=873 sequence-after=873
+clipboard-policy=ok private-replacement=unread excluded=unread policy=cancelled equivalent=preserved delayed=complete reenabled=fresh
+selection-copy-stage=normal late user-history menu
+selection-copy-stage=foreign-process unknown-owner newer-read
+selection-copy-stage=focus lock snapshot
+selection-copy=ok real-copy=ok normal=restored late=restored user-copy=preserved menu=preserved history=recorded owner=checked foreign-process=preserved lock=checked snapshot=required newer-read=cancelled dispose=cancelled
+demo-shot=dark-snippets
+demo-shot=dark-text-diff
+demo-shot=dark-keep-awake
+demo-shot=dark-selection-toolbar
+demo-shot=dark-ring
+demo-shot=dark-ring-highlight
+demo-shot=dark-ring-link
+demo-shot=dark-card-translate
+demo-shot=dark-card-translating
+demo-shot=dark-card-math
+demo-shot=dark-card-unit
+demo-shot=dark-card-color
+demo-shot=dark-card-time
+demo-shot=dark-card-count
+demo-shot=dark-card-codec
+demo-shot=dark-card-long
+demo-shot=dark-card-jwt
+demo-shot=dark-toast
+demo-shot=dark-list
+demo-shot=dark-list-search
+demo-shot=dark-history
+demo-shot=dark-history-images
+demo-shot=dark-history-filter-empty
+demo-shot=dark-history-pinned-image
+demo-shot=dark-history-pinned
+history-filters=ok search=ok pinned=ok empty=ok shortcuts=ok reopen=ok
+demo-shot=dark-flyout
+demo-shot=dark-tray-controls-enabled
+demo-shot=dark-tray-controls-paused
+demo-shot=dark-tray-controls-short
+tray-controls=ok state=visible toggle=real tab=working focus=preserved scroll=preserved short=visible rows=invoke settings=opened mode=restored preferences=restored
+demo-shot=dark-settings-general
+demo-shot=dark-settings-triggers
+demo-shot=dark-settings-rules
+demo-shot=dark-settings-shortcuts
+demo-shot=dark-settings-ring
+demo-shot=dark-settings-actions
+demo-shot=dark-settings-translate
+demo-shot=dark-settings-clipboard
+demo-shot=dark-settings-snippets
+demo-shot=dark-settings-backup
+demo-shot=dark-settings-about
+demo-shot=dark-settings-triggers-modifier
+demo-shot=dark-settings-ring-application
+demo-shot=dark-settings-shortcuts-configured
+demo-shot=dark-plugin-editor-javascript
+demo-shot=dark-plugin-editor-shell
+demo-shot=dark-plugin-editor-match
+demo-shot=dark-snippet-editor
+demo-shot=dark-pin
+demo-shot=dark-region
+demo-shot=dark-region-drag
+demo-shot=dark-annotate
+demo-shot=dark-annotate-background
+annotation-render=ok
+annotation-frame=ok
+demo-shot=dark-picker
+demo-shot=dark-ruler-auto
+demo-shot=dark-ring-twelve
+demo-shot=dark-ring-corner
+demo-shot=dark-card-copy-failed
+demo-shot=dark-copy-action-recovery
+demo-shot=dark-copy-action-large-recovery
+copy-feedback-large=ok full=2000000 preview=bounded hidden=cleared
+copy-feedback=ok
+demo-shot=dark-settings-save-failed
+demo-shot=dark-settings-save-retried
+settings-save-feedback=ok
+demo-shot=dark-settings-search
+demo-shot=dark-settings-search-empty
+settings-search=ok
+demo-shot=dark-settings-search-privacy
+demo-shot=dark-settings-search-app-ring
+demo-shot=dark-settings-search-trigger-condition
+settings-targets=ok entries=19 short-window=ok keyboard=ok readonly=ok conditional=ok expand=ok editor=available nav=visible cancel=ok highlight=expired offset=restored
+demo-shot=dark-result-long-preview
+demo-shot=dark-result-long-reading
+demo-shot=dark-result-many-items
+result-reading=ok bounded=ok full-copy=ok full-replace=ok source=ok rows=ok paging=ok small-workarea=ok loading=cancelled close=released focus=preserved
+demo-shot=dark-settings-tools-filtered
+demo-shot=dark-settings-tools-disabled
+demo-shot=dark-settings-tools-empty
+tools-settings=ok counter=live bulk=live filter=readonly scope=matched focus=preserved scroll=preserved locked=on esc=clear
+demo-shot=dark-window-workarea-small
+demo-shot=dark-window-workarea-restored
+window-workarea=ok moved=fit moving=free minimum=restored foreground=preserved normal=only closed=cancelled settings=unchanged
+demo-shot=dark-deferred-new-result
+demo-shot=dark-deferred-latest-result
+deferred-results=ok latest=preserved closed=cancelled stale-error=ignored current-error=preserved transport=cancelled ocr=guarded copy=preserved toast=preserved dispose=cancelled
+demo-shot=dark-plugin-current-action
+demo-shot=dark-plugin-latest-result
+demo-shot=dark-plugin-loading
+plugin-lifetime=ok early-close=cancelled esc=cancelled action=preserved latest=preserved stale-error=ignored current-error=visible loading=visible visible-close=cancelled translation=cancelled dispose=cancelled
+demo-shot=dark-update-download-progress
+demo-shot=dark-update-tray-busy
+demo-shot=dark-update-download-unknown
+update-feedback=ok known=percent unknown=indeterminate prepare=observed controls=reused focus=preserved scroll=preserved tray=busy package=verified preferences=unchanged
+demo-shot=dark-secret-save-failed
+demo-shot=dark-secret-save-saved
+demo-shot=dark-secret-read-unavailable
+demo-shot=dark-secret-translation-unavailable
+secret-save=ok failed=retained original=preserved retry=saved dpapi=roundtrip disk=encrypted unknown=preserved corrupt=preserved read-error=visible translation-error=visible temp=clean preferences=restored
+demo-shot=dark-diff-input-initial-limit
+demo-shot=dark-diff-input-recovered
+demo-shot=dark-diff-input-paste-limit
+demo-shot=dark-diff-input-stale-cleared
+diff-input=ok initial=bounded missing=blocked recovered=compared paste-event=rejected normal-event=allowed input=retained stale=cleared rules=invalidated lines=bounded
+demo-shot=dark-usage-guide
+demo-shot=dark-usage-guide-paused
+usage-guide=ok readonly=ok live-state=ok navigation=ok
+demo-shot=dark-backup-preview
+demo-shot=dark-backup-preview-unchanged
+backup-preview=ok cancel=ok unchanged=ok
+demo-shot=dark-settings-recovery-tray
+demo-shot=dark-settings-recovery-needed
+demo-shot=dark-settings-recovery-blocked
+demo-shot=dark-settings-recovery-saved
+demo-shot=dark-settings-recovery-conflict
+demo-shot=dark-settings-recovery-missing
+settings-recovery=ok preserve=ok retry=ok import=ok conflict=ok reload=ok missing=preserved
+demo-shot=dark-settings-startup-confirmed
+demo-shot=dark-settings-startup-denied
+demo-shot=dark-settings-startup-unknown
+startup-feedback=ok confirmed=ok denied=actual unknown=disabled reload=ok mismatch=detected
+demo-shot=dark-settings-pending-save
+settings-batching=ok burst=10 writes=1 retry=ok close-flush=ok
+demo-done
