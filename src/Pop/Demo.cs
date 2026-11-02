@@ -631,6 +631,17 @@ internal static class Demo
                 SmokeTest.Report("diff-input=ok initial=bounded missing=blocked recovered=compared paste-event=rejected normal-event=allowed input=retained stale=cleared rules=invalidated lines=bounded");
             });
 
+        if (Want("notice-feedback"))
+            await Scene("notice-feedback", async () =>
+            {
+                await Coordinator.VerifyNoticeFeedbackAsync(app, x, y, (name, card) =>
+                {
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(card).Handle, out var rect);
+                    Shot(name, new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                });
+                SmokeTest.Report("notice-feedback=ok failure=distinct");
+            });
+
         if (Want("usage-guide"))
             await Scene("usage-guide", async () =>
             {
