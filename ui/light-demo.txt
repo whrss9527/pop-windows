@@ -1,0 +1,163 @@
+screen-snapshot=ok
+performance: screen=1920x1080 png-ms=46.258 direct-ms=1.667 png-managed-bytes=823432 direct-managed-bytes=624
+performance: screen=3840x2160 png-ms=182.394 direct-ms=5.807 png-managed-bytes=3500552 direct-managed-bytes=624
+text-preview=ok
+performance: preview-chars=1800000 split-ms=6.635 prefix-ms=0.007 split-managed-bytes=11400680 prefix-managed-bytes=1664
+bounded-settings-preview=ok ring=ok snippets=ok
+performance: additional-preview-chars=1800000 ring-managed-bytes=656 snippet-settings-managed-bytes=1080
+performance: file-count=10000 split-ms=7.759 summary-ms=0.312 split-managed-bytes=1920208 summary-managed-bytes=320
+list-content=ok files=10000 snippets=ok
+performance: snippet-chars=90000 concat-ms=0.889 search-ms=0.011 concat-managed-bytes=1220160 search-managed-bytes=72 replace-managed-bytes=400088 preview-managed-bytes=2144
+plugin-match=ok graphemes=ok bounded=ok
+performance: plugin-match-chars=300000 whole-ms=12.11 bounded-ms=0.001 whole-managed-bytes=1200096 bounded-managed-bytes=40
+plugin-output=ok toast=ok environment=ok error=ok
+performance: plugin-toast-chars=1100000 split-managed-bytes=6400240 prefix-managed-bytes=128
+performance: plugin-environment-chars=2000000 whole-managed-bytes=8064304 bounded-managed-bytes=64280
+performance: plugin-error-chars=2000000 whole-managed-bytes=8001120 bounded-managed-bytes=1096
+clipboard-hash=ok utf8=ok bounded=ok
+performance: clipboard-hash-chars=500000 whole-ms=1.861 chunked-ms=1.67 whole-managed-bytes=1500584 chunked-managed-bytes=960
+list-navigation=ok rows=100 updated=6 moves=3
+list-selection=ok filtered=ok shortcuts=ok empty=ok
+overlay-release=ok reopen=ok
+clipboard-thumbnails=ok bounded=256 pixels=96 workers=2 cancellation=ok
+native-tray=ok keyboard=ok restart=ok dispose=ok monitors=ok
+list-sizing=ok compact=ok workarea=ok scroll=ok
+plugin-editor=ok restart=ok stop=ok copy-full=ok close=ok length=ok pending-numbers=ok
+icons-compatible=ok pages=ok legacy=ok fallback=ok
+clipboard-ownership=ok restore=ok replacement=preserved fallback=preserved
+clipboard-recording=ok disabled=unread queued=cancelled queued-result=cancelled rapid-toggle=fresh reenabled=complete
+clipboard-policy-stage=delayed renders=1 captured=1 sequence-before=446 sequence-after=446
+clipboard-policy=ok private-replacement=unread excluded=unread policy=cancelled equivalent=preserved delayed=complete reenabled=fresh
+selection-copy-stage=normal late user-history menu
+selection-copy-stage=foreign-process unknown-owner newer-read
+selection-copy-stage=focus lock snapshot
+selection-copy=ok real-copy=ok normal=restored late=restored user-copy=preserved menu=preserved history=recorded owner=checked foreign-process=preserved lock=checked snapshot=required newer-read=cancelled dispose=cancelled
+demo-shot=light-snippets
+demo-shot=light-text-diff
+demo-shot=light-keep-awake
+demo-shot=light-selection-toolbar
+demo-shot=light-ring
+demo-shot=light-ring-highlight
+demo-shot=light-ring-link
+demo-shot=light-card-translate
+demo-shot=light-card-translating
+demo-shot=light-card-math
+demo-shot=light-card-unit
+demo-shot=light-card-color
+demo-shot=light-card-time
+demo-shot=light-card-count
+demo-shot=light-card-codec
+demo-shot=light-card-long
+demo-shot=light-card-jwt
+demo-shot=light-toast
+demo-shot=light-list
+demo-shot=light-list-search
+demo-shot=light-history
+demo-shot=light-history-images
+demo-shot=light-history-filter-empty
+demo-shot=light-history-pinned-image
+demo-shot=light-history-pinned
+history-filters=ok search=ok pinned=ok empty=ok shortcuts=ok reopen=ok
+demo-shot=light-flyout
+demo-shot=light-tray-controls-enabled
+demo-shot=light-tray-controls-paused
+demo-shot=light-tray-controls-short
+tray-controls=ok state=visible toggle=real tab=working focus=preserved scroll=preserved short=visible rows=invoke settings=opened mode=restored preferences=restored
+demo-shot=light-settings-general
+demo-shot=light-settings-triggers
+demo-shot=light-settings-rules
+demo-shot=light-settings-shortcuts
+demo-shot=light-settings-ring
+demo-shot=light-settings-actions
+demo-shot=light-settings-translate
+demo-shot=light-settings-clipboard
+demo-shot=light-settings-snippets
+demo-shot=light-settings-backup
+demo-shot=light-settings-about
+demo-shot=light-settings-triggers-modifier
+demo-shot=light-settings-ring-application
+demo-shot=light-settings-shortcuts-configured
+demo-shot=light-plugin-editor-javascript
+demo-shot=light-plugin-editor-shell
+demo-shot=light-plugin-editor-match
+demo-shot=light-snippet-editor
+demo-shot=light-pin
+demo-shot=light-region
+demo-shot=light-region-drag
+demo-shot=light-annotate
+demo-shot=light-annotate-background
+annotation-render=ok
+annotation-frame=ok
+demo-shot=light-picker
+demo-shot=light-ruler-auto
+demo-shot=light-ring-twelve
+demo-shot=light-ring-corner
+demo-shot=light-card-copy-failed
+demo-shot=light-copy-action-recovery
+demo-shot=light-copy-action-large-recovery
+copy-feedback-large=ok full=2000000 preview=bounded hidden=cleared
+copy-feedback=ok
+demo-shot=light-settings-save-failed
+demo-shot=light-settings-save-retried
+settings-save-feedback=ok
+demo-shot=light-settings-search
+demo-shot=light-settings-search-empty
+settings-search=ok
+demo-shot=light-settings-search-privacy
+demo-shot=light-settings-search-app-ring
+demo-shot=light-settings-search-trigger-condition
+settings-targets=ok entries=19 short-window=ok keyboard=ok readonly=ok conditional=ok expand=ok editor=available nav=visible cancel=ok highlight=expired offset=restored
+demo-shot=light-result-long-preview
+demo-shot=light-result-long-reading
+demo-shot=light-result-many-items
+result-reading=ok bounded=ok full-copy=ok full-replace=ok source=ok rows=ok paging=ok small-workarea=ok loading=cancelled close=released focus=preserved
+demo-shot=light-settings-tools-filtered
+demo-shot=light-settings-tools-disabled
+demo-shot=light-settings-tools-empty
+tools-settings=ok counter=live bulk=live filter=readonly scope=matched focus=preserved scroll=preserved locked=on esc=clear
+demo-shot=light-window-workarea-small
+demo-shot=light-window-workarea-restored
+window-workarea=ok moved=fit moving=free minimum=restored foreground=preserved normal=only closed=cancelled settings=unchanged
+demo-shot=light-deferred-new-result
+demo-shot=light-deferred-latest-result
+deferred-results=ok latest=preserved closed=cancelled stale-error=ignored current-error=preserved transport=cancelled ocr=guarded copy=preserved toast=preserved dispose=cancelled
+demo-shot=light-plugin-current-action
+demo-shot=light-plugin-latest-result
+demo-shot=light-plugin-loading
+plugin-lifetime=ok early-close=cancelled esc=cancelled action=preserved latest=preserved stale-error=ignored current-error=visible loading=visible visible-close=cancelled translation=cancelled dispose=cancelled
+demo-shot=light-update-download-progress
+demo-shot=light-update-tray-busy
+demo-shot=light-update-download-unknown
+update-feedback=ok known=percent unknown=indeterminate prepare=observed controls=reused focus=preserved scroll=preserved tray=busy package=verified preferences=unchanged
+demo-shot=light-secret-save-failed
+demo-shot=light-secret-save-saved
+demo-shot=light-secret-read-unavailable
+demo-shot=light-secret-translation-unavailable
+secret-save=ok failed=retained original=preserved retry=saved dpapi=roundtrip disk=encrypted unknown=preserved corrupt=preserved read-error=visible translation-error=visible temp=clean preferences=restored
+demo-shot=light-diff-input-initial-limit
+demo-shot=light-diff-input-recovered
+demo-shot=light-diff-input-paste-limit
+demo-shot=light-diff-input-stale-cleared
+diff-input=ok initial=bounded missing=blocked recovered=compared paste-event=rejected normal-event=allowed input=retained stale=cleared rules=invalidated lines=bounded
+demo-shot=light-notice-failure-problem
+demo-error=notice-feedback: InvalidOperationException 真实插件运行失败仍显示成功或错误含义的图标：CheckmarkCircle20
+demo-shot=light-usage-guide
+demo-shot=light-usage-guide-paused
+usage-guide=ok readonly=ok live-state=ok navigation=ok
+demo-shot=light-backup-preview
+demo-shot=light-backup-preview-unchanged
+backup-preview=ok cancel=ok unchanged=ok
+demo-shot=light-settings-recovery-tray
+demo-shot=light-settings-recovery-needed
+demo-shot=light-settings-recovery-blocked
+demo-shot=light-settings-recovery-saved
+demo-shot=light-settings-recovery-conflict
+demo-shot=light-settings-recovery-missing
+settings-recovery=ok preserve=ok retry=ok import=ok conflict=ok reload=ok missing=preserved
+demo-shot=light-settings-startup-confirmed
+demo-shot=light-settings-startup-denied
+demo-shot=light-settings-startup-unknown
+startup-feedback=ok confirmed=ok denied=actual unknown=disabled reload=ok mismatch=detected
+demo-shot=light-settings-pending-save
+settings-batching=ok burst=10 writes=1 retry=ok close-flush=ok
+demo-done
