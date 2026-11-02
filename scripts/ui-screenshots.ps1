@@ -68,6 +68,7 @@ foreach ($appearance in 'light', 'dark') {
     if (-not ($lines -match 'plugin-lifetime=ok')) { $failures.Add("演示模式（${appearance}）插件运行归属与关闭验证没有完成") }
     if (-not ($lines -match 'update-feedback=ok')) { $failures.Add("演示模式（${appearance}）真实下载进度、准备与界面接续验证没有完成") }
     if (-not ($lines -match 'secret-save=ok')) { $failures.Add("演示模式（${appearance}）凭据写入失败保留、实际重试及加密存储验证没有完成") }
+    if (-not ($lines -match 'diff-input=ok')) { $failures.Add("演示模式（${appearance}）文字对比输入边界与保留验证没有完成") }
     if (-not ($lines -match 'list-sizing=ok')) { $failures.Add("演示模式（${appearance}）列表尺寸与滚动验证没有完成") }
     if (-not ($lines -match 'plugin-editor=ok')) { $failures.Add("演示模式（${appearance}）插件试运行验证没有完成") }
     if (-not ($lines -match 'plugin-match=ok')) { $failures.Add("演示模式（${appearance}）插件长度匹配性能验证没有完成") }

@@ -620,6 +620,17 @@ internal static class Demo
                 SmokeTest.Report("secret-save=ok failed=retained original=preserved retry=saved dpapi=roundtrip disk=encrypted unknown=preserved corrupt=preserved read-error=visible translation-error=visible temp=clean preferences=restored");
             });
 
+        if (Want("diff-input"))
+            await Scene("diff-input", async () =>
+            {
+                await TextDiffWindow.VerifyInputBoundaryAsync(app, (name, window) =>
+                {
+                    Native.GetWindowRect(new System.Windows.Interop.WindowInteropHelper(window).Handle, out var rect);
+                    Shot(name, new Drawing.Rectangle(rect.Left - 16, rect.Top - 16, rect.Right - rect.Left + 32, rect.Bottom - rect.Top + 32));
+                });
+                SmokeTest.Report("diff-input=ok initial=bounded missing=blocked recovered=compared paste-event=rejected normal-event=allowed input=retained stale=cleared rules=invalidated lines=bounded");
+            });
+
         if (Want("usage-guide"))
             await Scene("usage-guide", async () =>
             {

@@ -20,12 +20,35 @@ public sealed record TextDiffResult(IReadOnlyList<DiffLine> Lines)
 public static class TextDiff
 {
     public const int MaximumCharacters = 2_000_000;
+    public const int MaximumLines = 20_000;
+
+    public static string? InputProblem(string text)
+    {
+        if (text.Length > MaximumCharacters) return "每段文字最多支持 200 万个字符";
+        var lines = text.Length == 0 ? 0 : 1;
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (text[i] is not ('\r' or '\n')) continue;
+            if (text[i] == '\r' && i + 1 < text.Length && text[i + 1] == '\n') i++;
+            if (++lines > MaximumLines) return "每段文字最多支持 20000 行";
+        }
+        return null;
+    }
+
+    /// 在替换选区前检查完整候选，超限时由界面取消整个粘贴，保留原输入。
+    public static string? EditProblem(string current, int start, int length, string inserted)
+    {
+        if (start < 0 || start > current.Length || length < 0 || length > current.Length - start)
+            throw new ArgumentOutOfRangeException(nameof(start));
+        if ((long)current.Length - length + inserted.Length > MaximumCharacters)
+            return "每段文字最多支持 200 万个字符";
+        return InputProblem(string.Concat(current.AsSpan(0, start), inserted.AsSpan(), current.AsSpan(start + length)));
+    }
     public static TextDiffResult Compare(string before, string after, bool ignoreOuterWhitespace = false)
     {
-        if (before.Length > MaximumCharacters || after.Length > MaximumCharacters) throw new ArgumentException("每段文字最多支持 200 万个字符");
+        if ((InputProblem(before) ?? InputProblem(after)) is { } problem) throw new ArgumentException(problem);
         static string[] Lines(string value) => value.Length == 0 ? [] : value.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
         var a = Lines(before); var b = Lines(after);
-        if (a.Length > 20_000 || b.Length > 20_000) throw new ArgumentException("每段文字最多支持 20000 行");
         var comparedA = ignoreOuterWhitespace ? a.Select(line => line.Trim()).ToArray() : a;
         var comparedB = ignoreOuterWhitespace ? b.Select(line => line.Trim()).ToArray() : b;
         bool Same(int x, int y) => string.Equals(comparedA[x], comparedB[y], StringComparison.Ordinal);
