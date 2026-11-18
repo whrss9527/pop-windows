@@ -42,13 +42,14 @@ public enum ActionEffect
     RunPlugin,
 }
 
-public sealed record ActionResult(ActionEffect Effect, string? Text = null, CardContent? Card = null)
+public sealed record ActionResult(ActionEffect Effect, string? Text = null, CardContent? Card = null, bool IsError = false)
 {
     public static ActionResult ShowCard(CardContent card) => new(ActionEffect.Card, Card: card);
     public static ActionResult Replace(string text) => new(ActionEffect.Replace, text);
     public static ActionResult Copy(string text) => new(ActionEffect.Copy, text);
     public static ActionResult Open(string target) => new(ActionEffect.Open, target);
     public static ActionResult Toast(string message) => new(ActionEffect.Toast, message);
+    public static ActionResult ErrorToast(string message) => new(ActionEffect.Toast, message, IsError: true);
     public static ActionResult RunPlugin(string pluginId) => new(ActionEffect.RunPlugin, pluginId);
 
     /// 要在后台运行的插件 ID（只有 RunPlugin 有）

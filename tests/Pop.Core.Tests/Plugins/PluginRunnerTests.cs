@@ -304,7 +304,7 @@ public sealed class PluginRunnerTests : IDisposable
         var url = new PluginManifest { Name = "搜", Action = new PluginAction { Type = PluginActionType.Url, Template = "https://example.com/?q={text}" } };
         Assert.Equal(ActionResult.Open("https://example.com/?q=C%2B%2B%20%E4%BD%A0%E5%A5%BD"), await runner.RunAsync(url, text));
         var badUrl = url with { Action = new PluginAction { Type = PluginActionType.Url, Template = "example.com/{text}" } };
-        Assert.Equal(ActionResult.Toast("「搜」的网址模板无效"), await runner.RunAsync(badUrl, text));
+        Assert.Equal(ActionResult.ErrorToast("「搜」的网址模板无效"), await runner.RunAsync(badUrl, text));
 
         var shortcut = new PluginManifest { Name = "快捷", Action = new PluginAction { Type = PluginActionType.Shortcut, Shortcut = "我的快捷指令" } };
         Assert.Contains("macOS", (await runner.RunAsync(shortcut, text))!.Text);
@@ -320,7 +320,7 @@ public sealed class PluginRunnerTests : IDisposable
         Assert.Equal(ActionResult.Replace("from shell"), await runner.RunAsync(shell, text));
 
         var failing = new PluginManifest { Name = "坏了", Action = JavaScript("throw 'nope'") };
-        Assert.Equal(ActionResult.Toast("「坏了」运行失败：nope"), await runner.RunAsync(failing, text));
+        Assert.Equal(ActionResult.ErrorToast("「坏了」运行失败：nope"), await runner.RunAsync(failing, text));
 
         // 内容用不了这个插件
         var jsonOnly = javaScript with { Match = new PluginMatch { Kinds = ["json"] } };

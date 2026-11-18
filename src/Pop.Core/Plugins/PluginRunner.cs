@@ -93,15 +93,15 @@ public sealed class PluginRunner
             case PluginActionType.Url:
                 return PluginTemplates.ExpandUrl(manifest.Action.Template, input.Text) is { } url
                     ? ActionResult.Open(url)
-                    : ActionResult.Toast($"「{name}」的网址模板无效");
+                    : ActionResult.ErrorToast($"「{name}」的网址模板无效");
             case PluginActionType.Shortcut:
-                return ActionResult.Toast($"「{name}」用的是快捷指令，只能在 macOS 上运行");
+                return ActionResult.ErrorToast($"「{name}」用的是快捷指令，只能在 macOS 上运行");
             case PluginActionType.Ai:
-                return ActionResult.Toast($"还没有设置 AI 接口，暂时用不了「{name}」");
+                return ActionResult.ErrorToast($"还没有设置 AI 接口，暂时用不了「{name}」");
         }
         var result = await ExecuteAsync(manifest.Action, input, cancellationToken).ConfigureAwait(false);
         return result.Error is { } error
-            ? ActionResult.Toast($"「{name}」运行失败：{error}")
+            ? ActionResult.ErrorToast($"「{name}」运行失败：{error}")
             : Present(result.Output, manifest, canReplace: !content.IsEmpty);
     }
 

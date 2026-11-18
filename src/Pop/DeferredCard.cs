@@ -24,11 +24,11 @@ internal sealed class DeferredCard : IDisposable
         if (!disposed) Present(x, y, content);
     }
 
-    public void Toast(int x, int y, string message)
+    public void Toast(int x, int y, string message, bool isError = false)
     {
         Invalidate();
         if (disposed) return;
-        setOpen(false); card.ShowToast(x, y, message);
+        setOpen(false); card.ShowToast(x, y, message, isError);
     }
 
     public void CopyFailure(int x, int y, string title, string text, string? instruction)
