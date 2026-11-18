@@ -867,7 +867,7 @@ internal sealed partial class Coordinator : IDisposable
                 Open(target);
                 break;
             case ActionEffect.Toast when result.Text is { } message:
-                ShowToast(x, y, message);
+                ShowToast(x, y, message, result.IsError);
                 break;
             case ActionEffect.ShowAll:
                 ShowList(content, x, y);
@@ -1030,10 +1030,10 @@ internal sealed partial class Coordinator : IDisposable
         });
     }
 
-    private void ShowToast(int x, int y, string message)
+    private void ShowToast(int x, int y, string message, bool isError = false)
     {
         CancelPlugin();
-        deferredCard.Toast(x, y, message);
+        deferredCard.Toast(x, y, message, isError);
     }
 
     private void ShowCopyFailure(int x, int y, string title, string text, string? instruction = null)

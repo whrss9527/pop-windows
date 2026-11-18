@@ -132,7 +132,7 @@ internal sealed partial class ResultCard : OverlayWindow
         autoClose.Stop();
     }
 
-    public void ShowToast(int x, int y, string message)
+    public void ShowToast(int x, int y, string message, bool isError = false)
     {
         autoClose.Stop();
         MarkShowing();
@@ -145,20 +145,27 @@ internal sealed partial class ResultCard : OverlayWindow
         copyPreviewTruncated = false;
         var theme = Theme.Current();
         var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(14, 9, 16, 9) };
-        var icon = Icons.Make(Wpf.Ui.Controls.SymbolRegular.CheckmarkCircle20, 16, theme.Brush(theme.Accent), filled: true);
+        var iconSymbol = isError ? Wpf.Ui.Controls.SymbolRegular.DismissCircle20 : Wpf.Ui.Controls.SymbolRegular.CheckmarkCircle20;
+        var iconColor = isError ? theme.Brush(theme.ErrorText) : theme.Brush(theme.Accent);
+        var icon = Icons.Make(iconSymbol, 16, iconColor, filled: true);
         icon.VerticalAlignment = VerticalAlignment.Center;
         row.Children.Add(icon);
-        row.Children.Add(new TextBlock
+        var textBlock = new TextBlock
         {
             Text = message,
             FontSize = Theme.Body,
             Margin = new Thickness(8, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 320,
             Foreground = theme.Brush(theme.Text),
-        });
+        };
+        row.Children.Add(textBlock);
         toast = true;
         Present(x, y, row, theme, 19, updating: false);
-        autoClose.Interval = TimeSpan.FromMilliseconds(1300 * AnimationScale);
+        // 长消息给更多阅读时间：最短 1.3s，每 20 个字符加 0.2s，最长 5s
+        var durationMs = Math.Clamp(1300 + message.Length / 20 * 200, 1300, 5000);
+        autoClose.Interval = TimeSpan.FromMilliseconds(durationMs * AnimationScale);
         autoClose.Start();
     }
 
